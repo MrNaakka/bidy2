@@ -1,0 +1,13 @@
+Line numbers refer to committed `HEAD`.
+
+1. **[P1] API key appears in command arguments — `infra/verda/eval.yaml:110,123`.** Both health checks expand the bearer token into `curl` arguments; the Docker check also persists it in the container’s command configuration while running. This violates the explicit key requirement. Read the header from stdin or a private file, including inside the probe container.
+
+2. **[P1] The job has no effective overall timeout — `infra/verda/eval.yaml:129–136`.** `MAX_RUN_HOURS` only limits Harbor. Package installation, verification, health-check requests, and the final metrics request can hang outside it. A hung job prevents idle autodown, leaving an unbounded bill if the watcher dies. Wrap the entire preparation/serving/evaluation script in a timeout with forced termination, and bound HTTP requests.
+
+3. **[P1] Failed launches can leave untracked, unprotected instances — `infra/verda/fh.py:878–880`.** Cleanup runs only when SkyPilot still knows the cluster. In the pinned fork, a Verda create request can time out and trigger cleanup before the instance becomes visible, then complete later. Such an instance never receives the job or autodown configuration; subsequent ticks skip `launch_failed` boxes. Persist ownership identifiers and reconcile failed/pending launches against Verda repeatedly, deleting their instances and boot volumes.
+
+4. **[P1] Initial launch can delete someone else’s cluster — `infra/verda/fh.py:858–859`.** An existing generated cluster name triggers `down()` even when there is no corresponding ownership record. Another checkout or machine can therefore have its active evaluation deleted. Refuse unknown existing clusters; use unique persisted ownership identifiers and verify them before deletion.
+
+5. **[P2] `--new` forgets running boxes — `infra/verda/fh.py:848–851`.** For example, `--new --only 1` replaces the fleet with a record containing only box 1, leaving boxes 2 and 3 running. Their costs disappear from the cap, and `eval-down` can no longer find them. Reject replacement while any old box remains live, or fetch and delete every old box before replacing its state.
+
+6. **[P2] Failed status retrieval still permits deletion — `infra/verda/fh.py:931–935`.** The status rsync uses `check=False`, so the watcher can report a successful fetch and delete the box without its GPU details, exact vLLM command, or diagnostics. Previously fetched status files can also survive and supply stale metadata. Require successful status retrieval for completed runs, validate required files, and replace status data atomically before allowing teardown.
