@@ -1120,3 +1120,295 @@ def test_r8_serve_up_switches_serving_back_on(sandbox, cloud, monkeypatch):
     monkeypatch.setattr(vc, "_serve_up", lambda c, a: seen.append(vc.load_state()["serve_desired"]))
     vc.cmd_serve_up(_serve_args(no_wait=True))
     assert seen == [True]
+
+
+# ---- LoRA training on Verda ------------------------------------------------------------------
+def _train_state(**extra):
+    st = _vol_state() | {"serve_desired": False}
+    st["weights"]["Qwen/Qwen3.8-27B"] = {"path": "/mnt/fh/models/Qwen3.8-27B"}
+    return st | extra
+
+
+def _run(**kw):
+    r = {"run": "r1", "trainer_args": ["--model", "/m", "--out", "/mnt/fh/runs/r1", "--epochs", "1.0"],
+         "data_dir": "/d", "data_name": "sft-v1", "data_sha": "D", "code_sha": "C", "req_hash": "R",
+         "tokens": 12.9e6, "max_eur": 40.0, "desired": True, "restarts": 0}
+    r.update(kw)
+    return r
+
+
+def test_train_plan_prefers_spot_then_cheapest_expected_cost():
+    prices = {"1H100.80S.30V": {"spot_price": "2.341", "price_per_hour": "4.683"},
+              "1A100.22V": {"spot_price": "1.071", "price_per_hour": "2.142"}}
+    opts = vc.train_plan(prices, {"1H100.80S.30V", "1A100.22V"}, {"1A100.22V"}, 12.9e6)
+    assert [(o["type"], o["spot"]) for o in opts] == [("1H100.80S.30V", True), ("1A100.22V", True),
+                                                       ("1A100.22V", False)]
+    h100 = opts[0]
+    assert h100["hours"] == round(vc.TRAIN_SETUP_H + 12.9e6 / 1500 / 3600, 2)
+    assert h100["expected_eur"] == round(2.341 * (vc.TRAIN_SETUP_H + 12.9e6 / 1500 / 3600) * vc.TRAIN_SPOT_OVERHEAD, 2)
+    # no spot capacity at all: on-demand fallback
+    assert [o["spot"] for o in vc.train_plan(prices, set(), {"1A100.22V"}, 12.9e6)] == [False]
+
+
+def test_train_hostnames_are_swept_pattern():
+    hn = vc.new_hostname("train")
+    assert hn.startswith("fhbot-train-") and vc._role_of(hn) == "train"
+
+
+def test_train_script_renders_run_and_venv():
+    vol = {"mount": "/mnt/fh", "size_gb": 300}
+    text = vc.render("train.sh", {"__RUN__": "r1", "__REQ_HASH__": "abc123abc123", "__REQS__": "torch==2.15.0",
+                                  "__TRAIN_ARGS__": "--epochs 1.0 --out /mnt/fh/runs/r1"}, vol)
+    assert 'VENV="$MNT/envs/train-abc123abc123"' in text and "torch==2.15.0" in text
+    exec_line = next(l for l in text.splitlines() if l.startswith("ExecStart="))
+    assert "sft_lora.py --epochs 1.0 --out /mnt/fh/runs/r1" in exec_line
+    assert "systemctl enable" not in text and "systemctl start" not in text  # the CLI starts it after upload
+    import re as _re
+    assert not _re.search(r"__[A-Z_]+__", text)  # every placeholder substituted
+
+
+def test_trainer_args_rejects_shell_metacharacters():
+    a = SimpleNamespace(epochs=1.0, lr=1e-4, grad_accum=8, lora_r=16, save_every=10, trainer_arg=["--keep=3"])
+    args = vc.trainer_args("r1", "/m", "sft-v1", a)
+    assert args[args.index("--data") + 1] == "/mnt/fh/data/sft-v1" and args[-1] == "--keep=3"
+    a.trainer_arg = ["--x;rm -rf /"]
+    with pytest.raises(SystemExit):
+        vc.trainer_args("r1", "/m", "sft-v1", a)
+
+
+def test_parse_train_status_and_eta():
+    losses = "\n".join("loss=" + json.dumps({"step": s, "loss": 1.0 / s, "seconds": 60.0}) for s in range(1, 11))
+    st = vc.parse_train_status("ready=1\nservice=active\nexit=0\ndone=0\nfatal=0\ntotal_steps=110\n"
+                               'eval={"step": 10, "eval_loss": 0.5}\n' + losses)
+    assert st["ready"] and st["service"] == "active" and st["step"] == 10 and st["total_steps"] == 110
+    assert st["eta_h"] == round(100 * 60 / 3600, 2) and st["eval"]["eval_loss"] == 0.5
+    empty = vc.parse_train_status("ready=0\nservice=inactive\ndone=0\nfatal=0\ntotal_steps=\n")
+    assert empty["step"] == 0 and empty["eta_h"] is None
+
+
+def test_sft_lora_writes_done_marker_after_final_adapter():
+    src = (Path(__file__).resolve().parents[1] / "train" / "sft_lora.py").read_text()
+    assert src.index("model.save_pretrained(final)") < src.index('os.replace(tmp, a.out / "DONE")')
+
+
+@pytest.fixture
+def train_cloud(cloud, monkeypatch, sandbox):
+    monkeypatch.setattr(vc, "data_sha", lambda d: "D")
+    monkeypatch.setattr(vc, "train_code_sha", lambda: "C")
+    monkeypatch.setattr(vc, "train_req_hash", lambda: "R")
+    monkeypatch.setattr(vc, "epoch_tokens", lambda d: 12_900_000)
+    return cloud
+
+
+def _up_args(**kw):
+    d = dict(run="r1", data_dir="/tmp/sft-v1", epochs=1.0, lr=1e-4, grad_accum=8, lora_r=16, save_every=10,
+             trainer_arg=None, type=None, on_demand=False, max_eur=40.0, timeout_min=1, no_wait=True, keep=False)
+    d.update(kw)
+    return SimpleNamespace(**d)
+
+
+def test_train_up_refused_while_serving_is_on_or_tracked(train_cloud, monkeypatch):
+    prov = mock.Mock()
+    monkeypatch.setattr(vc, "_train_provision", prov)
+    vc.save_state(_train_state(serve_desired=True))
+    with pytest.raises(SystemExit, match="serve-down first"):
+        vc.cmd_train_up(_up_args())
+    st = _train_state()
+    st.pop("serve_desired")  # default is on
+    vc.save_state(st)
+    with pytest.raises(SystemExit, match="serve-down first"):
+        vc.cmd_train_up(_up_args())
+    vc.save_state(_train_state(serve={"id": "g1", "created": vc.time.time() + 100}))
+    train_cloud.instances.get.return_value = [inst("g1")]
+    with pytest.raises(SystemExit, match="still tracked"):
+        vc.cmd_train_up(_up_args())
+    prov.assert_not_called()
+
+
+def test_train_up_persists_run_and_provisions(train_cloud, monkeypatch):
+    vc.save_state(_train_state())
+    seen = {}
+    monkeypatch.setattr(vc, "_train_provision", lambda c, run, **k: seen.update(run) or "t1")
+    vc.cmd_train_up(_up_args(epochs=2.0, lr=5e-5))
+    run = vc.load_state()["train_run"]
+    assert run["desired"] and run["run"] == "r1" and run["tokens"] == 2 * 12_900_000
+    a = run["trainer_args"]
+    assert a[a.index("--epochs") + 1] == "2.0" and a[a.index("--lr") + 1] == "5e-05"
+    assert a[a.index("--out") + 1] == "/mnt/fh/runs/r1" and a[a.index("--model") + 1] == "/mnt/fh/models/Qwen3.8-27B"
+    assert seen["trainer_args"] == a
+
+
+def test_train_up_same_run_different_args_refused(train_cloud, monkeypatch):
+    vc.save_state(_train_state())
+    monkeypatch.setattr(vc, "_train_provision", lambda c, run, **k: "t1")
+    vc.cmd_train_up(_up_args())
+    vc.update_state(lambda s: s["train_run"].update(desired=False))
+    with pytest.raises(SystemExit, match="different"):
+        vc.cmd_train_up(_up_args(lr=3e-4))
+
+
+def test_train_budget_guard(sandbox, monkeypatch):
+    vc.save_state(_train_state())
+    c = mock.Mock()
+    monkeypatch.setattr(vc, "eur_prices", lambda c: {"1H100.80S.30V": {"spot_price": "2.341", "price_per_hour": "4.683"}})
+    monkeypatch.setattr(vc, "_availability", lambda c, loc: ({"1H100.80S.30V"}, set()))
+    monkeypatch.setattr(vc, "ledger_total_eur", lambda: 35.0)
+    create = mock.Mock()
+    monkeypatch.setattr(vc, "create_instance", create)
+    with pytest.raises(SystemExit, match="budget"):
+        vc._train_provision(c, _run(max_eur=40.0))  # 35 + ~7.8 > 40
+    create.assert_not_called()
+    monkeypatch.setattr(vc, "ledger_total_eur", lambda: 5.0)
+    monkeypatch.setattr(vc, "render", lambda f, subs, vol: subs)
+    create.return_value = SimpleNamespace(id="t1")
+    assert vc._train_provision(c, _run(max_eur=40.0)) == "t1"
+    k = create.call_args.kwargs
+    assert k["role"] == "train" and k["hostname"].startswith("fhbot-train-") and k["spot"] is True
+    assert k["record"]["run"] == "r1" and "--epochs 1.0" in k["script"]["__TRAIN_ARGS__"]
+
+
+def _tick_env(monkeypatch, status_text, *, box_extra=None, run_extra=None):
+    st = _train_state(train_run=_run(**(run_extra or {})),
+                      train={"id": "t1", "hostname": "fhbot-train-0123456789ab", "created": vc.time.time(),
+                             **(box_extra or {})})
+    vc.save_state(st)
+    c = mock.Mock()
+    c.instances.get_by_id.return_value = inst("t1", hostname="fhbot-train-0123456789ab", ip="5.5.5.5")
+    calls = {"ssh": [], "deleted": [], "upload": 0, "fetch": 0}
+
+    def fake_ssh(ip, cmd, **k):
+        calls["ssh"].append(cmd)
+        if "ready=" in cmd:
+            return SimpleNamespace(stdout=status_text, stderr="", returncode=0)
+        return SimpleNamespace(stdout="active", stderr="", returncode=0)
+
+    monkeypatch.setattr(vc, "ssh", fake_ssh)
+    monkeypatch.setattr(vc, "train_upload", lambda ip, alias, run: calls.__setitem__("upload", calls["upload"] + 1))
+    monkeypatch.setattr(vc, "train_fetch_from", lambda ip, alias, run: calls.__setitem__("fetch", 1) or vc.ROOT / "train/out/r1")
+    monkeypatch.setattr(vc, "delete_instance", lambda c, i, reason="": calls["deleted"].append(i))
+    return c, calls
+
+
+READY_IDLE = "ready=1\nservice=inactive\nexit=\ndone=0\nfatal=0\ntotal_steps=\n"
+
+
+def test_tick_waits_for_box_setup(sandbox, monkeypatch):
+    c, calls = _tick_env(monkeypatch, "ready=0\nservice=inactive\ndone=0\nfatal=0\n")
+    assert vc.train_tick(c) == "setup" and calls["upload"] == 0
+
+
+def test_tick_uploads_and_starts_on_fresh_box(sandbox, monkeypatch):
+    c, calls = _tick_env(monkeypatch, READY_IDLE)
+    assert vc.train_tick(c) == "running"
+    assert calls["upload"] == 1 and any("systemctl start fh-train" in x for x in calls["ssh"])
+    assert vc.load_state()["train"]["started"] is True and vc.load_state()["train_run"]["restarts"] == 0
+
+
+def test_tick_reports_running(sandbox, monkeypatch):
+    c, calls = _tick_env(monkeypatch, "ready=1\nservice=active\ndone=0\nfatal=0\ntotal_steps=100\n"
+                         + 'loss={"step": 25, "loss": 0.7, "seconds": 50}\n', box_extra={"started": True})
+    assert vc.train_tick(c) == "running" and calls["upload"] == 0
+    run = vc.load_state()["train_run"]
+    assert run["step"] == 25 and run["progress"] == 0.25
+
+
+def test_tick_restarts_crashed_trainer_then_gives_up(sandbox, monkeypatch):
+    c, calls = _tick_env(monkeypatch, READY_IDLE.replace("service=inactive", "service=failed").replace("exit=", "exit=1"),
+                         box_extra={"started": True})
+    assert vc.train_tick(c) == "restarted" and vc.load_state()["train_run"]["restarts"] == 1
+    vc.update_state(lambda s: s["train_run"].update(restarts=vc.TRAIN_MAX_RESTARTS))
+    assert vc.train_tick(c) == "failed"
+    st = vc.load_state()
+    assert calls["deleted"] == ["t1"] and "train" not in st and st["train_run"]["desired"] is False
+
+
+def test_tick_done_publishes_fetches_deletes_and_leaves_serving_flag(sandbox, monkeypatch):
+    c, calls = _tick_env(monkeypatch, "ready=1\nservice=inactive\ndone=1\nfatal=0\ntotal_steps=100\n",
+                         box_extra={"started": True})
+    assert vc.train_tick(c) == "done"
+    st = vc.load_state()
+    assert calls["deleted"] == ["t1"] and calls["fetch"] == 1 and "train" not in st
+    assert any("/mnt/fh/adapters/r1" in x for x in calls["ssh"])
+    run = st["train_run"]
+    assert run["done"] and not run["desired"] and run["adapter"] == "/mnt/fh/adapters/r1"
+    assert st["serve_desired"] is False  # untouched
+    assert vc.train_tick(c) == "idle"
+
+
+def test_preempted_training_box_is_reprovisioned_with_same_run(sandbox, monkeypatch):
+    run = _run(trainer_args=["--epochs", "2.0", "--lr", "5e-05", "--out", "/mnt/fh/runs/r1"], progress=0.5)
+    vc.save_state(_train_state(train_run=run, train={"id": "t-old", "hostname": "fhbot-train-aaaaaaaaaaaa",
+                                                     "created": 0}))
+    c = mock.Mock()
+    c.instances.get.return_value = []  # preempted
+    vc.reconcile(c)
+    assert "train" not in vc.load_state()
+    seen = {}
+    monkeypatch.setattr(vc, "_train_provision", lambda c, r, **k: seen.update(r) or "t-new")
+    assert vc.train_tick(c) == "provisioned"
+    assert seen["trainer_args"] == run["trainer_args"] and seen["run"] == "r1" and seen["progress"] == 0.5
+
+
+def test_reprovision_budget_uses_remaining_fraction(sandbox, monkeypatch):
+    vc.save_state(_train_state())
+    monkeypatch.setattr(vc, "eur_prices", lambda c: {"1H100.80S.30V": {"spot_price": "2.341", "price_per_hour": "4.683"}})
+    monkeypatch.setattr(vc, "_availability", lambda c, loc: ({"1H100.80S.30V"}, set()))
+    monkeypatch.setattr(vc, "ledger_total_eur", lambda: 36.0)
+    monkeypatch.setattr(vc, "render", lambda f, subs, vol: "s")
+    monkeypatch.setattr(vc, "create_instance", lambda *a, **k: SimpleNamespace(id="t9"))
+    assert vc._train_provision(mock.Mock(), _run(progress=0.9)) == "t9"  # ~€1.6 left to spend fits
+
+
+def test_reconcile_adopts_train_orphan_only_for_desired_run(sandbox, recon):
+    hn = "fhbot-train-0123456789ab"
+    intent = {"role": "train", "ts": 5, "record": {"run": "r1"}, **_dead_owner()}
+    vc.save_state(_train_state(train_run=_run(), pending_creates={hn: intent}))
+    recon.instances.get.return_value = [inst("t1", hostname=hn)]
+    out = vc.reconcile(recon)
+    assert out["adopted"] == ["t1"] and vc.load_state()["train"]["run"] == "r1"
+    vc.save_state(_train_state(train_run=_run(desired=False), pending_creates={hn: intent}))
+    recon.deleted.clear()
+    vc.reconcile(recon)
+    assert recon.deleted == ["t1"]
+
+
+def test_train_down_cancels_and_deletes(sandbox, monkeypatch):
+    vc.save_state(_train_state(train_run=_run(), train={"id": "t1", "hostname": "fhbot-train-0123456789ab",
+                                                       "created": 0},
+                               pending_creates={"fhbot-train-bbbbbbbbbbbb": {"role": "train", "ts": vc.time.time(),
+                                                                            **_dead_owner()}}))
+    c = mock.Mock()
+    gone = []
+    c.instances.get.side_effect = lambda: [] if gone else [inst("t1", hostname="fhbot-train-0123456789ab")]
+    monkeypatch.setattr(vc, "client", lambda: c)
+    monkeypatch.setattr(vc, "delete_instance", lambda c, i, reason="": gone.append(i))
+    vc.cmd_train_down(SimpleNamespace())
+    st = vc.load_state()
+    assert gone == ["t1"] and st["train_run"]["desired"] is False and "train" not in st
+    assert st["pending_creates"]["fhbot-train-bbbbbbbbbbbb"]["cancelled"] is True
+
+
+def test_serving_refused_while_training(sandbox, cloud, monkeypatch):
+    vc.save_state(_train_state(train_run=_run(), serve_desired=True))
+    monkeypatch.setattr(vc, "_serve_up", mock.Mock())
+    with pytest.raises(SystemExit, match="training run is active"):
+        vc.cmd_serve_up(_serve_args(no_wait=True))
+    vc.cmd_serve_ensure(_serve_args(wait=False))
+    vc._serve_up.assert_not_called()
+
+
+def test_train_upload_only_when_needed_and_refuses_changed_local(sandbox, monkeypatch):
+    run = _run()
+    uploads = []
+    monkeypatch.setattr(vc, "_upload_dir", lambda ip, a, src, members, dest, sha: uploads.append(dest))
+    monkeypatch.setattr(vc, "ssh", lambda ip, cmd, **k: SimpleNamespace(stdout="D\nC\n", returncode=0))
+    vc.train_upload("ip", "t1", run)
+    assert uploads == []
+    monkeypatch.setattr(vc, "ssh", lambda ip, cmd, **k: SimpleNamespace(stdout="\n\n", returncode=0))
+    monkeypatch.setattr(vc, "data_sha", lambda d: "D")
+    monkeypatch.setattr(vc, "train_code_sha", lambda: "C")
+    vc.train_upload("ip", "t1", run)
+    assert uploads == ["/mnt/fh/data/sft-v1", "/mnt/fh/runs/r1/code"]
+    monkeypatch.setattr(vc, "data_sha", lambda d: "CHANGED")
+    with pytest.raises(SystemExit, match="changed since train-up"):
+        vc.train_upload("ip", "t1", run)

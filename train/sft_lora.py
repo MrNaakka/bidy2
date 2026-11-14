@@ -378,6 +378,12 @@ def main(argv=None) -> int:
             shutil.rmtree(final)
         model.save_pretrained(final)
         processor.save_pretrained(final / "processor")
+        # Completion marker for unattended runs (infra/verda train-ensure): written last,
+        # atomically, only after the final adapter is fully saved.
+        tmp = a.out / ".DONE.tmp"
+        tmp.write_text(json.dumps({"step": state["step"], "total_steps": total_steps,
+                                   "final": str(final), "time": time.strftime("%Y-%m-%dT%H:%M:%S")}) + "\n")
+        os.replace(tmp, a.out / "DONE")
         log(f"done: adapter in {final}")
     return 0
 
