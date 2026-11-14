@@ -88,6 +88,7 @@ def behavior(records: list[dict], msgs: list[dict]) -> tuple[list, list]:
     """
     asst = [i for i, m in enumerate(msgs) if m.get("role") == "assistant"]
     by_idx: dict[int, dict] = {}
+    ambiguous: set[int] = set()
     versions = set()
     for r in records:
         if "_req" not in r or not r2s.usable(r):
@@ -97,14 +98,18 @@ def behavior(records: list[dict], msgs: list[dict]) -> tuple[list, list]:
         idx = len(r["_req"]["messages"])
         resp = r["response"]
         lps = resp.get("logprobs")
-        if idx >= len(msgs) or idx in by_idx or not lps or not r2s.same_turn(resp, msgs[idx]):
+        if idx >= len(msgs) or not lps or not r2s.same_turn(resp, msgs[idx]):
             continue
         ids = [x[0] for x in lps]
         if not all(isinstance(t, int) for t in ids):
             continue
+        if idx in by_idx:   # two responses match the same turn: keep it only if they are the same tokens
+            if by_idx[idx]["ids"] != ids:
+                ambiguous.add(idx)
+            continue
         by_idx[idx] = {"ids": ids, "lp": [float(x[1]) for x in lps], "version": r.get("policy_version"),
                        "complete": resp.get("completion_tokens") == len(ids)}
-    return [by_idx.get(i) for i in asst], sorted(versions)
+    return [by_idx.get(i) if i not in ambiguous else None for i in asst], sorted(versions)
 
 
 def main(argv=None) -> int:

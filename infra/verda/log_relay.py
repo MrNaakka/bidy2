@@ -538,6 +538,8 @@ class Handler(BaseHTTPRequestHandler):
                 fwd = None
             if fwd is None:
                 pol, fwd = None, body
+            else:   # the reply is rewritten, so it must come back uncompressed
+                headers = {k: v for k, v in headers.items() if k.lower() != "accept-encoding"}
             headers["Content-Length"] = str(len(fwd))
         self._pol = pol
         watch = None
@@ -574,7 +576,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         ctype_in = (resp.getheader("Content-Type") or "").lower()
         strip_sse = strip_json = None
-        if pol is not None and not resp.getheader("Content-Encoding"):
+        if pol is not None and (resp.getheader("Content-Encoding") or "identity").strip().lower() == "identity":
             if "text/event-stream" in ctype_in:
                 strip_sse = SSEStripper(PUBLIC_MODEL)
             elif "json" in ctype_in:

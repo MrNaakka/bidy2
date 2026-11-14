@@ -23,6 +23,8 @@ D=$OUT/$NAME; mkdir -p $D/runs $D/tasks; TIMES=$OUT/times.txt
 stamp() { echo "$(date -u +%FT%TZ) $NAME $*" | tee -a $TIMES; }
 cd $FH
 K_API=$(cut -d= -f2- vllm.env)
+# cutover to the async system: touch $OUT/STOP and the loop ends before its next iteration starts
+if [ -f $OUT/STOP ] && [ ! -f $D/rollout.done ]; then stamp "STOP file: not starting"; exit 3; fi
 
 # ------------------------------------------------------------------ 1. rollouts
 if [ ! -f $D/rollout.done ]; then

@@ -238,7 +238,7 @@ def main(argv=None) -> int:
                 st["loss"] += float(loss_tok.detach().sum())
                 st["clipped"] += int(((ratio - clipped).abs() > 1e-6).sum())
                 st["ratio_sum"] += float(ratio.detach()[have].sum())
-                st["k3_sum"] += float((torch.exp(d) - 1 - d).sum())
+                st["k3_sum"] += float((torch.exp(-d) - 1 + d).sum())   # k3 of KL(pi_b || pi_theta), r = pi_theta/pi_b
                 st["rows"] += 1
                 st["rows_complete"] += int(all(b is None or b.get("complete") for b in (r.get("behavior") or [])))
         keys = ["tokens", "matched", "loss", "clipped", "ratio_sum", "k3_sum", "rows", "rows_complete"]

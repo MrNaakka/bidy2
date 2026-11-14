@@ -114,7 +114,14 @@ def main(argv=None) -> int:
     if not pol_file.exists():
         write_json(pol_file, {"version": 0, "name": "fh-v0"})
     version = json.loads(pol_file.read_text())["version"]
-    loaded = {g: {0} | ({version} if version else set()) for g in a.gpus}
+    loaded = {g: {0} for g in a.gpus}
+    if version:   # a restart: the vLLMs may have been restarted too (only fh-v0); make sure the policy is loaded
+        for g in a.gpus:
+            code, msg = api(8200 + g, "/v1/load_lora_adapter",
+                            {"lora_name": f"fh-v{version}", "lora_path": str(R / "adapters" / f"v{version}")}, key)
+            if not (code == 200 or (code == 400 and "already" in msg)):
+                raise SystemExit(f"gpu {g}: cannot load the current policy fh-v{version}: {code} {msg}")
+            loaded[g].add(version)
     state_f = R / "sched_state.json"
     st = json.loads(state_f.read_text()) if state_f.exists() else {"next": 0, "launched": 0}
     items = item_order(a.pool)
@@ -151,8 +158,10 @@ def main(argv=None) -> int:
                     version = n
                     write_json(pol_file, {"version": n, "name": f"fh-v{n}", "time": now_iso()})
                     log(f"policy -> fh-v{n}")
+                    # a running job's trials are pinned to a version >= the one current at its launch
+                    keep_from = min([j.launch_version for j in running] + [n])
                     for g in a.gpus:
-                        for old in sorted(v for v in loaded[g] if v < n - 3):
+                        for old in sorted(v for v in loaded[g] if 0 < v < keep_from):
                             code, msg = api(8200 + g, "/v1/unload_lora_adapter", {"lora_name": f"fh-v{old}"}, key)
                             loaded[g].discard(old)
         # ---- finished jobs -> conversion
