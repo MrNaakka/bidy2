@@ -17,19 +17,22 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = Path(__file__).resolve().parent
-KINDS = ["logstream", "dialogs", "toasts", "scandoc"]
+KINDS = ["logstream", "dialogs", "scandoc"]
+N_ITEMS = 30
 
 # Agent groups: label, job prefix, colour (fixed per entity in every chart).
 GROUPS = [
     ("Reference (scripted)", ["fh-eval-reference-all"], "#6250d6"),
     ("Opus 5.5 (OpenCode)", [f"fh-eval-opencode-all-run{i}" for i in (1, 2, 3)], "#2a78d6"),
     ("Qwen3.8-27B + SFT v3", [f"fh-eval-qwen-sft3-run{i}" for i in (1, 2, 3)], "#1baf7a"),
-    ("Qwen3.8-27B + SFT v2*", [f"fh-eval-qwen-sft2-run{i}" for i in (1, 2, 3)], "#7fcfb0"),
     ("Qwen3.8-27B base", [f"fh-eval-qwen-run{i}" for i in (1, 2, 3)], "#eb6834"),
     ("Stop-early baseline", ["fh-eval-stop-early-all"], "#8a8984"),
     ("Do-nothing baseline", ["fh-eval-nop-all"], "#b5b4ae"),
 ]
 COLOR = {g[0]: g[2] for g in GROUPS}
+# The earlier SFT v2 adapter was trained without scandoc and run on the 30 items EVAL had then (incl. toasts);
+# summary.json (--split eval) keeps its 20 logstream + dialogs trials.
+SFT_V2 = ("Qwen3.8-27B + SFT v2 (20 items, no scandoc)", [f"fh-eval-qwen-sft2-run{i}" for i in (1, 2, 3)])
 INK, MUTED, GRID = "#0b0b0b", "#52514e", "#e4e3df"
 
 # EVAL v1 (history; 30 items: logstream, dialogs, dashboard). From the v1 runs' result.json.
@@ -121,8 +124,8 @@ def chart_overall(S):
     ax.set_xticks(range(len(order)))
     ax.set_xticklabels([short(o) for o in order], fontsize=11.5)
     ax.set_ylim(0, 1.12)
-    ax.set_ylabel("Mean reward (fraction of 40 items exactly right)", fontsize=12.5)
-    ax.set_title("FrameHunt EVAL (40 items, 120k-pixel budget): bar = mean, dots = individual runs",
+    ax.set_ylabel("Mean reward (fraction of 30 items exactly right)", fontsize=12.5)
+    ax.set_title("FrameHunt EVAL (30 items, 120k-pixel budget): bar = mean, dots = individual runs",
                  fontsize=14, color=INK, loc="left")
     style(ax)
     save(fig, "overall.png")
@@ -143,10 +146,10 @@ def chart_per_kind(S):
             ax.text(x, max([pk["mean_reward"]] + pk["per_run"]) + 0.03, f"{pk['mean_reward']:.2f}", ha="center", fontsize=10.5,
                     color=INK)
     ax.axhline(1.0, color=COLOR["Reference (scripted)"], linestyle="--", linewidth=1.5, zorder=1)
-    ax.text(3.5, 1.015, "reference 1.00 on every kind", ha="right", va="bottom", fontsize=10.5,
+    ax.text(len(KINDS) - 0.5, 1.015, "reference 1.00 on every kind", ha="right", va="bottom", fontsize=10.5,
             color=COLOR["Reference (scripted)"])
     ax.set_xticks(range(len(KINDS)))
-    ax.set_xticklabels(["logstream\n(terminal log)", "dialogs\n(error dialog)", "toasts\n(control)",
+    ax.set_xticklabels(["logstream\n(terminal log)", "dialogs\n(error dialog)",
                         "scandoc\n(scanned report)"], fontsize=12)
     ax.set_ylim(0, 1.12)
     ax.set_ylabel("Mean reward per kind (10 items each)", fontsize=12.5)
@@ -218,10 +221,9 @@ def chart_training():
 
 def tables(S):
     L = ["# FrameHunt results (EVAL v2)", "",
-         "- **Set:** 40 items, 10 each of logstream, dialogs, toasts and scandoc.",
+         "- **Set:** 30 items, 10 each of logstream, dialogs and scandoc.",
          "- **Budget:** 120,000 pixels per item.",
          "- **Reward:** 1 only for an exact first submission, else 0.",
-         "- **SFT v2** (marked *) was evaluated on the 30 non-scandoc items only.",
          "- **Charts:** [overall.png](overall.png) (score per agent, dots = runs), "
          "[per_kind.png](per_kind.png), [pixels_and_submissions.png](pixels_and_submissions.png), "
          "[sft_v3_loss.png](sft_v3_loss.png).",
@@ -251,11 +253,11 @@ def tables(S):
         L.append(f"| {lab} | {s['mean_pixels_correct']:,} | "
                  f"{s['mean_pixels_wrong']:,} | {s['max_pixels']:,} |".replace("| 0 |", "| - |"))
     L += ["", f"Opus API cost: {' + '.join(f'${c:.2f}' for c in o['api_cost_usd'])} "
-              f"= ${o['api_cost_usd_total']:.2f} for 3 x 40 trials.", "",
+              f"= ${o['api_cost_usd_total']:.2f} for 3 x 30 trials.", "",
           "## EVAL v1 (history)", "",
           "The first EVAL set had 30 items (10 each of logstream, dialogs and `dashboard`) and ran under "
           "the first salt, now retired. Dashboard was too easy (Opus 29/30 over three runs), so EVAL v2 "
-          "replaced it with the toasts control and the scandoc document kind. The Qwen base v1 runs had "
+          "replaced it with the scandoc document kind. The Qwen base v1 runs had "
           "heavier serving contention than the v2 runs. Rebuild v1 with "
           "`scripts/build_tasks.py --split eval --v1`.", "",
           "Correct answers per run, out of 10 per kind:", "",
@@ -271,19 +273,22 @@ def main():
     jobs = load_jobs()
     S = {lab: group_stats(jobs, lab, names) for lab, names, _ in GROUPS}
     (OUT / "results.json").write_text(json.dumps({
-        "eval": {"split": "EVAL v2", "n_items": 40, "kinds": KINDS, "items_per_kind": 10,
+        "eval": {"split": "EVAL v2", "n_items": N_ITEMS, "kinds": KINDS, "items_per_kind": 10,
                  "budget_px": 120000, "reward": "1 if the first submitted answer is exact, else 0"},
         "agents": S,
+        "earlier_sft_v2": group_stats(jobs, *SFT_V2),
         "eval_v1_history": V1,
         # Judge-path check: fresh clone of main, its own new salt, scripts/eval.sh --env modal -n 40 --runs 1.
+        # That run still had 40 items (10 toasts items, since removed from EVAL); the scores below are
+        # rescored on the 30 current items with scripts/summarize.py --split eval. Wall times and the total
+        # API cost ($5.72) are for the 40-item run.
         "fresh_clone_check": {
             "date": "2026-11-14", "command": "scripts/eval.sh --env modal -n 40 --runs 1",
-            "wall_seconds": {"build": 5, "reference": 139, "nop": 132, "stop_early": 327, "opus_run1": 241,
-                             "total": 845},
+            "wall_seconds_40_items": {"build": 5, "reference": 139, "nop": 132, "stop_early": 327, "opus_run1": 241,
+                                      "total": 845},
             "reference": 1.0, "nop": 0.0, "stop_early": 0.0,
-            "opus_5_5": {"score": 0.7, "correct": 28, "per_kind": {"logstream": 0.5, "dialogs": 0.6, "toasts": 1.0,
-                                                                  "scandoc": 0.7},
-                         "mean_pixels": 108982, "api_cost_usd": 5.72},
+            "opus_5_5": {"score": 0.6, "correct": 18, "per_kind": {"logstream": 0.5, "dialogs": 0.6, "scandoc": 0.7},
+                         "mean_pixels": 112414, "api_cost_usd": 4.40},
             "log": "examples/harbor-runs/fresh-clone-modal-opus-run1/",
         },
         "source": "results/summary.json (scripts/summarize.py over runs/); no answers included",

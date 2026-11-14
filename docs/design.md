@@ -1,7 +1,7 @@
 # FrameHunt design
 
-> Results (EVAL v2, 40 items: reference 1.000, Opus 5.5 0.650, Qwen3.8-27B 0.250 base and
-> 0.617 after our SFT) are in [README.md](../README.md) and [docs/results/](results/tables.md).
+> Results (EVAL v2, 30 items: reference 1.000, Opus 5.5 0.600, Qwen3.8-27B 0.211 base and
+> 0.522 after our SFT) are in [README.md](../README.md) and [docs/results/](results/tables.md).
 > Pilot numbers quoted below are from DEV items during design and tuning.
 
 FrameHunt is an RL environment for active video sampling under a pixel budget.
@@ -15,17 +15,16 @@ event happened, then spends pixels on *one* sharp crop of *where* the answer is 
 
 ## Item sets
 
-EVAL v2 has 40 items, 10 per kind:
+EVAL v2 has 30 items, 10 per kind:
 
 | Kind | Medium | Role in EVAL v2 |
 | --- | --- | --- |
 | `logstream` | video | the hard case |
 | `dialogs` | video | the common E2E case |
-| `toasts` | video | the control |
 | `scandoc` | scanned PDF | added later |
 
-Two more video kinds are not in EVAL v2. `dashboard` is in EVAL_V1, DEV and TRAIN.
-`leaderboard` is in DEV and TRAIN, as a replication experiment.
+Three more video kinds are not in EVAL v2. `dashboard` is in EVAL_V1, DEV and TRAIN.
+`toasts` and `leaderboard` are in DEV and TRAIN as experiments.
 
 The video kinds were built in two rounds: `logstream`, `dialogs` and `dashboard` first,
 then `toasts` and `leaderboard`.
@@ -33,8 +32,8 @@ then `toasts` and `leaderboard`.
 ## Hard rules for items
 
 1. **Random answers.** Every answer is drawn from the item's (secret) seed, from a space
-   large enough that guessing is ~0 (codes like `K7Q2ZP`, request ids, 3–5 digit
-   numbers). Common sense must not help.
+   large enough that guessing succeeds ~0 of the time (codes like `K7Q2ZP`, request ids,
+   3–5 digit numbers). Common sense must not help.
 2. **Trace rule.** The event the question asks about is brief, but it leaves a
    **lasting, monotonic trace** on screen that is legible at low resolution (a counter,
    a badge, a tile that stays red). This makes efficient binary search possible: the
@@ -49,9 +48,9 @@ then `toasts` and `leaderboard`.
      a person, or generic OCR. We test it by running OCR on the 1/4 crop scaled back up.
    - A scripted matched filter that knows the bundled font and the exact sub-pixel
      origin of the text *can* decode most 1/4-scale crops, on every kind. That only
-     saves pixels. It still has to find the event frame and the right row or toast
-     first, and pixels used don't change the reward. Fonts small enough to defeat it
-     would also be unreadable at native.
+     saves pixels. It still has to find the event frame and the right row first, and
+     pixels used don't change the reward. Fonts small enough to defeat it would also be
+     unreadable at native.
 5. **No hidden information.** The instruction states the budget, the tool costs and
    the question. Screen elements named in the question are visible on every frame.
 
@@ -88,8 +87,8 @@ On logstream, being slightly off still gives a confident wrong answer:
 
 In dialogs and dashboard the answer holds for seconds on both sides of the event, sits
 at a fixed spot and has no look-alike on screen. An imprecise search still lands on it.
-The second-round kinds, toasts and leaderboard, carry logstream's mechanism into other
-settings.
+The second-round kinds (DEV and TRAIN only, below) try to carry logstream's mechanism
+into other settings.
 
 ### What EVAL v2 tests
 
@@ -100,47 +99,12 @@ deploy.
 - **Logstream** is the hard case. Verifying the event frame and finding the row take
   extra looks, which Opus doesn't spend.
 - **Dialogs** is the common E2E case.
-- **Toasts** is the explicit control. It has the same mechanism (a lasting counter pins
-  the event, the answer is only briefly where you'd look, look-alikes appear before and
-  after), but verification is cheap and in the same place: the badge right above the
-  stack. Opus verifies there and succeeds (pilots below; on EVAL, toasts 0.80 vs
-  logstream 0.43 over three runs).
 - **Scandoc** is a scanned PDF, added later; see
   [Scanned documents](#scanned-documents-scandoc).
 
-The toasts result fits the hypothesis that Opus's logstream failures come from
-verification cost rather than from the mechanism. It isn't proof: the kinds also differ
-in layout and distractors, and only a matched intervention would isolate the cause.
+### Second round (DEV and TRAIN only): leaderboard and toasts
 
-Leaderboard stays in DEV and TRAIN as a replication experiment (Opus DEV pilot 2/6,
-below).
-
-### Second round: toasts and leaderboard
-
-In the guarantees below, f is the event frame.
-
-**`toasts`**: the same desktop app as `dialogs`, with non-modal toast notifications
-stacking at the top right.
-
-- Levels: Info (blue), Warning (amber), Error (red). Each toast has a 6-character code;
-  all codes in a scene share a 2-character prefix. The level of every toast is visible
-  at 1/8 from its 24-px colour stripe.
-- Stack: the newest toast takes the top slot and pushes the others down. At most 5 are
-  visible. Each lives 4–6 s (or until 5 newer ones arrive).
-- Timing: toasts come in bursts (an incident: 0.2–0.9 s apart, mostly Errors) separated
-  by calm stretches (1–3 s apart, mostly Info). So 2–4 red Error toasts with the same
-  prefix are often on screen together.
-- Trace: the bell badge counts Error toasts only.
-- Question: "What code was shown on the K-th Error toast?"
-- Guarantees:
-  - K ≥ 2, and on frame f-1 the (K-1)-th Error toast is still on screen as the newest
-    red toast (same prefix).
-  - The next toast arrives 0.2–0.6 s after f, so a few frames late the target is no
-    longer on top. It stays visible lower in the stack for at least 1 s.
-  - The (K+1)-th Error arrives within 1.5 s, so soon after f "the newest red toast" is a
-    look-alike, not the target.
-
-**`leaderboard`**: an API error tracker.
+**`leaderboard`**: an API error tracker. In the guarantees below, f is the event frame.
 
 - Table: "Endpoints by errors / min" lists 10 endpoints (all always visible), sorted by
   value. It refreshes every 0.5 s (5 frames): values change and rows move (an endpoint
@@ -155,60 +119,30 @@ stacking at the top right.
   row shows the same number on f. Unlike `dashboard` (KPI holds ≥ 1 s on both sides),
   there is no slack before f.
 
-### What the agent must decide
+The agent has to find the exact event frame on the cheap trace and **verify it** before
+reading (one frame early gives a confident wrong answer), then read on **that same
+frame** after **re-finding E's row**, which moves every half second. The reference does
+exactly this: binary search on the trace at ≤ 1/8, a 1/4 look at the name column to find
+E's row, then one native crop. It needs at most 48k of the 120k pixels.
 
-In both kinds the agent has to:
-
-1. Find the exact event frame on the cheap trace and **verify it** before reading. One
-   frame early gives a confident wrong answer.
-2. Read on **that same frame**, after **re-finding the moving target** there. The top
-   toast is the target for only 0.2–0.6 s; the endpoint's row moves every half second.
-
-The reference does exactly this: binary search on the trace at ≤ 1/8, then a 1/8 check
-of the top toast's stripe (toasts) or a 1/4 look at the name column to find E's row
-(leaderboard), then one native crop. It needs at most 41k (toasts) and 48k
-(leaderboard) pixels of the 120k.
-
-### Pilots and tuning (DEV, Opus 5.5)
-
-| Round | Items | toasts | leaderboard |
-| --- | --- | --- | --- |
-| First version | 6 per kind | 5/6 | 5/6 |
-| Re-pilot after tuning | 6 fresh per kind | 6/6 | 2/6 |
-| Toasts re-pilot after rework (on Modal) | 6 fresh, toasts only | 5/6 | – |
-
-**First version.** Toasts had the next toast 0.3–1.5 s after f; leaderboard had a 1 s
-refresh and sans-bold 22 names. Both failures were the targeted mechanism: reading one
-frame early (the (K-1)-th Error toast's code; E's previous value). The successes found
-the exact frame with dense contact sheets, then read up to 5 frames late, which those
-wide windows forgave. They found E's row with a cheap look.
-
-We tuned to the parameters above: a 0.2–0.6 s top-slot window with a red successor half
-the time, a 0.5 s value window, and names that need a deliberate 1/2-scale crop of the
-name column.
-
-**Re-pilot after tuning.** Leaderboard 2/6. All 4 failures are the targeted decisions:
+DEV pilots with Opus 5.5 (6 items each): the first version (1 s refresh, sans-bold 22
+names) scored 5/6. Its one failure read one frame early (E's previous value); the
+successes read up to 5 frames late, which the wide window forgave, and found E's row
+with a cheap look. After tuning to the parameters above (a 0.5 s value window, names
+that need a deliberate 1/2-scale crop of the name column), a re-pilot on 6 fresh items
+scored 2/6. All 4 failures are the targeted decisions:
 
 - read 1 to 3 frames early (E's previous value), twice;
 - read 9 frames late (E's next value);
 - misread the counter on 24-px contact-sheet tiles and never checked it at a legible
   scale.
 
-Toasts 6/6. Even when Opus read 1 to 7 frames late, it combined the badge count with
-the stack order and the red stripe to pick the right toast lower in the stack. (In that
-version Error toasts were a minority, so usually only one or two were visible.)
-
-So toasts were reworked: 4–6 s lives (a realistic default) and Error-heavy bursts.
-Several red look-alikes now surround the target, and the (K+1)-th Error follows within
-1.5 s.
-
-**Toasts re-pilot after the rework.** 5/6, so toasts still shows no gap. Opus pinned f
-to within 1 to 5 frames on every item. It usually re-read the badge on the frame it read
-the toast from, which tells it which red toast is the K-th even after the stack moves.
-
-The one failure is the targeted one: it read 3 frames late, the badge already showed
-K+1, and it took the top toast, which was the (K+1)-th Error. The look-alikes only catch
-an agent that skips that same-frame check.
+**`toasts`** is the same desktop app as `dialogs`, with stacking toast notifications;
+the question asks for the code of the K-th red Error toast, and a bell badge counts
+Error toasts. It was meant to carry logstream's trap (look-alike Error toasts just
+before and after the event), but it turned out easy: in DEV pilots Opus 5.5 scored 5/6,
+6/6 and, after a rework with more red look-alikes, 5/6, because it usually re-read the
+badge on the same frame it read the toast from. It is not part of EVAL.
 
 ## Scanned documents (`scandoc`)
 
@@ -225,13 +159,19 @@ document's own numbering, not PDF indexes.
 
 `scandoc` started as a DEV/TRAIN prototype and is now an EVAL v2 kind: 10 items
 `scandoc-7601..7610` (fresh public seeds, the same EVAL salt). They were added after
-the 30 video items had been run. The addition changes nothing about those 30:
+the video items had been run (30 at the time, including 10 toasts items since removed
+from EVAL). The addition changes nothing about those 30:
 
 - The scandoc instruction, `info()` text and tool docstrings are separate templates
   selected by `DOCUMENT_KINDS`, and the video code paths are unchanged.
 - Before and after the merge, the question/answer/format/meta hashes, rendered frames,
   `instruction.md`, `task.toml`, `info()` text, MCP tool list and the reference's full
   trace and pixel use were identical for all 30.
+
+Removing the toasts items later changed none of the remaining items either: an item's
+seed depends only on the split name, its id and the salt, and the rebuilt task folders
+are identical apart from the random per-build verifier token and the sidecar's copy of
+`framehunt/splits.py`.
 
 EVAL results for scandoc (reference 10/10, Opus 5.5 0.60 / 0.50 / 0.40 over three runs)
 are in the [README](../README.md) and [docs/results/](results/tables.md). The numbers
@@ -549,7 +489,7 @@ of the salt you are still evaluating with.
 
 The EVAL v2 salt was rotated once more, after a results summary that listed submitted
 answers was accidentally pushed (`scripts/summarize.py` no longer writes answers).
-Opus's 30 video-item runs were made under the previous v2 salt; everything else
+Opus's video-item runs (logstream and dialogs) were made under the previous v2 salt; everything else
 (reference, baselines, Opus scandoc, all Qwen runs) under the current one. Same
 generators and item ids, different instances.
 

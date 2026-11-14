@@ -1,7 +1,7 @@
 # Handoff: finding more failure scenarios (written 2026-11-14, ~15:20 local)
 
 > **Superseded.** This was the working handoff for finding new scene kinds. It is kept for
-> history. For the final state (EVAL v2: logstream, dialogs, toasts, scandoc; results;
+> history. For the final state (EVAL v2: logstream, dialogs, scandoc, 10 each; results;
 > training), see [README.md](../README.md) and [docs/results/](results/tables.md).
 
 This file lets a fresh agent on a fresh machine start work right away. Read it first. Then read:
@@ -84,10 +84,10 @@ few hundred pixels. Full analysis: README.md, "Why it's hard".
 ### Already built (don't redo)
 
 `toasts` and `leaderboard` carry the logstream mechanism into two new settings. Both are
-implemented, tested and reviewed. Descriptions are in `docs/design.md`, "Second slice".
+implemented, tested and reviewed. Descriptions are in `docs/design.md`, "Second round".
 
-**Superseded: the final EVAL v2 is logstream + dialogs + toasts (control), 10 each;
-leaderboard is DEV/TRAIN only. See README "Results" and docs/design.md "Second slice"; pilot
+**Superseded: the final EVAL v2 is logstream + dialogs + scandoc, 10 each; toasts and
+leaderboard are DEV/TRAIN only. See README "Results" and docs/design.md "Second round"; pilot
 results are there too.**
 
 - Reference on 200 random seeds per new kind: 100% correct. Maximum spend was 41,048 px

@@ -26,8 +26,11 @@ new one, so these are not instances of the current EVAL items.
 
 ## `fresh-clone-modal-opus-run1/`: EVAL v2 item ids, fresh-clone salt
 
-Opus 5.5 (OpenCode 1.19.5) on the 40 EVAL v2 item ids, run from a fresh clone of this
-repository with `scripts/eval.sh --env modal -n 40 --runs 1` on 2026-11-14. The clone
-generated its own salt, so these are new instances, not the ones behind our reported
-results. Score **28/40, mean reward 0.700** (logstream 5/10, dialogs 6/10, toasts 10/10,
-scandoc 7/10), mean 109k pixels per item, API cost $5.72, 3 min 50 s on Modal.
+Opus 5.5 (OpenCode 1.19.5) run from a fresh clone of this repository with
+`scripts/eval.sh --env modal -n 40 --runs 1` on 2026-11-14. The clone generated its own
+salt, so these are new instances, not the ones behind our reported results. EVAL still
+had 10 toasts items then (since removed), so the folder holds 40 trials; Harbor's
+`result.json` reports 28/40 over all of them. On the 30 current EVAL items the score is
+**18/30, mean reward 0.600** (logstream 5/10, dialogs 6/10, scandoc 7/10), mean 112k
+pixels per item. API cost for the whole 40-item run was $5.72; it took 3 min 50 s on
+Modal.

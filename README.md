@@ -25,34 +25,32 @@ early, on the facing page or in the next row.
 | `contact_sheet(t_start, t_end, n, ...)` | grid of n evenly spaced frames, with a frame list | n x tile pixels |
 | `submit(answer)` | first submission counts; no feedback | free |
 
-## The four kinds (EVAL: 40 items, 10 each)
+## The three kinds (EVAL: 30 items, 10 each)
 
 - **logstream**: a terminal log scrolls 3-5 lines per second; give the request id of the K-th ERROR line.
 - **dialogs**: an error dialog pops up and closes in a desktop app; give its code.
-- **toasts** (control): same trap as logstream, but the check is cheap and sits right next to the answer.
 - **scandoc**: a 150-400 page scanned annual report; find one amount in one note's table.
 
 ## Results
 
-All runs go through Harbor on the same 40 EVAL items.
+All runs go through Harbor on the same 30 EVAL items.
 
 | Agent | Run 1 | Run 2 | Run 3 | Mean | Mean pixels / item |
 | --- | --- | --- | --- | --- | --- |
-| Reference (scripted, same MCP tools) | 1.000 | (deterministic) | | **1.000** | 50k (max 58k) |
-| **Opus 5.5** (OpenCode 1.19.5) | 0.750 | 0.550 | 0.650 | **0.650** | 110k |
-| Qwen3.8-27B base | 0.200 | 0.275 | 0.275 | **0.250** | 100k |
-| Qwen3.8-27B + our SFT v3 (LoRA) | 0.650 | 0.550 | 0.650 | **0.617** | 62-74k |
+| Reference (scripted, same MCP tools) | 1.000 | (deterministic) | | **1.000** | 53k (max 58k) |
+| **Opus 5.5** (OpenCode 1.19.5) | 0.700 | 0.500 | 0.600 | **0.600** | 113k |
+| Qwen3.8-27B base | 0.200 | 0.233 | 0.200 | **0.211** | 94k |
+| Qwen3.8-27B + our SFT v3 (LoRA) | 0.533 | 0.467 | 0.567 | **0.522** | 70-84k |
 | Stop-early baseline (one look, well-formed guess) | 0.000 | | | **0.000** | 33k |
 | Do-nothing baseline | 0.000 | | | **0.000** | 0 |
 
-- Every Opus run is below the reference, by 10 to 18 items out of 40. The three runs
-  cost $16.45 in API fees (about $0.14 per item).
-- Opus is weakest on logstream (0.43) and scandoc (0.50). On the toasts control it
-  scores 0.80.
-- Opus spends almost the whole budget whether it is right or wrong (105.6k on correct
-  items, 116.8k on wrong ones). The reference needs 50k.
-- Fine-tuning Qwen3.8-27B on our environment's trajectories raised it from 0.25 to
-  0.62. On logstream it beats Opus, 0.90 vs 0.43.
+- Every Opus run is below the reference, by 9 to 15 items out of 30. The three runs
+  cost $12.92 in API fees (about $0.14 per item).
+- Opus is weakest on logstream (0.43) and scandoc (0.50); on dialogs it scores 0.87.
+- Opus spends almost the whole budget whether it is right or wrong (108.9k on correct
+  items, 118.9k on wrong ones). The reference needs 53k.
+- Fine-tuning Qwen3.8-27B on our environment's trajectories raised it from 0.21 to
+  0.52. On logstream it beats Opus, 0.90 vs 0.43.
 
 ![Overall results](docs/results/overall.png)
 
@@ -66,26 +64,27 @@ Requirements: Docker, [uv](https://docs.astral.sh/uv/), Harbor 0.25.0
 scripts/eval.sh
 ```
 
-This builds the 40 tasks (with a new secret salt on a fresh checkout), then runs the
+This builds the 30 tasks (with a new secret salt on a fresh checkout), then runs the
 reference, the do-nothing and stop-early baselines and three Opus runs, and writes
-`results/summary.md`. On local Docker it takes several hours and about $17 of API
-credits. On Modal it is much faster:
+`results/summary.md`. On local Docker it takes several hours. The three Opus runs cost about
+$13 of API credits. On Modal it is much faster:
 
 ```bash
 uv tool install --force 'harbor[modal]==0.25.0'
 export MODAL_TOKEN_ID=... MODAL_TOKEN_SECRET=...
-scripts/eval.sh --env modal -n 40
+scripts/eval.sh --env modal -n 30
 ```
 
-We ran this on a fresh clone with one Opus run (`--runs 1`). It took 14 min and $5.72.
-Reference 40/40, both baselines 0, Opus 0.700. Details, options, other models and
+We ran this on a fresh clone with one Opus run (`--runs 1`), before the toasts items
+were removed from EVAL, so it covered 40 items: 14 min and $5.72. Rescored on the 30
+current items: reference 30/30, both baselines 0, Opus 0.600. Details, options, other models and
 harness notes: [docs/running.md](docs/running.md).
 
 ## More
 
 | Doc | What's in it |
 | --- | --- |
-| [docs/why-its-hard.md](docs/why-its-hard.md) | each kind's trap; analysis of all 42 Opus failures |
+| [docs/why-its-hard.md](docs/why-its-hard.md) | each kind's trap; analysis of all 36 Opus failures |
 | [docs/results/tables.md](docs/results/tables.md) | full tables, per kind, pixels, EVAL v1 history; charts and `results.json` in [docs/results/](docs/results/) |
 | [docs/scoring-and-integrity.md](docs/scoring-and-integrity.md) | the reward, the separate verifier, secret instances, baselines |
 | [docs/training.md](docs/training.md) | fine-tuning Qwen3.8-27B (tiebreaker): data, training, results |
@@ -98,7 +97,7 @@ harness notes: [docs/running.md](docs/running.md).
 
 | Path | What |
 | --- | --- |
-| `framehunt/scenes/` | scene generators: `logstream`, `dialogs`, `toasts`, `scandoc` (EVAL); `dashboard`, `leaderboard` (DEV/TRAIN) |
+| `framehunt/scenes/` | scene generators: `logstream`, `dialogs`, `scandoc` (EVAL); `dashboard`, `toasts`, `leaderboard` (DEV/TRAIN) |
 | `framehunt/server.py` | the MCP server: tools, budget, evidence routes |
 | `framehunt/reference.py` | the scripted reference policy |
 | `framehunt/baselines/` | the stop-early baseline agent |
@@ -109,4 +108,4 @@ harness notes: [docs/running.md](docs/running.md).
 | `docs/results/` | charts, `tables.md`, `results.json`, `make_results.py` |
 | `train/` | SFT data generation and LoRA training ([train/README.md](train/README.md)) |
 | `infra/verda/` | Qwen serving, training and parallel evals on Verda GPUs |
-| `tests/` | `uv run pytest -m "not reference"`; `uv run pytest -m reference -s` runs the reference on all 40 EVAL items and on random seeds |
+| `tests/` | `uv run pytest -m "not reference"`; `uv run pytest -m reference -s` runs the reference on all 30 EVAL items and on random seeds |

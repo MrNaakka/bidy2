@@ -10,13 +10,16 @@ vLLM 0.33.0 inside Harbor's OpenCode agent.
 The SFT data format and tooling are the ones an RL stage (rejection sampling / GRPO on our
 binary reward) would use.
 
-## Results (EVAL v2, Harbor, 3 runs each)
+## Results (EVAL v2, 30 items, Harbor, 3 runs each)
 
 | model | data | mean reward | submitted | mean pixels |
 | --- | --- | --- | --- | --- |
-| Qwen3.8-27B base | - | 0.250 (0.200 / 0.275 / 0.275) | 18-25 of 40 (19 of 120 trials hit the 1800 s timeout) | 97-102k |
-| + SFT v2 (30 items, no scandoc) | 900 rows: logstream, dialogs, toasts | 0.611 (0.700 / 0.500 / 0.633) | 30 of 30 | 56-63k |
-| + SFT v3 | 1,200 rows, including scandoc | 0.617 (0.650 / 0.550 / 0.650) | 39-40 of 40 | 62-74k |
+| Qwen3.8-27B base | - | 0.211 (0.200 / 0.233 / 0.200) | 13-16 of 30 (15 of 90 trials hit the 1800 s timeout) | 91-96k |
+| + SFT v3 | 1,200 rows, including scandoc | 0.522 (0.533 / 0.467 / 0.567) | 29-30 of 30 | 70-84k |
+
+An earlier adapter, SFT v2 (900 rows: logstream, dialogs, toasts; no scandoc), was run on
+the 30 items EVAL had then; rescored on its 20 logstream and dialogs items: 0.617 (0.650 / 0.550 / 0.650), 20 of 20
+submitted, 65-72k pixels.
 
 SFT v3 settings: LoRA r=16, 1 epoch (145 optimizer steps), lr 1e-4, 4xH100 DDP. Held-out eval
 loss was 0.015 (logs in `docs/results/data/`).
@@ -27,7 +30,6 @@ Per kind, v3 vs base:
 | --- | --- | --- |
 | logstream | 0.90 | 0.33 |
 | dialogs | 0.40 | 0.30 |
-| toasts | 0.90 | 0.37 |
 | scandoc | 0.27 | 0.00 |
 
 The scandoc rows were generated with the video tools' descriptions, which is a small mismatch

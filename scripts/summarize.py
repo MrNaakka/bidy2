@@ -1,6 +1,9 @@
 """Summarize FrameHunt Harbor jobs into results/summary.md and results/summary.json.
 
-    uv run python scripts/summarize.py [--runs runs] [--out results] [JOB ...]
+    uv run python scripts/summarize.py [--runs runs] [--out results] [--split eval] [JOB ...]
+
+With --split, only trials of that split's current items count (scripts/eval.sh passes its
+split); trials of other items in the same job folders, e.g. items since removed, are ignored.
 
 Reads each job dir (default: every job under runs/, in a fixed order: reference,
 baselines, then agent runs). Per trial it uses Harbor's result.json (reward, exception,
@@ -112,7 +115,7 @@ def trial_row(tdir: Path) -> dict | None:
     }
 
 
-def job_summary(jdir: Path) -> dict:
+def job_summary(jdir: Path, keep: set[str] | None = None) -> dict:
     cfg = _load(jdir / "config.json") or {}
     agents = cfg.get("agents")
     if not agents:  # Harbor leaves the default (oracle) out of the job config; ask a trial
@@ -121,6 +124,8 @@ def job_summary(jdir: Path) -> dict:
     agent = agents[0].get("name") or agents[0].get("import_path") or "?"
     model = agents[0].get("model_name")
     rows = sorted(filter(None, (trial_row(t) for t in jdir.iterdir() if t.is_dir())), key=lambda r: r["item"])
+    if keep is not None:
+        rows = [r for r in rows if r["item"] in keep]
     jres = _load(jdir / "result.json") or {}
     t0, t1 = _ts(jres.get("started_at")), _ts(jres.get("finished_at"))
 
@@ -208,12 +213,20 @@ def main(argv=None) -> int:
     ap.add_argument("jobs", nargs="*", help="job names under --runs (default: all)")
     ap.add_argument("--runs", type=Path, default=ROOT / "runs")
     ap.add_argument("--out", type=Path, default=ROOT / "results")
+    ap.add_argument("--split", default=None,
+                    help="count only trials whose item is in this split's item list (e.g. eval); "
+                         "trials of other items in the same job dirs are ignored")
     a = ap.parse_args(argv)
     names = a.jobs or [p.name for p in a.runs.iterdir() if (p / "config.json").exists()] if a.runs.is_dir() else []
     if not names:
         print(f"no jobs found under {a.runs}", file=sys.stderr)
         return 1
-    jobs = [job_summary(a.runs / n) for n in sorted(names, key=_order)]
+    keep = None
+    if a.split:
+        sys.path.insert(0, str(ROOT))
+        from framehunt.splits import SPLITS
+        keep = {i for i, _, _ in SPLITS[a.split]}
+    jobs = [job_summary(a.runs / n, keep) for n in sorted(names, key=_order)]
     a.out.mkdir(parents=True, exist_ok=True)
     (a.out / "summary.json").write_text(json.dumps({"jobs": jobs}, indent=1))
     md = to_markdown(jobs)

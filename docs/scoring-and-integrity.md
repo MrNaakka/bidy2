@@ -20,8 +20,8 @@ The pixel budget is a hard constraint, not a reward term.
   created on the first build, git-ignored). A fresh checkout gets new instances of the
   same kinds and difficulty. Without that checkout's salt, answers can't be computed
   offline from the public generators, and the agent never sees the salt.
-- **Baselines score 0.** Do-nothing scores 0/40. Stop-early (one cheap look, then a
-  guess in the right format) also scores 0/40. Every look-alike is well-formed, so
+- **Baselines score 0.** Do-nothing scores 0/30. Stop-early (one cheap look, then a
+  guess in the right format) also scores 0/30. Every look-alike is well-formed, so
   getting the format right earns nothing.
 
 ## Tests

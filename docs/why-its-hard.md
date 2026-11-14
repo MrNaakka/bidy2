@@ -1,7 +1,7 @@
 # Why it's hard
 
 This page explains where Opus 5.5 loses points on FrameHunt and why. Numbers come from
-its three EVAL runs (3 x 40 items, 120 trials, 42 failures). We checked every failure
+its three EVAL runs (3 x 30 items, 90 trials, 36 failures). We checked every failure
 against the regenerated ground truth and read the agent's final message.
 
 ## The agent has what it needs
@@ -13,16 +13,15 @@ against the regenerated ground truth and read the agent's final message.
 - Every contact sheet comes with a text list that maps each tile to its frame.
 - Every trap is visible on screen.
 
-The reference script knows only the screen layout and the fonts. It scores 40/40 and
+The reference script knows only the screen layout and the fonts. It scores 30/30 and
 uses less than half the budget.
 
-## The four kinds and their traps
+## The three kinds and their traps
 
 | Kind | Setting | Question | Trap |
 | --- | --- | --- | --- |
 | `logstream` | terminal recording of a failing service, 3-5 new log lines per second | request id of the K-th ERROR line | One frame early, the (K-1)-th ERROR line is the newest. A few frames late, newer lines have pushed it up. Checking the `errors: N` counter on the exact frame costs a few hundred pixels. |
 | `dialogs` | desktop app; an error dialog pops up and closes (the common E2E-video case) | code shown in the K-th error dialog | The code is small. The dialog stays up for a while, so timing is forgiving. |
-| `toasts` (control) | same app, stacking toast notifications | code of the K-th red Error toast | Same mechanism as logstream: a lasting counter, the answer only briefly in the obvious spot, look-alikes before and after. But the check is cheap and in the same place: the bell badge sits right above the stack. |
 | `scandoc` (document) | scanned annual report, 150-400 page images, frame index = PDF page | one amount in one note's table at a given year-end | Printed page numbers are not PDF indexes (roman front matter, unnumbered inserted sheets). The comparative-year table with the same caption is on the facing page. A full page at 1/4 costs more than the budget. |
 
 ## What has to go right
@@ -70,17 +69,6 @@ needs about 51k for the whole item.
 
 14 of the 15 ended with under 5k pixels left.
 
-## toasts, the control: 6 of 30 trials failed
-
-Toasts uses the same mechanism as logstream, but the check is cheap and sits right
-above the answer: the bell badge counts Error toasts. Opus looked directly at the badge
-on the frame it read in 10 of its 24 successes and in none of its 6 failures. Four of the
-failures read the (K-1)-th Error toast, 1-10 frames early.
-
-Opus scores 0.80 here and 0.43 on logstream. That fits the idea that the cost of
-verifying, not the mechanism, drives the logstream failures. It is not proof: the two
-kinds also differ in layout and distractors.
-
 ## dialogs: 4 of 30 trials failed
 
 - 2 looked before the dialog opened or after it closed.
@@ -88,14 +76,14 @@ kinds also differ in layout and distractors.
 
 ## Across all kinds
 
-- 36 of 42 failures end with a final message saying the agent is guessing or unsure.
-  For correct answers it is 23 of 78.
-- 37 of 42 failures end with under 5k pixels left. By the time the agent says it is
+- 32 of 36 failures end with a final message saying the agent is guessing or unsure.
+  For correct answers it is 16 of 54.
+- 34 of 36 failures end with under 5k pixels left. By the time the agent says it is
   unsure, there is no budget left to check.
-- Even when right, Opus spends about twice what the reference does (106k vs 50k per
+- Even when right, Opus spends about twice what the reference does (109k vs 53k per
   item).
-- The 6 failures that don't hedge are mostly the traps working as designed: early toast
-  reads, the facing page, a wrong row.
+- The 4 failures that don't hedge are mostly the traps working as designed: the facing
+  page, a wrong row in a table, a wrong log row, and one misread amount.
 
 Per-kind scores and charts: [results/tables.md](results/tables.md). Item rules and
 generator guarantees: [design.md](design.md).

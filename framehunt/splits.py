@@ -1,9 +1,11 @@
 """Fixed, committed item lists, and the secret seed derivation. Each item is
 (item_id, kind, public_seed).
 
-EVAL (v2): 40 items, 10 each of logstream, dialogs, toasts (the control) and scandoc (a
-scanned PDF, not a video). The first 30 (logstream, dialogs, toasts) were evaluated before
-scandoc was added (scandoc-7601..7610, same salt); adding scandoc changed none of them.
+EVAL (v2): 30 items, 10 each of logstream, dialogs and scandoc (a scanned PDF, not a
+video). scandoc-7601..7610 were added later with the same salt; adding them changed none
+of the video items. toasts-7401..7410 were in EVAL at first and were removed; item seeds
+depend only on (split, item_id, salt), so removing them changed none of the other items.
+toasts stays in DEV and TRAIN.
 EVAL_V1 is the first evaluation set (10 each of logstream, dialogs and dashboard); the v1
 results in the README were measured on it. EVAL shares its logstream and dialogs ids with
 EVAL_V1 (same derived seeds; dialogs' answer_format now states the exact alphabet).
@@ -85,16 +87,6 @@ EVAL: tuple[tuple[str, str, int], ...] = (
     ("dialogs-7108", "dialogs", 7108),
     ("dialogs-7109", "dialogs", 7109),
     ("dialogs-7110", "dialogs", 7110),
-    ("toasts-7401", "toasts", 7401),
-    ("toasts-7402", "toasts", 7402),
-    ("toasts-7403", "toasts", 7403),
-    ("toasts-7404", "toasts", 7404),
-    ("toasts-7405", "toasts", 7405),
-    ("toasts-7406", "toasts", 7406),
-    ("toasts-7407", "toasts", 7407),
-    ("toasts-7408", "toasts", 7408),
-    ("toasts-7409", "toasts", 7409),
-    ("toasts-7410", "toasts", 7410),
     ("scandoc-7601", "scandoc", 7601),
     ("scandoc-7602", "scandoc", 7602),
     ("scandoc-7603", "scandoc", 7603),

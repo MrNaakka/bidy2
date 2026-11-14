@@ -7,12 +7,14 @@ vLLM.
 
 ## Results
 
-| | Qwen base | + SFT v2 (30 items, no scandoc) | **+ SFT v3** |
-| --- | --- | --- | --- |
-| Mean reward | 0.250 (0.200 / 0.275 / 0.275) | 0.611 (0.700 / 0.500 / 0.633) | **0.617** (0.650 / 0.550 / 0.650) |
-| Answers submitted | 18 / 25 / 23 of 40 | 30 / 30 / 30 of 30 | 40 / 39 / 40 of 40 |
-| Agent timeouts (1800 s) | 19 of 120 trials | 0 of 90 | 1 of 120 |
-| Mean pixels per item | 97-102k | 56-63k | 62-74k |
+On the 30 EVAL items, 3 runs each:
+
+| | Qwen base | **+ SFT v3** |
+| --- | --- | --- |
+| Mean reward | 0.211 (0.200 / 0.233 / 0.200) | **0.522** (0.533 / 0.467 / 0.567) |
+| Answers submitted | 13 / 16 / 14 of 30 | 30 / 29 / 30 of 30 |
+| Agent timeouts (1800 s) | 15 of 90 trials | 1 of 90 |
+| Mean pixels per item | 91-96k | 70-84k |
 
 Per kind (mean reward over 3 runs):
 
@@ -20,16 +22,20 @@ Per kind (mean reward over 3 runs):
 | --- | --- | --- | --- |
 | logstream | 0.33 | **0.90** | 0.43 |
 | dialogs | 0.30 | 0.40 | 0.87 |
-| toasts | 0.37 | 0.90 | 0.80 |
 | scandoc | 0.00 | 0.27 | 0.50 |
 
-- The score goes from 0.25 to 0.62, close to Opus (0.65).
+- The score goes from 0.21 to 0.52. Opus scores 0.60.
 - On logstream the fine-tuned model beats Opus, 0.90 vs 0.43. That is the kind where the
   teacher's always-verify-then-read plan matters most.
 - It submits on almost every item instead of running out of time.
-- It uses about two thirds of the base model's pixels (67k vs 100k per item).
+- It uses about 80% of the base model's pixels (75k vs 94k per item).
 - It stays weaker than Opus on dialogs (0.40) and scandoc (0.27), where reading small
   text from the right crop matters more than the search plan.
+
+An earlier adapter, SFT v2, was trained without scandoc data and run on the 30 items
+EVAL had then (logstream, dialogs, toasts). Rescored on its 20 logstream and dialogs
+items: 0.650 / 0.550 / 0.650 (mean 0.617), logstream 0.77,
+dialogs 0.47, every item submitted, no timeouts, 65-72k pixels per item.
 
 ![Pixels and submissions](results/pixels_and_submissions.png)
 

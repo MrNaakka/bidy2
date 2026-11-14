@@ -1,11 +1,10 @@
 {
  "eval": {
   "split": "EVAL v2",
-  "n_items": 40,
+  "n_items": 30,
   "kinds": [
    "logstream",
    "dialogs",
-   "toasts",
    "scandoc"
   ],
   "items_per_kind": 10,
@@ -19,27 +18,27 @@
     "fh-eval-reference-all"
    ],
    "model": null,
-   "n_items": 40,
+   "n_items": 30,
    "scores": [
     1.0
    ],
    "mean_score": 1.0,
    "correct": [
-    40
+    30
    ],
    "submitted": [
-    40
+    30
    ],
    "agent_timeouts": [
     0
    ],
    "mean_pixels": [
-    50036
+    53225
    ],
-   "mean_pixels_correct": 50036,
+   "mean_pixels_correct": 53225,
    "mean_pixels_wrong": 0,
    "max_pixels": 58224,
-   "mean_calls": 16.0,
+   "mean_calls": 15.8,
    "api_cost_usd": null,
    "api_cost_usd_total": null,
    "per_kind": {
@@ -56,13 +55,6 @@
       1.0
      ],
      "mean_pixels": 58080
-    },
-    "toasts": {
-     "mean_reward": 1.0,
-     "per_run": [
-      1.0
-     ],
-     "mean_pixels": 40472
     },
     "scandoc": {
      "mean_reward": 1.0,
@@ -81,22 +73,22 @@
     "fh-eval-opencode-all-run3"
    ],
    "model": "anthropic/claude-opus-5-5",
-   "n_items": 40,
+   "n_items": 30,
    "scores": [
-    0.75,
-    0.55,
-    0.65
+    0.7,
+    0.5,
+    0.6
    ],
-   "mean_score": 0.65,
+   "mean_score": 0.6,
    "correct": [
-    30,
-    22,
-    26
+    21,
+    15,
+    18
    ],
    "submitted": [
-    40,
-    40,
-    40
+    30,
+    30,
+    30
    ],
    "agent_timeouts": [
     0,
@@ -104,20 +96,20 @@
     0
    ],
    "mean_pixels": [
-    108037,
-    110124,
-    110445
+    111566,
+    114228,
+    112985
    ],
-   "mean_pixels_correct": 105622,
-   "mean_pixels_wrong": 116804,
+   "mean_pixels_correct": 108926,
+   "mean_pixels_wrong": 118927,
    "max_pixels": 120000,
-   "mean_calls": 10.3,
+   "mean_calls": 10.5,
    "api_cost_usd": [
-    5.53,
-    5.82,
-    5.09
+    4.38,
+    4.64,
+    3.9
    ],
-   "api_cost_usd_total": 16.45,
+   "api_cost_usd_total": 12.92,
    "per_kind": {
     "logstream": {
      "mean_reward": 0.433,
@@ -136,15 +128,6 @@
       0.8
      ],
      "mean_pixels": 105843
-    },
-    "toasts": {
-     "mean_reward": 0.8,
-     "per_run": [
-      0.9,
-      0.7,
-      0.8
-     ],
-     "mean_pixels": 99363
     },
     "scandoc": {
      "mean_reward": 0.5,
@@ -165,22 +148,22 @@
     "fh-eval-qwen-sft3-run3"
    ],
    "model": "verda-qwen/qwen3.8-27b-fh",
-   "n_items": 40,
+   "n_items": 30,
    "scores": [
-    0.65,
-    0.55,
-    0.65
+    0.533,
+    0.467,
+    0.567
    ],
-   "mean_score": 0.617,
+   "mean_score": 0.522,
    "correct": [
-    26,
-    22,
-    26
+    16,
+    14,
+    17
    ],
    "submitted": [
-    40,
-    39,
-    40
+    30,
+    29,
+    30
    ],
    "agent_timeouts": [
     0,
@@ -188,14 +171,14 @@
     0
    ],
    "mean_pixels": [
-    61941,
-    74379,
-    64091
+    69655,
+    83683,
+    70991
    ],
-   "mean_pixels_correct": 55591,
-   "mean_pixels_wrong": 84842,
+   "mean_pixels_correct": 65331,
+   "mean_pixels_wrong": 85100,
    "max_pixels": 120000,
-   "mean_calls": 20.7,
+   "mean_calls": 22.5,
    "api_cost_usd": null,
    "api_cost_usd_total": null,
    "per_kind": {
@@ -217,15 +200,6 @@
      ],
      "mean_pixels": 90412
     },
-    "toasts": {
-     "mean_reward": 0.9,
-     "per_run": [
-      1.0,
-      0.8,
-      0.9
-     ],
-     "mean_pixels": 42887
-    },
     "scandoc": {
      "mean_reward": 0.267,
      "per_run": [
@@ -237,77 +211,6 @@
     }
    }
   },
-  "Qwen3.8-27B + SFT v2*": {
-   "label": "Qwen3.8-27B + SFT v2*",
-   "jobs": [
-    "fh-eval-qwen-sft2-run1",
-    "fh-eval-qwen-sft2-run2",
-    "fh-eval-qwen-sft2-run3"
-   ],
-   "model": "verda-qwen/qwen3.8-27b-fh",
-   "n_items": 30,
-   "scores": [
-    0.7,
-    0.5,
-    0.633
-   ],
-   "mean_score": 0.611,
-   "correct": [
-    21,
-    15,
-    19
-   ],
-   "submitted": [
-    30,
-    30,
-    30
-   ],
-   "agent_timeouts": [
-    0,
-    0,
-    0
-   ],
-   "mean_pixels": [
-    56383,
-    62622,
-    61517
-   ],
-   "mean_pixels_correct": 56217,
-   "mean_pixels_wrong": 66393,
-   "max_pixels": 117877,
-   "mean_calls": 15.5,
-   "api_cost_usd": null,
-   "api_cost_usd_total": null,
-   "per_kind": {
-    "logstream": {
-     "mean_reward": 0.767,
-     "per_run": [
-      0.8,
-      0.7,
-      0.8
-     ],
-     "mean_pixels": 65483
-    },
-    "dialogs": {
-     "mean_reward": 0.467,
-     "per_run": [
-      0.5,
-      0.4,
-      0.5
-     ],
-     "mean_pixels": 74114
-    },
-    "toasts": {
-     "mean_reward": 0.6,
-     "per_run": [
-      0.8,
-      0.4,
-      0.6
-     ],
-     "mean_pixels": 40925
-    }
-   }
-  },
   "Qwen3.8-27B base": {
    "label": "Qwen3.8-27B base",
    "jobs": [
@@ -316,37 +219,37 @@
     "fh-eval-qwen-run3"
    ],
    "model": "verda-qwen/qwen3.8-27b",
-   "n_items": 40,
+   "n_items": 30,
    "scores": [
     0.2,
-    0.275,
-    0.275
+    0.233,
+    0.2
    ],
-   "mean_score": 0.25,
+   "mean_score": 0.211,
    "correct": [
-    8,
-    11,
-    11
+    6,
+    7,
+    6
    ],
    "submitted": [
-    18,
-    25,
-    23
+    13,
+    16,
+    14
    ],
    "agent_timeouts": [
-    11,
+    7,
     3,
     5
    ],
    "mean_pixels": [
-    100693,
-    97178,
-    101612
+    95966,
+    90596,
+    96487
    ],
-   "mean_pixels_correct": 115764,
-   "mean_pixels_wrong": 94515,
+   "mean_pixels_correct": 115328,
+   "mean_pixels_wrong": 88735,
    "max_pixels": 120000,
-   "mean_calls": 11.5,
+   "mean_calls": 10.2,
    "api_cost_usd": null,
    "api_cost_usd_total": null,
    "per_kind": {
@@ -368,15 +271,6 @@
      ],
      "mean_pixels": 117319
     },
-    "toasts": {
-     "mean_reward": 0.367,
-     "per_run": [
-      0.2,
-      0.4,
-      0.5
-     ],
-     "mean_pixels": 116261
-    },
     "scandoc": {
      "mean_reward": 0.0,
      "per_run": [
@@ -394,7 +288,7 @@
     "fh-eval-stop-early-all"
    ],
    "model": null,
-   "n_items": 40,
+   "n_items": 30,
    "scores": [
     0.0
    ],
@@ -403,16 +297,16 @@
     0
    ],
    "submitted": [
-    40
+    30
    ],
    "agent_timeouts": [
     0
    ],
    "mean_pixels": [
-    32786
+    32915
    ],
    "mean_pixels_correct": 0,
-   "mean_pixels_wrong": 32786,
+   "mean_pixels_wrong": 32915,
    "max_pixels": 33945,
    "mean_calls": 3.0,
    "api_cost_usd": null,
@@ -426,13 +320,6 @@
      "mean_pixels": 32400
     },
     "dialogs": {
-     "mean_reward": 0.0,
-     "per_run": [
-      0.0
-     ],
-     "mean_pixels": 32400
-    },
-    "toasts": {
      "mean_reward": 0.0,
      "per_run": [
       0.0
@@ -454,7 +341,7 @@
     "fh-eval-nop-all"
    ],
    "model": null,
-   "n_items": 40,
+   "n_items": 30,
    "scores": [
     0.0
    ],
@@ -492,13 +379,6 @@
      ],
      "mean_pixels": 0
     },
-    "toasts": {
-     "mean_reward": 0.0,
-     "per_run": [
-      0.0
-     ],
-     "mean_pixels": 0
-    },
     "scandoc": {
      "mean_reward": 0.0,
      "per_run": [
@@ -506,6 +386,68 @@
      ],
      "mean_pixels": 0
     }
+   }
+  }
+ },
+ "earlier_sft_v2": {
+  "label": "Qwen3.8-27B + SFT v2 (20 items, no scandoc)",
+  "jobs": [
+   "fh-eval-qwen-sft2-run1",
+   "fh-eval-qwen-sft2-run2",
+   "fh-eval-qwen-sft2-run3"
+  ],
+  "model": "verda-qwen/qwen3.8-27b-fh",
+  "n_items": 20,
+  "scores": [
+   0.65,
+   0.55,
+   0.65
+  ],
+  "mean_score": 0.617,
+  "correct": [
+   13,
+   11,
+   13
+  ],
+  "submitted": [
+   20,
+   20,
+   20
+  ],
+  "agent_timeouts": [
+   0,
+   0,
+   0
+  ],
+  "mean_pixels": [
+   65171,
+   72410,
+   71815
+  ],
+  "mean_pixels_correct": 65329,
+  "mean_pixels_wrong": 76988,
+  "max_pixels": 117877,
+  "mean_calls": 16.0,
+  "api_cost_usd": null,
+  "api_cost_usd_total": null,
+  "per_kind": {
+   "logstream": {
+    "mean_reward": 0.767,
+    "per_run": [
+     0.8,
+     0.7,
+     0.8
+    ],
+    "mean_pixels": 65483
+   },
+   "dialogs": {
+    "mean_reward": 0.467,
+    "per_run": [
+     0.5,
+     0.4,
+     0.5
+    ],
+    "mean_pixels": 74114
    }
   }
  },
@@ -593,7 +535,7 @@
  "fresh_clone_check": {
   "date": "2026-11-14",
   "command": "scripts/eval.sh --env modal -n 40 --runs 1",
-  "wall_seconds": {
+  "wall_seconds_40_items": {
    "build": 5,
    "reference": 139,
    "nop": 132,
@@ -605,16 +547,15 @@
   "nop": 0.0,
   "stop_early": 0.0,
   "opus_5_5": {
-   "score": 0.7,
-   "correct": 28,
+   "score": 0.6,
+   "correct": 18,
    "per_kind": {
     "logstream": 0.5,
     "dialogs": 0.6,
-    "toasts": 1.0,
     "scandoc": 0.7
    },
-   "mean_pixels": 108982,
-   "api_cost_usd": 5.72
+   "mean_pixels": 112414,
+   "api_cost_usd": 4.4
   },
   "log": "examples/harbor-runs/fresh-clone-modal-opus-run1/"
  },

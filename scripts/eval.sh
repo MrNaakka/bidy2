@@ -158,7 +158,7 @@ elif [ "$STAGE" = all ] || [ "$STAGE" = agents ]; then
   done
 fi
 
-uv run python scripts/summarize.py --runs "$OUT" --out results
+uv run python scripts/summarize.py --runs "$OUT" --out results --split "$SPLIT"
 echo
 echo "Full tables: results/summary.md (per item, per kind); raw data: results/summary.json; Harbor jobs: $OUT/"
 if [ "${FLEET_RC:-0}" != 0 ]; then

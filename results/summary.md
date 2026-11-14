@@ -7,43 +7,43 @@ run was charged (budget per item: see each task.toml, default 120000). Generated
 
 | job | agent | model | trials | mean reward | correct | submitted | exceptions | mean px | max px | mean calls | API cost (USD) | wall time (s) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| fh-eval-nop-all | nop | - | 40 | 0.000 | 0 | 0 | 0 | 0 | 0 | 0.0 | - | - |
-| fh-eval-opencode-all-run1 | opencode | anthropic/claude-opus-5-5 | 40 | 0.750 | 30 | 40 | 0 | 108037 | 119958 | 10.2 | 5.53 | - |
-| fh-eval-opencode-all-run2 | opencode | anthropic/claude-opus-5-5 | 40 | 0.550 | 22 | 40 | 0 | 110124 | 119976 | 10.8 | 5.82 | - |
-| fh-eval-opencode-all-run3 | opencode | anthropic/claude-opus-5-5 | 40 | 0.650 | 26 | 40 | 0 | 110445 | 120000 | 9.8 | 5.09 | - |
-| fh-eval-qwen-run1 | opencode | verda-qwen/qwen3.8-27b | 40 | 0.200 | 8 | 18 | 11 | 100693 | 120000 | 11.2 | - | - |
-| fh-eval-qwen-run2 | opencode | verda-qwen/qwen3.8-27b | 40 | 0.275 | 11 | 25 | 3 | 97178 | 120000 | 11.6 | - | - |
-| fh-eval-qwen-run3 | opencode | verda-qwen/qwen3.8-27b | 40 | 0.275 | 11 | 23 | 5 | 101612 | 120000 | 11.7 | - | - |
-| fh-eval-qwen-sft2-run1 | opencode | verda-qwen/qwen3.8-27b-fh | 30 | 0.700 | 21 | 30 | 0 | 56383 | 117877 | 15.6 | - | - |
-| fh-eval-qwen-sft2-run2 | opencode | verda-qwen/qwen3.8-27b-fh | 30 | 0.500 | 15 | 30 | 0 | 62622 | 113514 | 15.8 | - | - |
-| fh-eval-qwen-sft2-run3 | opencode | verda-qwen/qwen3.8-27b-fh | 30 | 0.633 | 19 | 30 | 0 | 61517 | 115680 | 15.0 | - | - |
-| fh-eval-qwen-sft3-run1 | opencode | verda-qwen/qwen3.8-27b-fh | 40 | 0.650 | 26 | 40 | 0 | 61941 | 120000 | 18.0 | - | - |
-| fh-eval-qwen-sft3-run2 | opencode | verda-qwen/qwen3.8-27b-fh | 40 | 0.550 | 22 | 39 | 1 | 74379 | 119983 | 27.8 | - | - |
-| fh-eval-qwen-sft3-run3 | opencode | verda-qwen/qwen3.8-27b-fh | 40 | 0.650 | 26 | 40 | 0 | 64091 | 119992 | 16.2 | - | - |
-| fh-eval-reference-all | oracle | - | 40 | 1.000 | 40 | 40 | 0 | 50036 | 58224 | 16.0 | - | - |
-| fh-eval-stop-early-all | framehunt.baselines.stop_early:StopEarly | - | 40 | 0.000 | 0 | 40 | 0 | 32786 | 33945 | 3.0 | - | - |
+| fh-eval-nop-all | nop | - | 30 | 0.000 | 0 | 0 | 0 | 0 | 0 | 0.0 | - | - |
+| fh-eval-opencode-all-run1 | opencode | anthropic/claude-opus-5-5 | 30 | 0.700 | 21 | 30 | 0 | 111566 | 119958 | 10.6 | 4.38 | - |
+| fh-eval-opencode-all-run2 | opencode | anthropic/claude-opus-5-5 | 30 | 0.500 | 15 | 30 | 0 | 114228 | 119976 | 11.1 | 4.64 | - |
+| fh-eval-opencode-all-run3 | opencode | anthropic/claude-opus-5-5 | 30 | 0.600 | 18 | 30 | 0 | 112985 | 120000 | 9.9 | 3.90 | - |
+| fh-eval-qwen-run1 | opencode | verda-qwen/qwen3.8-27b | 30 | 0.200 | 6 | 13 | 7 | 95966 | 120000 | 9.9 | - | - |
+| fh-eval-qwen-run2 | opencode | verda-qwen/qwen3.8-27b | 30 | 0.233 | 7 | 16 | 3 | 90596 | 120000 | 10.5 | - | - |
+| fh-eval-qwen-run3 | opencode | verda-qwen/qwen3.8-27b | 30 | 0.200 | 6 | 14 | 5 | 96487 | 119992 | 10.2 | - | - |
+| fh-eval-qwen-sft2-run1 | opencode | verda-qwen/qwen3.8-27b-fh | 20 | 0.650 | 13 | 20 | 0 | 65171 | 117877 | 16.2 | - | - |
+| fh-eval-qwen-sft2-run2 | opencode | verda-qwen/qwen3.8-27b-fh | 20 | 0.550 | 11 | 20 | 0 | 72410 | 113514 | 16.4 | - | - |
+| fh-eval-qwen-sft2-run3 | opencode | verda-qwen/qwen3.8-27b-fh | 20 | 0.650 | 13 | 20 | 0 | 71815 | 115680 | 15.4 | - | - |
+| fh-eval-qwen-sft3-run1 | opencode | verda-qwen/qwen3.8-27b-fh | 30 | 0.533 | 16 | 30 | 0 | 69655 | 120000 | 19.2 | - | - |
+| fh-eval-qwen-sft3-run2 | opencode | verda-qwen/qwen3.8-27b-fh | 30 | 0.467 | 14 | 29 | 1 | 83683 | 119983 | 31.5 | - | - |
+| fh-eval-qwen-sft3-run3 | opencode | verda-qwen/qwen3.8-27b-fh | 30 | 0.567 | 17 | 30 | 0 | 70991 | 119992 | 16.9 | - | - |
+| fh-eval-reference-all | oracle | - | 30 | 1.000 | 30 | 30 | 0 | 53225 | 58224 | 15.8 | - | - |
+| fh-eval-stop-early-all | framehunt.baselines.stop_early:StopEarly | - | 30 | 0.000 | 0 | 30 | 0 | 32915 | 33945 | 3.0 | - | - |
 
-Total API cost: $16.45
+Total API cost: $12.92
 
 ## Per kind (mean reward / mean pixels)
 
-| job | logstream | dialogs | toasts | scandoc |
-| --- | --- | --- | --- | --- |
-| fh-eval-nop-all | 0.00 / 0 | 0.00 / 0 | 0.00 / 0 | 0.00 / 0 |
-| fh-eval-opencode-all-run1 | 0.60 / 115736 | 0.90 / 102757 | 0.90 / 97452 | 0.60 / 116204 |
-| fh-eval-opencode-all-run2 | 0.10 / 118895 | 0.90 / 105509 | 0.70 / 97812 | 0.50 / 118281 |
-| fh-eval-opencode-all-run3 | 0.60 / 112452 | 0.80 / 109264 | 0.80 / 102825 | 0.40 / 117241 |
-| fh-eval-qwen-run1 | 0.30 / 112675 | 0.30 / 118342 | 0.20 / 114873 | 0.00 / 56880 |
-| fh-eval-qwen-run2 | 0.30 / 106951 | 0.40 / 117096 | 0.40 / 116924 | 0.00 / 47741 |
-| fh-eval-qwen-run3 | 0.40 / 111219 | 0.20 / 116518 | 0.50 / 116987 | 0.00 / 61723 |
-| fh-eval-qwen-sft2-run1 | 0.80 / 64884 | 0.50 / 65457 | 0.80 / 38808 | - |
-| fh-eval-qwen-sft2-run2 | 0.70 / 68194 | 0.40 / 76627 | 0.40 / 43046 | - |
-| fh-eval-qwen-sft2-run3 | 0.80 / 63371 | 0.50 / 80258 | 0.60 / 40922 | - |
-| fh-eval-qwen-sft3-run1 | 0.80 / 58495 | 0.40 / 90280 | 1.00 / 38799 | 0.40 / 60192 |
-| fh-eval-qwen-sft3-run2 | 1.00 / 68457 | 0.20 / 101370 | 0.80 / 46468 | 0.20 / 81220 |
-| fh-eval-qwen-sft3-run3 | 0.90 / 66310 | 0.60 / 79586 | 0.90 / 43394 | 0.20 / 67077 |
-| fh-eval-reference-all | 1.00 / 50776 | 1.00 / 58080 | 1.00 / 40472 | 1.00 / 50818 |
-| fh-eval-stop-early-all | 0.00 / 32400 | 0.00 / 32400 | 0.00 / 32400 | 0.00 / 33945 |
+| job | logstream | dialogs | scandoc |
+| --- | --- | --- | --- |
+| fh-eval-nop-all | 0.00 / 0 | 0.00 / 0 | 0.00 / 0 |
+| fh-eval-opencode-all-run1 | 0.60 / 115736 | 0.90 / 102757 | 0.60 / 116204 |
+| fh-eval-opencode-all-run2 | 0.10 / 118895 | 0.90 / 105509 | 0.50 / 118281 |
+| fh-eval-opencode-all-run3 | 0.60 / 112452 | 0.80 / 109264 | 0.40 / 117241 |
+| fh-eval-qwen-run1 | 0.30 / 112675 | 0.30 / 118342 | 0.00 / 56880 |
+| fh-eval-qwen-run2 | 0.30 / 106951 | 0.40 / 117096 | 0.00 / 47741 |
+| fh-eval-qwen-run3 | 0.40 / 111219 | 0.20 / 116518 | 0.00 / 61723 |
+| fh-eval-qwen-sft2-run1 | 0.80 / 64884 | 0.50 / 65457 | - |
+| fh-eval-qwen-sft2-run2 | 0.70 / 68194 | 0.40 / 76627 | - |
+| fh-eval-qwen-sft2-run3 | 0.80 / 63371 | 0.50 / 80258 | - |
+| fh-eval-qwen-sft3-run1 | 0.80 / 58495 | 0.40 / 90280 | 0.40 / 60192 |
+| fh-eval-qwen-sft3-run2 | 1.00 / 68457 | 0.20 / 101370 | 0.20 / 81220 |
+| fh-eval-qwen-sft3-run3 | 0.90 / 66310 | 0.60 / 79586 | 0.20 / 67077 |
+| fh-eval-reference-all | 1.00 / 50776 | 1.00 / 58080 | 1.00 / 50818 |
+| fh-eval-stop-early-all | 0.00 / 32400 | 0.00 / 32400 | 0.00 / 33945 |
 
 ## Per item (reward, pixels used, calls; `-` = not submitted)
 
@@ -69,16 +69,6 @@ Total API cost: $16.45
 | dialogs-7108 | 0, 0 px, 0 calls, - | 1, 93550 px, 11 calls | 1, 113020 px, 16 calls | 0, 119962 px, 13 calls | 0, 118624 px, 11 calls, - | 1, 114571 px, 18 calls | 0, 119992 px, 10 calls | 1, 43305 px, 15 calls | 1, 44260 px, 14 calls | 0, 70450 px, 14 calls | 0, 60810 px, 15 calls | 0, 75742 px, 14 calls | 1, 57279 px, 13 calls | 1, 58224 px, 17 calls | 0, 32400 px, 3 calls |
 | dialogs-7109 | 0, 0 px, 0 calls, - | 1, 115668 px, 9 calls | 0, 113280 px, 11 calls | 1, 97016 px, 8 calls | 0, 119891 px, 12 calls | 0, 119877 px, 10 calls | 0, 119760 px, 15 calls | 1, 49360 px, 15 calls | 0, 98688 px, 16 calls | 1, 67706 px, 13 calls | 1, 118218 px, 17 calls | 0, 100003 px, 16 calls | 1, 81160 px, 17 calls | 1, 57864 px, 16 calls | 0, 32400 px, 3 calls |
 | dialogs-7110 | 0, 0 px, 0 calls, - | 1, 115412 px, 15 calls | 1, 91112 px, 10 calls | 1, 104220 px, 9 calls | 0, 119720 px, 11 calls | 1, 119976 px, 18 calls | 1, 119736 px, 12 calls | 1, 74630 px, 16 calls | 0, 77074 px, 15 calls | 1, 105952 px, 16 calls | 1, 51531 px, 16 calls | 1, 100610 px, 16 calls | 1, 62660 px, 18 calls | 1, 58224 px, 17 calls | 0, 32400 px, 3 calls |
-| toasts-7401 | 0, 0 px, 0 calls, - | 1, 109568 px, 13 calls | 1, 109240 px, 10 calls | 1, 84992 px, 10 calls | 0, 111852 px, 25 calls, - | 0, 119987 px, 16 calls | 1, 118510 px, 17 calls | 0, 24335 px, 14 calls | 0, 65150 px, 16 calls | 1, 24585 px, 16 calls | 1, 26340 px, 16 calls | 0, 119022 px, 32 calls | 1, 37780 px, 15 calls | 1, 40688 px, 17 calls | 0, 32400 px, 3 calls |
-| toasts-7402 | 0, 0 px, 0 calls, - | 1, 81268 px, 8 calls | 1, 76648 px, 7 calls | 0, 119890 px, 11 calls | 0, 104660 px, 9 calls, - | 1, 116880 px, 19 calls | 1, 115190 px, 10 calls | 1, 39082 px, 15 calls | 0, 33058 px, 15 calls | 1, 47701 px, 13 calls | 1, 38262 px, 14 calls | 1, 38822 px, 17 calls | 1, 21346 px, 16 calls | 1, 40328 px, 16 calls | 0, 32400 px, 3 calls |
-| toasts-7403 | 0, 0 px, 0 calls, - | 1, 111840 px, 11 calls | 0, 115240 px, 11 calls | 1, 116660 px, 13 calls | 1, 116136 px, 30 calls | 1, 105135 px, 19 calls | 1, 119870 px, 18 calls | 1, 53971 px, 14 calls | 1, 24826 px, 14 calls | 1, 50090 px, 14 calls | 1, 35630 px, 15 calls | 1, 36927 px, 14 calls | 1, 46832 px, 14 calls | 1, 40688 px, 17 calls | 0, 32400 px, 3 calls |
-| toasts-7404 | 0, 0 px, 0 calls, - | 1, 101910 px, 8 calls | 0, 84904 px, 12 calls | 0, 117090 px, 13 calls | 0, 119586 px, 14 calls, - | 0, 119972 px, 10 calls | 1, 118372 px, 19 calls | 1, 35020 px, 14 calls | 0, 59425 px, 16 calls | 0, 37962 px, 14 calls | 1, 42899 px, 14 calls | 0, 54994 px, 14 calls | 1, 44077 px, 15 calls | 1, 40328 px, 16 calls | 0, 32400 px, 3 calls |
-| toasts-7405 | 0, 0 px, 0 calls, - | 1, 100736 px, 10 calls | 1, 95115 px, 12 calls | 1, 113420 px, 9 calls | 0, 119926 px, 13 calls | 1, 119832 px, 11 calls | 0, 119960 px, 11 calls | 1, 42998 px, 15 calls | 0, 59619 px, 13 calls | 1, 33482 px, 15 calls | 1, 61868 px, 14 calls | 1, 23185 px, 15 calls | 1, 45593 px, 14 calls | 1, 40328 px, 16 calls | 0, 32400 px, 3 calls |
-| toasts-7406 | 0, 0 px, 0 calls, - | 1, 90240 px, 8 calls | 1, 104084 px, 12 calls | 1, 87722 px, 8 calls | 0, 120000 px, 11 calls | 0, 119987 px, 9 calls | 1, 112340 px, 10 calls | 1, 36688 px, 14 calls | 1, 36309 px, 14 calls | 1, 28634 px, 15 calls | 1, 38143 px, 16 calls | 1, 33753 px, 16 calls | 0, 69390 px, 13 calls | 1, 40328 px, 16 calls | 0, 32400 px, 3 calls |
-| toasts-7407 | 0, 0 px, 0 calls, - | 1, 95510 px, 10 calls | 1, 86960 px, 10 calls | 1, 77160 px, 8 calls | 0, 119016 px, 10 calls, - | 0, 119920 px, 27 calls | 0, 119999 px, 22 calls | 0, 54705 px, 16 calls | 0, 28865 px, 14 calls | 0, 44775 px, 14 calls | 1, 54585 px, 16 calls | 1, 25075 px, 16 calls | 1, 22307 px, 15 calls | 1, 40688 px, 17 calls | 0, 32400 px, 3 calls |
-| toasts-7408 | 0, 0 px, 0 calls, - | 1, 113448 px, 6 calls | 1, 113436 px, 12 calls | 1, 113908 px, 6 calls | 1, 119730 px, 21 calls | 0, 119964 px, 13 calls | 0, 120000 px, 14 calls | 1, 32000 px, 14 calls | 1, 35137 px, 15 calls | 0, 41344 px, 12 calls | 1, 24407 px, 15 calls | 1, 28850 px, 14 calls | 1, 54522 px, 15 calls | 1, 40328 px, 16 calls | 0, 32400 px, 3 calls |
-| toasts-7409 | 0, 0 px, 0 calls, - | 0, 76400 px, 7 calls | 0, 110890 px, 6 calls | 1, 94702 px, 9 calls | 0, 119980 px, 11 calls | 0, 107875 px, 6 calls, - | 0, 119360 px, 20 calls | 1, 32095 px, 14 calls | 0, 47565 px, 14 calls | 0, 56215 px, 14 calls | 1, 25535 px, 14 calls | 1, 46995 px, 14 calls | 1, 60654 px, 12 calls | 1, 40328 px, 16 calls | 0, 32400 px, 3 calls |
-| toasts-7410 | 0, 0 px, 0 calls, - | 1, 93600 px, 8 calls | 1, 81600 px, 8 calls | 1, 102704 px, 8 calls | 0, 97848 px, 10 calls, - | 1, 119684 px, 18 calls | 0, 106272 px, 19 calls, - | 1, 37186 px, 15 calls | 1, 40505 px, 14 calls | 1, 44428 px, 14 calls | 1, 40319 px, 12 calls | 1, 57052 px, 14 calls | 1, 31436 px, 14 calls | 1, 40688 px, 17 calls | 0, 32400 px, 3 calls |
 | scandoc-7601 | 0, 0 px, 0 calls, - | 0, 119920 px, 12 calls | 0, 119260 px, 12 calls | 1, 119080 px, 10 calls | 0, 13056 px, 2 calls, - | 0, 0 px, 0 calls, - | 0, 0 px, 0 calls, - |  |  |  | 0, 50446 px, 14 calls | 0, 76440 px, 6 calls | 0, 50446 px, 13 calls | 1, 48796 px, 13 calls | 0, 33945 px, 3 calls |
 | scandoc-7602 | 0, 0 px, 0 calls, - | 1, 116420 px, 12 calls | 1, 116630 px, 9 calls | 1, 118330 px, 10 calls | 0, 74220 px, 5 calls, - | 0, 36480 px, 2 calls, - | 0, 0 px, 0 calls, - |  |  |  | 1, 52096 px, 14 calls | 0, 119934 px, 26 calls | 0, 48796 px, 13 calls | 1, 52096 px, 15 calls | 0, 33945 px, 3 calls |
 | scandoc-7603 | 0, 0 px, 0 calls, - | 0, 119784 px, 8 calls | 0, 118540 px, 11 calls | 0, 119927 px, 9 calls | 0, 119986 px, 10 calls | 0, 74840 px, 3 calls, - | 0, 119975 px, 11 calls |  |  |  | 1, 50291 px, 14 calls | 0, 50446 px, 14 calls | 1, 50291 px, 13 calls | 1, 50291 px, 14 calls | 0, 33945 px, 3 calls |

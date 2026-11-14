@@ -17,13 +17,13 @@ Tagline: **"Good agents don't see more. They look smarter."**
 
 In our environment, the failures and the wasted budget show up together:
 
-- Opus ends its wrong answers with the budget almost gone (mean 117k of 120k). It spends
+- Opus ends its wrong answers with the budget almost gone (mean 119k of 120k). It spends
   heavily early, then has nothing left to check its answer.
-- The reference uses less than half the budget (50k mean) and scores 40/40.
-- Even when Opus is right, it spends about twice as much (106k).
+- The reference uses less than half the budget (53k mean) and scores 30/30.
+- Even when Opus is right, it spends about twice as much (109k).
 - A 27B model fine-tuned on trajectories that always verify before reading went from
-  0.25 to 0.62. It used about two thirds of the base model's pixels and beat Opus on
-  logstream (0.90 vs 0.43).
+  0.21 to 0.52 (Opus: 0.60). It used about 80% of the base model's pixels and beat Opus
+  on logstream (0.90 vs 0.43).
 
 Line for the slide: **"Efficient looking is accurate looking."**
 
@@ -61,6 +61,3 @@ right moment. That's what our environment tests."*
 - The skit is only the hook. Don't present invented lines as Opus's real words.
 - "A cluttered context makes agents worse" is the motivation, not something we measured.
   What we measured is that failures come with an exhausted budget.
-- Toasts is our control: same mechanism as logstream, but the check is cheap and right
-  next to the answer. Opus scores 0.80 there and 0.43 on logstream. That fits "the cost of
-  verifying drives the failures", but it is not proof: layouts and distractors differ too.
