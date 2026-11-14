@@ -1,0 +1,3 @@
+result: {"submitted":true,"answer":"SQPY4M","correct":true,"reward":1.0,"pixels_used":87826,"n_calls":9}
+calls logged: 9
+reward=1

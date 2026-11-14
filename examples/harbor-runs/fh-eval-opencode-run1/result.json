@@ -1,0 +1,70 @@
+{
+    "id": "7b004800-07eb-437d-8e05-a940a5e881c3",
+    "started_at": "2026-11-14T06:04:12.960130",
+    "updated_at": "2026-11-14T06:38:36.162141",
+    "finished_at": "2026-11-14T06:38:36.162141",
+    "n_total_trials": 30,
+    "stats": {
+        "n_completed_trials": 30,
+        "n_errored_trials": 0,
+        "n_running_trials": 0,
+        "n_pending_trials": 0,
+        "n_cancelled_trials": 0,
+        "n_retries": 0,
+        "evals": {
+            "opencode__claude-opus-5-5__eval": {
+                "n_trials": 30,
+                "n_errors": 0,
+                "metrics": [
+                    {
+                        "mean": 0.7
+                    }
+                ],
+                "pass_at_k": {},
+                "reward_stats": {
+                    "reward": {
+                        "1.0": [
+                            "dashboard-7201__FnjpfSw",
+                            "dashboard-7202__KKEaXcr",
+                            "dashboard-7203__SSLutdL",
+                            "dashboard-7204__xmrtqAo",
+                            "dashboard-7205__FcrVU4p",
+                            "dashboard-7207__tngqV85",
+                            "dashboard-7208__gxNFrJK",
+                            "dashboard-7209__D3yYAKZ",
+                            "dashboard-7210__oenbq9Q",
+                            "dialogs-7101__rPpJKks",
+                            "dialogs-7102__FfJLG2V",
+                            "dialogs-7103__c5aCV7B",
+                            "dialogs-7104__2Zzmbfg",
+                            "dialogs-7105__j2dF3NG",
+                            "dialogs-7106__GCxTkPb",
+                            "dialogs-7107__xNNkPWD",
+                            "dialogs-7109__2JJFSE9",
+                            "dialogs-7110__nkaqNfY",
+                            "logstream-7003__Q6UsNMU",
+                            "logstream-7006__d7LabQH",
+                            "logstream-7010__vWrhuEg"
+                        ],
+                        "0.0": [
+                            "dashboard-7206__Awf4cws",
+                            "dialogs-7108__7WkMguN",
+                            "logstream-7001__HHm456H",
+                            "logstream-7002__sPg5XMA",
+                            "logstream-7004__MVmt8HT",
+                            "logstream-7005__feNNucs",
+                            "logstream-7007__VBgrAmb",
+                            "logstream-7008__boMuAdb",
+                            "logstream-7009__ho3qk2A"
+                        ]
+                    }
+                },
+                "exception_stats": {}
+            }
+        },
+        "n_input_tokens": 6130897,
+        "n_cache_tokens": 6130071,
+        "n_output_tokens": 70132,
+        "cost_usd": 4.7284532
+    }
+}
