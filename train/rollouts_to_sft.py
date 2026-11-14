@@ -44,6 +44,7 @@ import json
 import re
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -446,9 +447,8 @@ def main(argv=None) -> int:
 
     # build next to --out and swap it in at the end: a failure never leaves a half dataset or loses the old one
     final_out = a.out
-    a.out = final_out.with_name(f".{final_out.name}.tmp")
-    shutil.rmtree(a.out, ignore_errors=True)
-    a.out.mkdir(parents=True)
+    final_out.parent.mkdir(parents=True, exist_ok=True)
+    a.out = Path(tempfile.mkdtemp(prefix=f".{final_out.name}.", suffix=".tmp", dir=final_out.parent))
     (a.out / "images").mkdir()
     shutil.copy(fhdata.TOOLS_FILE, a.out / "tools.json")
     rows = []

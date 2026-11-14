@@ -20,6 +20,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 
+import select
+import socket
+
 import pytest
 from PIL import Image
 
@@ -71,6 +74,7 @@ class Upstream:
     def __init__(self):
         self.bodies, self.headers, self.script, self.gate = [], [], [], None
         self.aborted = threading.Event()
+        self.mode = None   # "hold": prefill without output; "pause": one event, then silence; "short": bad length
         up = self
 
         class H(BaseHTTPRequestHandler):
@@ -87,10 +91,31 @@ class Upstream:
                 self.end_headers()
                 self.wfile.write(b)
 
+            def wait_for_close(self):
+                end = time.time() + 10
+                while time.time() < end:
+                    if select.select([self.connection], [], [], 0.1)[0] and \
+                            self.connection.recv(1, socket.MSG_PEEK) == b"":
+                        up.aborted.set()   # vLLM sees the disconnect and aborts the request
+                        return
+
             def do_POST(self):
                 body = self.rfile.read(int(self.headers["Content-Length"]))
                 up.bodies.append(body)
                 up.headers.append(dict(self.headers))
+                if up.mode == "hold":
+                    return self.wait_for_close()
+                if up.mode in ("pause", "short"):
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream")
+                    self.send_header("Content-Length", "100000")
+                    self.end_headers()
+                    self.wfile.write(b"data: {}\n\n")
+                    self.wfile.flush()
+                    if up.mode == "pause":
+                        return self.wait_for_close()
+                    self.close_connection = True
+                    return
                 events = up.script.pop(0) if up.script else sse(turn_chunks("ok", "done", None))
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
@@ -225,6 +250,32 @@ def test_relay_aborts_upstream_when_the_client_goes_away(relay):
     assert relay.up.aborted.wait(10)     # the relay stopped reading and closed the upstream connection
     rec = wait_lines(relay.logs / "proj__env" / "log.jsonl", 1)[0]
     assert rec["client_ok"] is False and not rec["response"]["done"]
+
+
+@pytest.mark.parametrize("mode", ["hold", "pause"])
+def test_relay_cancels_upstream_when_the_client_leaves_while_vllm_is_silent(relay, mode):
+    """Queued/prefilling (no headers yet) or paused between events: the abort still reaches vLLM."""
+    relay.up.mode = mode
+    c = socket.create_connection(("127.0.0.1", relay.port))
+    c.sendall(b"POST /v1/chat/completions HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n"
+              b"x-opencode-session-id: s\r\nContent-Length: 2\r\n\r\n{}")
+    if mode == "pause":
+        c.settimeout(5)
+        assert b"data: {}" in c.recv(65536)
+    time.sleep(0.3)
+    c.close()
+    assert relay.up.aborted.wait(5)
+
+
+def test_relay_closes_the_client_on_a_truncated_response(relay):
+    relay.up.mode = "short"   # Content-Length 100000, a few bytes, then EOF
+    conn = http.client.HTTPConnection("127.0.0.1", relay.port, timeout=10)
+    conn.request("POST", "/v1/chat/completions", body=b'{"tools": [1]}', headers={"x-opencode-session-id": "s"})
+    r = conn.getresponse()
+    with pytest.raises(http.client.IncompleteRead):   # promptly, not after a timeout
+        r.read()
+    rec = wait_lines(relay.logs / "proj__env" / "log.jsonl", 1)[0]
+    assert rec["upstream_ok"] is False
 
 
 def test_relay_handles_concurrent_trials(relay):
@@ -448,6 +499,11 @@ def test_outputs_never_overlap_inputs(tmp_path):
     assert r2s.main([str(run), "--out", str(out)]) == 0
     with pytest.raises(SystemExit):
         merge_sft.main([str(out), "--out", str(out), "--force"])
+    # an input named like an old fixed temp dir is left alone
+    lookalike = _copy(out, tmp_path / ".mix.tmp")
+    assert merge_sft.main([str(lookalike), "--out", str(tmp_path / "mix")]) == 0
+    assert (lookalike / "sft.jsonl").is_file() and (tmp_path / "mix" / "sft.jsonl").is_file()
+    assert not [p for p in tmp_path.iterdir() if p.name.startswith((".mix.", ".ei.")) and p != lookalike]
     # a failing conversion keeps the previous dataset
     make_trial(tmp_path / "bad", "logstream-7001__X", "logstream-7001", 1.0, script())
     with pytest.raises(SystemExit):

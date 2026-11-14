@@ -44,6 +44,8 @@ import http.client
 import json
 import os
 import re
+import select
+import socket
 import subprocess
 import sys
 import threading
@@ -330,6 +332,47 @@ class RequestLog:
 
 
 # ---------------------------------------------------------------------- proxy
+class ClientWatch:
+    """While a request is upstream, watch the client socket; if it closes, shut the upstream socket down.
+
+    So an aborted request (OpenCode cancelled, trial timed out) is cancelled in vLLM at once, also while
+    vLLM is still queuing, prefilling or between stream events, as when socat closes its side.
+    """
+
+    def __init__(self, client: socket.socket, upstream: socket.socket | None):
+        self.gone = threading.Event()
+        self._stop = threading.Event()
+        self._t = threading.Thread(target=self._run, args=(client, upstream), daemon=True)
+        self._t.start()
+
+    def _run(self, client, upstream) -> None:
+        while not self._stop.is_set():
+            try:
+                readable, _, _ = select.select([client], [], [], 0.2)
+            except (OSError, ValueError):
+                return
+            if not readable:
+                continue
+            try:
+                data = client.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT)
+            except BlockingIOError:
+                continue
+            except OSError:
+                data = b""
+            if data or self._stop.is_set():
+                return   # the client sent its next request (or we are done): not a disconnect
+            self.gone.set()
+            if upstream is not None:
+                try:
+                    upstream.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+            return
+
+    def stop(self) -> None:
+        self._stop.set()   # no join: the thread ends within one select timeout
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     upstream: tuple[str, int] = ("127.0.0.1", 8000)
@@ -379,17 +422,30 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:   # never break the agent's run
                 log(f"trial lookup failed: {type(e).__name__}: {e}")
                 who = (f"unresolved-{ip}", None)
+        watch = None
+        conn = self._upstream()
         try:
-            conn = self._upstream()
             try:
                 conn.request(self.command, self.path, body=body, headers=headers)
+                watch = ClientWatch(self.connection, conn.sock)
                 resp = conn.getresponse()
             except (http.client.RemoteDisconnected, BrokenPipeError, ConnectionResetError):
+                if watch is not None:
+                    watch.stop()
+                    if watch.gone.is_set():
+                        raise
                 conn.close()   # a stale keep-alive connection: one retry on a fresh one
                 conn.request(self.command, self.path, body=body, headers=headers)
+                watch = ClientWatch(self.connection, conn.sock)
                 resp = conn.getresponse()
-        except OSError as e:
+        except (OSError, http.client.HTTPException) as e:
+            if watch is not None:
+                watch.stop()
+            conn.close()
             self._conn = None
+            if watch is not None and watch.gone.is_set():   # the client gave up while vLLM was busy
+                self.close_connection = True
+                return
             log(f"upstream error: {e}")
             msg = json.dumps({"error": {"message": f"relay: upstream unreachable: {e}"}}).encode()
             self.send_response(502)
@@ -413,11 +469,17 @@ class Handler(BaseHTTPRequestHandler):
         while True:
             try:
                 piece = resp.read1(CHUNK)
-            except (OSError, http.client.HTTPException) as e:   # vLLM died mid-response
-                log(f"upstream read error: {e}")
-                upstream_ok = False
+            except (OSError, http.client.HTTPException) as e:
+                if watch.gone.is_set():   # we shut it down: the client went away
+                    client_ok = False
+                else:                     # vLLM died mid-response
+                    log(f"upstream read error: {e}")
+                    upstream_ok = False
                 break
             if not piece:
+                if resp.length:           # EOF before Content-Length was satisfied (read1 doesn't raise)
+                    log(f"upstream closed with {resp.length} bytes missing")
+                    upstream_ok = False
                 break
             if captured is not None:
                 captured.append(piece)
@@ -432,6 +494,9 @@ class Handler(BaseHTTPRequestHandler):
                 # connection below so vLLM aborts the generation. The log keeps the partial response.
                 client_ok = False
                 break
+        watch.stop()
+        if watch.gone.is_set():
+            client_ok = False
         if client_ok and chunked_out and upstream_ok:
             try:
                 self.wfile.write(b"0\r\n\r\n")

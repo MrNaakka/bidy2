@@ -16,6 +16,7 @@ import json
 import os
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -86,9 +87,8 @@ def main(argv=None) -> int:
         stats["by_source"][src.name] = {"rows": len(src_rows), "by_kind": dict(by_kind)}
     # build next to --out and swap it in at the end (all checks above ran before anything was written)
     final_out = a.out
-    a.out = final_out.with_name(f".{final_out.name}.tmp")
-    shutil.rmtree(a.out, ignore_errors=True)
-    a.out.mkdir(parents=True)
+    final_out.parent.mkdir(parents=True, exist_ok=True)
+    a.out = Path(tempfile.mkdtemp(prefix=f".{final_out.name}.", suffix=".tmp", dir=final_out.parent))
     (a.out / "tools.json").write_bytes(tools)
     (a.out / "images").mkdir()
     for src in a.inputs:
