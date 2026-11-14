@@ -5,7 +5,7 @@ __pycache__/
 jobs/
 runs/
 tasks/
-reviews/*.log
+reviews/
 infra/verda/.serve-ensure.lock
 infra/verda/.state.lock
 infra/verda/state.json.tmp
