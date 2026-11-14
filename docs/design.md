@@ -206,8 +206,8 @@ that row's printed page number at 1/4; jump to PDF index = printed number and co
 by the printed number read on the landing page (1/4 header crop) until they agree;
 read only the date line of the following pages until the asked year; row labels and
 column headers at 1/4; one native crop of the amount (template OCR). Every look searches
-small shifts because of the scan. 100 % on 100 random seeds; ~50k px on average, at most
-55k (`tests/test_reference.py`, `FH_REF_N_DOC`).
+small shifts because of the scan. 100 % on 100 random seeds; 51.6k px on average, at most
+56.1k (`tests/test_reference.py`, `FH_REF_N_DOC`).
 
 **Cheap shortcuts** (perfect readers, `tests/test_scandoc.py`): using the printed number
 as the PDF index, or the front-matter offset only, then reading the first table found
@@ -217,7 +217,7 @@ never check a header or date" strategy hits ~13 % (when it happens to land in th
 before the target and the asked year is printed first). Stop-early (a well-formed random
 4–6 digit guess) and do-nothing score 0.
 
-**Budget**: 120k, as for the videos, which is about 2.2× the reference's maximum.
+**Budget**: 120k, as for the videos, which is about 2.1× the reference's maximum.
 
 ## Interfaces
 
