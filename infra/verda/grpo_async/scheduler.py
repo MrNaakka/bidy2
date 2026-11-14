@@ -131,10 +131,19 @@ def main(argv=None) -> int:
     converting: list[Job] = []
     stopping = False
 
+    abort = {"t": None}
+
     def on_term(signum, frame):
+        # SIGTERM: no new jobs, and cancel the running ones (Harbor cleans its trials up on SIGINT)
         nonlocal stopping
         stopping = True
-        log(f"signal {signum}: no new jobs")
+        abort["t"] = time.time()
+        log(f"signal {signum}: no new jobs, interrupting {len(running)} running jobs")
+        for j in running:
+            try:
+                j.proc.send_signal(signal.SIGINT)
+            except OSError:
+                pass
 
     signal.signal(signal.SIGTERM, on_term)
     while True:
@@ -256,6 +265,12 @@ def main(argv=None) -> int:
                     write_json(state_f, st)
                     log(f"launched {name} on gpu {g} (policy v{version}); in flight "
                         f"{sum(a.k for j in running if j.gpu == g)} on gpu {g}")
+        if abort["t"] is not None and time.time() - abort["t"] > 150:
+            for j in running:
+                if j.proc.poll() is None:
+                    j.proc.kill()
+            log("killed what was still running")
+            return 0
         if stopping and not running and not converting:
             log("stopped")
             return 0

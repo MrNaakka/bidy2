@@ -41,7 +41,7 @@ systemd-run --unit=fh-agrpo-train --setenv=CUDA_VISIBLE_DEVICES=$TRAIN_GPUS --se
   --setenv=PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True --working-directory=$CODE/train \
   bash -c "exec /root/fhdata/envs/train/bin/torchrun --standalone --nproc_per_node=$nproc async_grpo.py --model $MODEL \
     --init-adapter $INIT --root $ROOT ${DEADLINE:+--deadline $DEADLINE} ${TRAIN_ARGS:-} >> $ROOT/logs/train.log 2>&1"
-systemd-run --unit=fh-agrpo-sched --setenv=HOME=/root --setenv=PATH=/root/.local/bin:/usr/bin:/bin \
+systemd-run --unit=fh-agrpo-sched --property=TimeoutStopSec=200 --setenv=HOME=/root --setenv=PATH=/root/.local/bin:/usr/bin:/bin \
   bash -c "exec $PY $CODE/infra/verda/grpo_async/scheduler.py --root $ROOT --pool $POOL --gpus $INFER_GPUS \
     ${DEADLINE:+--deadline $DEADLINE} ${SCHED_ARGS:-} >> $ROOT/logs/sched.log 2>&1"
 echo "async GRPO started: infer $INFER_GPUS, train $TRAIN_GPUS, root $ROOT"
