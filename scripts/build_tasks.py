@@ -311,7 +311,8 @@ def main(argv=None) -> int:
     ap.add_argument("--split", required=True, choices=sorted(SPLITS))
     ap.add_argument("--out", type=Path, default=None, help="default: tasks/<split>")
     ap.add_argument("--budget", type=int, default=DEFAULT_BUDGET_PX)
-    ap.add_argument("--only", nargs="*", default=None, help="build only these item ids")
+    ap.add_argument("--only", nargs="*", default=None,
+                    help="build only these item ids (otherwise the full list is built and other task dirs are removed)")
     ap.add_argument("--v1", action="store_true",
                     help="with --split eval: build the first evaluation set (EVAL_V1: logstream, dialogs, "
                          "dashboard), whose results the README reports as v1. Default out: tasks/eval-v1")
@@ -333,6 +334,14 @@ def main(argv=None) -> int:
         salt = load_salt(a.split, create=True)
         print(f"generated a new secret salt for split {a.split!r}: {salt_path(a.split)} "
               "(keep it to rebuild these exact items; never commit it)")
+    if not a.only:
+        # A full build owns the directory: drop generated tasks that are not in this item
+        # list (e.g. EVAL v1 items left in tasks/eval), so a run never evaluates stale items.
+        keep = {i for i, _, _ in items}
+        for d in sorted(out.iterdir()):
+            if d.is_dir() and d.name not in keep and (d / "task.toml").is_file():
+                shutil.rmtree(d)
+                print(f"removed stale task {d.name} (not in this item list)")
     for item_id, kind, seed in items:
         d = build_item(out, a.split, item_id, kind, seed, a.budget, salt=salt)
         print(d.relative_to(ROOT) if d.is_relative_to(ROOT) else d)
