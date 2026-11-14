@@ -86,8 +86,13 @@ class Adopted:
         self.pid, self.returncode = pid, None
 
     def poll(self):
-        if self.returncode is None and not Path(f"/proc/{self.pid}").exists():
-            self.returncode = 0
+        if self.returncode is None:
+            try:   # gone, or a zombie (its parent, the frozen old scheduler, cannot reap it)
+                done = Path(f"/proc/{self.pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z"
+            except (OSError, IndexError):
+                done = True
+            if done:
+                self.returncode = 0
         return self.returncode
 
     def send_signal(self, sig):
