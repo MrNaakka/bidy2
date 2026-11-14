@@ -1,0 +1,22 @@
+schema_version = "1.4"
+
+[task]
+name = "framehunt/step0-probe"
+version = "0.1.0"
+description = "Checks that an MCP image tool result reaches the model."
+
+[verifier]
+timeout_sec = 120.0
+environment_mode = "shared"
+
+[agent]
+timeout_sec = 300.0
+
+[environment]
+network_mode = "public"
+build_timeout_sec = 600.0
+
+[[environment.mcp_servers]]
+name = "probe"
+transport = "streamable-http"
+url = "http://probe-mcp:8000/mcp"
