@@ -12,7 +12,7 @@ import pytest
 from PIL import Image, ImageDraw
 
 from framehunt.answers import normalize_answer
-from framehunt.scenes import KINDS, Scene, SceneMeta, make_scene
+from framehunt.scenes import DOCUMENT_KINDS, KINDS, VIDEO_KINDS, Scene, SceneMeta, make_scene
 from framehunt.scenes.base import FONT_DIR, font
 
 SEEDS = [0, 1, 2, 7, 42, 1234]
@@ -41,7 +41,7 @@ def lowres_box(im: Image.Image, box, inset: int = 3) -> np.ndarray:
     return small[y // 8 + inset:(y + h) // 8 - inset, x // 8 + inset:(x + w) // 8 - inset]
 
 
-@pytest.fixture(scope="module", params=[(k, s) for k in KINDS for s in SEEDS],
+@pytest.fixture(scope="module", params=[(k, s) for k in VIDEO_KINDS for s in SEEDS],
                 ids=lambda p: f"{p[0]}-{p[1]}")
 def scene(request) -> Scene:
     return make_scene(*request.param)
@@ -55,7 +55,8 @@ def test_normalize_answer():
 
 
 def test_kinds_and_unknown():
-    assert KINDS == ("logstream", "dialogs", "dashboard", "toasts", "leaderboard")
+    assert KINDS == ("logstream", "dialogs", "dashboard", "toasts", "leaderboard", "scandoc")
+    assert DOCUMENT_KINDS == ("scandoc",) and VIDEO_KINDS == KINDS[:5]
     with pytest.raises(ValueError):
         make_scene("nope", 1)
 
@@ -113,7 +114,7 @@ def test_render_returns_fresh_image(scene):
 
 
 # --- answer randomness -------------------------------------------------------------
-@pytest.mark.parametrize("kind", KINDS)
+@pytest.mark.parametrize("kind", VIDEO_KINDS)   # scandoc: tests/test_scandoc.py
 def test_answers_random_across_seeds(kind):
     answers, ks, events = [], [], []
     for seed in range(200):
@@ -326,7 +327,7 @@ def test_dashboard_kpi_window():
 
 
 # --- speed ----------------------------------------------------------------------------
-@pytest.mark.parametrize("kind", KINDS)
+@pytest.mark.parametrize("kind", VIDEO_KINDS)
 def test_render_speed(kind):
     sc = make_scene(kind, 3)
     sc.render(0)                                   # build static layers once

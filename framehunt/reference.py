@@ -600,7 +600,7 @@ class Doc:
     TOC_Y0, TOC_PITCH, TOC_MAX_ROWS, TOC_TITLE_X = 180, 60, 22, 290
     DATE_Y, COLHEAD_Y, ROW_Y0, ROW_PITCH, MAX_ROWS = 205, 300, 380, 64, 9
     COL_R = (820, 1140)
-    AMOUNT_FONT, CELL, AMOUNT_DY = ("mono", 17), 11, 12
+    AMOUNT_FONT, CELL, CELL_H, AMOUNT_DY = ("mono", 12), 8, 18, 12
     INK = 28
     SOFTEN = ImageFilter.Kernel((3, 3), (1, 2, 1, 2, 4, 2, 1, 2, 1), 16)
     SCALE = 4                                  # cue reads at 1/4
@@ -663,14 +663,15 @@ class Doc:
 
     # ---------------------------------------------------------------- reads
     @classmethod
-    def read_header_left(cls, s: Session, page: int, title: str, purpose: str):
-        """Does page show `title` at the top left? Returns (match error, blank error, shift)."""
+    def read_header_left(cls, s: Session, page: int, titles: tuple[str, ...], purpose: str):
+        """Which of `titles` (or no title) is at the top left of `page`? Returns (title or None, shift)."""
         box, ow = cls.LEFT_BOX, cls.LEFT_BOX[2] // cls.SCALE
         obs = cls.norm(s.view(page, box, ow, purpose))
         rule = ("rect", cls.ML, cls.RULE_Y, cls.MR, cls.RULE_Y + 2)
-        e, sh = cls.best_shift(obs, box, [rule, (cls.ML, cls.HEADER_Y, title, *cls.CUE, "left")], ow)
+        best = min(cls.best_shift(obs, box, [rule, (cls.ML, cls.HEADER_Y, t, *cls.CUE, "left")], ow) + (t,)
+                   for t in titles)
         e0 = min(cls.err(obs, cls.template(box, its, (0, 0), ow)) for its in ([], [rule]))
-        return e, e0, sh
+        return (best[2] if best[0] < 0.75 * e0 else None), best[1]
 
     @classmethod
     def read_folio(cls, s: Session, page: int, purpose: str, max_folio: int = 520):
@@ -706,9 +707,10 @@ class Doc:
     def solve(cls, s: Session, q: dict) -> tuple[str, dict]:
         # 1. the Contents page: within the first few pages, header "Contents" at the top left
         toc_page, toc_shift = None, (0, 0)
-        for p in range(1, 6):
-            e, e0, sh = cls.read_header_left(s, p, "Contents", "is this the Contents page? (header title at 1/4)")
-            if e < 0.75 * e0:
+        for p in range(1, 4):           # cover, then optional notice and blank pages
+            t, sh = cls.read_header_left(s, p, ("Contents", "Important notice"),
+                                         "is this the Contents page? (header title at 1/4)")
+            if t == "Contents":
                 toc_page, toc_shift = p, sh
                 break
         if toc_page is None:
@@ -787,7 +789,7 @@ class Doc:
         ry = cls.ROW_Y0 + trow * cls.ROW_PITCH + cls.AMOUNT_DY
         n_cells = 7
         m = 8
-        abox = (cls.COL_R[col] - n_cells * cls.CELL - m, ry - m, n_cells * cls.CELL + 2 * m, 17 + 6 + 2 * m)
+        abox = (cls.COL_R[col] - n_cells * cls.CELL - m, ry - m, n_cells * cls.CELL + 2 * m, cls.CELL_H + 6 + 2 * m)
         aobs = cls.norm(s.view(table_page, abox, abox[2], "read the amount at native resolution"))
         val, margin = cls.ocr_amount(aobs, abox, cls.COL_R[col], ry)
         return val, {"toc_page": toc_page, "toc_row": row, "printed_page": printed, "hops": hops,
@@ -801,28 +803,28 @@ class Doc:
         if not cls._cells:
             f = font(*cls.AMOUNT_FONT)
             for ch in "0123456789 ":
-                im = Image.new("L", (cls.CELL + 6, 30), 255)
+                im = Image.new("L", (cls.CELL + 6, cls.CELL_H + 6), 255)
                 ImageDraw.Draw(im).text((3, 3), ch.strip(), font=f, fill=cls.INK)
                 a = np.asarray(im.filter(cls.SOFTEN), np.float32)
-                cls._cells[ch] = np.clip((a - cls.INK) / (255.0 - cls.INK), 0, 1)[3:27, 3:3 + cls.CELL]
+                cls._cells[ch] = np.clip((a - cls.INK) / (255.0 - cls.INK), 0, 1)[3:3 + cls.CELL_H, 3:3 + cls.CELL]
         return cls._cells
 
     @classmethod
     def ocr_amount(cls, obs: np.ndarray, box, right: int, top: int) -> tuple[str, float]:
-        """Read 'ddd ddd' right-aligned at `right` (one glyph per 11-px cell), searching 1-px shifts."""
+        """Read 'ddd ddd' right-aligned at `right` (one glyph per CELL-px cell), searching 1-px shifts."""
         tm = cls.cell_templates()
         best = None
         for dy in range(-6, 7):
             for dx in range(-6, 7):
                 y0 = top - box[1] + dy
-                if y0 < 0 or y0 + 24 > obs.shape[0]:
+                if y0 < 0 or y0 + cls.CELL_H > obs.shape[0]:
                     continue
                 if right - 7 * cls.CELL - box[0] + dx < 0 or right - box[0] + dx > obs.shape[1]:
                     continue
                 total, picks = 0.0, []
                 for k in range(1, 8):          # cells from the right
                     x0 = right - k * cls.CELL - box[0] + dx
-                    cell = obs[y0:y0 + 24, x0:x0 + cls.CELL]
+                    cell = obs[y0:y0 + cls.CELL_H, x0:x0 + cls.CELL]
                     errs = sorted((float(np.abs(cell - t).mean()), c) for c, t in tm.items())
                     if k == 4:                 # the thousands separator is always blank
                         total += float(np.abs(cell - tm[" "]).mean())

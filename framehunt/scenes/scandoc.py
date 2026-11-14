@@ -15,7 +15,7 @@ The "video" is a PDF: page index i is frame i (fps = 1, so t = i). Every page is
 Navigation cues (running header: section or note title at the top left, printed page
 number at the top right; the Contents entries; table captions, the table date, column
 headers and row labels) are set in 36 px type: legible at 1/4 scale. The table amounts
-are 17 px monospace digits: legible only near native resolution.
+are 12 px monospace digits: legible only near native resolution.
 
 Question: the amount for row R, column C, in the table of the note titled T, at
 31 December Y. The note's table is printed twice, on adjacent pages: for year Y and for
@@ -44,8 +44,8 @@ MARGIN_L, MARGIN_R = 100, 1140                  # text block (native px, before 
 CUE_FONT = ("sans-bold", 36)                    # header title, folio, captions, labels
 TOC_FONT = ("sans", 36)                         # contents titles
 BODY_FONT = ("sans", 22)
-AMOUNT_FONT = ("mono", 17)
-AMOUNT_CELL = 11                                # amounts: one digit per 11-px cell
+AMOUNT_FONT = ("mono", 12)
+AMOUNT_CELL = 8                                 # amounts: one digit per 8-px cell
 HEADER_Y = 48                                   # header text top
 RULE_Y = 104
 TOC_Y0, TOC_PITCH, TOC_MAX_ROWS = 180, 60, 22
@@ -145,7 +145,7 @@ class ScanDocScene(Scene):
 
     # ------------------------------------------------------------------ planning
     def _plan(self, r) -> None:
-        n_target = r.randint(150, 400)
+        n_target = r.randint(152, 400)          # + 2-4 inserts - 4 below: 150-400 pages
         # --- front matter
         front: list[dict] = [{"type": "cover"}]
         if r.random() < 0.6:

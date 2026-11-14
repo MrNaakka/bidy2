@@ -54,16 +54,16 @@ def test_stop_early_guess_scores_zero(kind):
     assert hits == 0
 
 
-@pytest.mark.parametrize("kind", ["toasts", "leaderboard"])
+@pytest.mark.parametrize("kind", ["toasts", "leaderboard", "scandoc"])
 def test_stop_early_guess_is_well_formed(kind):
     import re
-    pat = {"toasts": r"^[A-HJ-NP-Z0-9]{6}$", "leaderboard": r"^[1-9][0-9]{2,3}$"}[kind]
+    pat = {"toasts": r"^[A-HJ-NP-Z0-9]{6}$", "leaderboard": r"^[1-9][0-9]{2,3}$", "scandoc": r"^[1-9][0-9]{3,5}$"}[kind]
     for i in range(50):
         sc = make_scene(kind, i)
         assert re.match(pat, guess(sc.answer_format, random.Random(i)))
 
 
-@pytest.mark.parametrize("kind", ["toasts", "leaderboard"])
+@pytest.mark.parametrize("kind", ["toasts", "leaderboard", "scandoc"])
 def test_do_nothing_scores_zero(kind):
     env = FrameHuntEnv(make_scene(kind, 1), verify_token="t")
     env.info()
