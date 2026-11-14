@@ -72,7 +72,7 @@ logs/serve-<hostname>.log      vLLM server logs; logs/download.log
 ## Serving config
 
 - vLLM 0.33.0 (the recipe requires >= 0.17.0), served under the stable name `qwen3.8-27b` on 127.0.0.1:8000. The API key reaches vLLM only through `VLLM_API_KEY` in its environment (systemd `EnvironmentFile`, mode 600), not on the command line, so `ps` on the box does not show it. vLLM 0.33.0 reads it in `entrypoints/serve/middleware/register.py` (`args.api_key or [envs.VLLM_API_KEY]`).
-- Flags: `--enable-auto-tool-choice --tool-call-parser qwen3_coder --reasoning-parser qwen3 --max-model-len 65536 --max-num-seqs 16 --gpu-memory-utilization 0.92 --limit-mm-per-prompt '{"image": 64, "video": 0}'`.
+- Flags: `--enable-auto-tool-choice --tool-call-parser qwen3_coder --reasoning-parser qwen3 --max-model-len 65536 --max-num-seqs 32 --kv-cache-dtype fp8 --gpu-memory-utilization 0.92 --limit-mm-per-prompt '{"image": 64, "video": 0}'`.
 - GPUs with 80 GB or more use BF16. 40 to 48 GB GPUs use the official FP8 checkpoint. The candidate list and its order are in `CANDIDATES` in `verda_cli.py`.
 - Thinking is on by default. To turn it off for a request, send `chat_template_kwargs: {"enable_thinking": false}`.
 

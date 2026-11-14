@@ -107,7 +107,8 @@ CANDIDATES: list[tuple[str, str, list[str]]] = [
 BASE_VLLM_ARGS = [
     "--max-model-len", "65536",
     "--gpu-memory-utilization", "0.92",
-    "--max-num-seqs", "16",
+    "--max-num-seqs", "32",
+    "--kv-cache-dtype", "fp8",  # fp8 KV: ~2x KV capacity, so ~18 concurrent trials fit (base and LoRA evals alike)
     "--enable-auto-tool-choice",
     "--tool-call-parser", "qwen3_coder",
     "--reasoning-parser", "qwen3",
