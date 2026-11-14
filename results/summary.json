@@ -10,14 +10,14 @@
    "n_submitted": 30,
    "n_exceptions": 0,
    "n_missing_evidence": 0,
-   "mean_pixels_used": 53301.4,
-   "max_pixels_used": 58224,
-   "mean_calls": 16.6333,
+   "mean_pixels_used": 53410.6,
+   "max_pixels_used": 58584,
+   "mean_calls": 16.7333,
    "per_kind": {
     "logstream": {
      "n": 10,
      "mean_reward": 1.0,
-     "mean_pixels_used": 50667.2
+     "mean_pixels_used": 50994.8
     },
     "dialogs": {
      "n": 10,
@@ -31,21 +31,21 @@
     }
    },
    "cost_usd": null,
-   "wall_seconds": 525,
+   "wall_seconds": 155,
    "trials": [
     {
      "item": "dashboard-7201",
      "kind": "dashboard",
-     "trial": "dashboard-7201__ZaMhPuM",
+     "trial": "dashboard-7201__HARXcQB",
      "reward": 1.0,
      "submitted": true,
-     "answer": "8923",
+     "answer": "278",
      "correct": true,
-     "pixels_used": 51061,
-     "n_calls": 16,
+     "pixels_used": 51109,
+     "n_calls": 17,
      "tools": {
       "info": 1,
-      "view": 14,
+      "view": 15,
       "submit": 1
      },
      "refused_calls": 0,
@@ -54,21 +54,21 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 66.5
+     "seconds": 60.5
     },
     {
      "item": "dashboard-7202",
      "kind": "dashboard",
-     "trial": "dashboard-7202__YPE8aLo",
+     "trial": "dashboard-7202__UjDVaEf",
      "reward": 1.0,
      "submitted": true,
-     "answer": "86099",
+     "answer": "126",
      "correct": true,
-     "pixels_used": 51061,
-     "n_calls": 16,
+     "pixels_used": 51109,
+     "n_calls": 17,
      "tools": {
       "info": 1,
-      "view": 14,
+      "view": 15,
       "submit": 1
      },
      "refused_calls": 0,
@@ -77,21 +77,21 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 65.7
+     "seconds": 60.8
     },
     {
      "item": "dashboard-7203",
      "kind": "dashboard",
-     "trial": "dashboard-7203__pvuKum8",
+     "trial": "dashboard-7203__graZifS",
      "reward": 1.0,
      "submitted": true,
-     "answer": "201",
+     "answer": "20056",
      "correct": true,
-     "pixels_used": 51109,
-     "n_calls": 17,
+     "pixels_used": 51061,
+     "n_calls": 16,
      "tools": {
       "info": 1,
-      "view": 15,
+      "view": 14,
       "submit": 1
      },
      "refused_calls": 0,
@@ -100,21 +100,21 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 66.1
+     "seconds": 60.8
     },
     {
      "item": "dashboard-7204",
      "kind": "dashboard",
-     "trial": "dashboard-7204__ERUDo2Q",
+     "trial": "dashboard-7204__QDA7pDd",
      "reward": 1.0,
      "submitted": true,
-     "answer": "7043",
+     "answer": "15491",
      "correct": true,
-     "pixels_used": 51109,
-     "n_calls": 17,
+     "pixels_used": 51061,
+     "n_calls": 16,
      "tools": {
       "info": 1,
-      "view": 15,
+      "view": 14,
       "submit": 1
      },
      "refused_calls": 0,
@@ -123,15 +123,15 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 65.8
+     "seconds": 60.7
     },
     {
      "item": "dashboard-7205",
      "kind": "dashboard",
-     "trial": "dashboard-7205__wMMpy9y",
+     "trial": "dashboard-7205__sWyvPq4",
      "reward": 1.0,
      "submitted": true,
-     "answer": "299",
+     "answer": "1837",
      "correct": true,
      "pixels_used": 51109,
      "n_calls": 17,
@@ -146,247 +146,17 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 65.6
+     "seconds": 61.0
     },
     {
      "item": "dashboard-7206",
      "kind": "dashboard",
-     "trial": "dashboard-7206__mxzFkEh",
+     "trial": "dashboard-7206__V8sCSGN",
      "reward": 1.0,
      "submitted": true,
-     "answer": "78090",
+     "answer": "68668",
      "correct": true,
      "pixels_used": 51109,
-     "n_calls": 17,
-     "tools": {
-      "info": 1,
-      "view": 15,
-      "submit": 1
-     },
-     "refused_calls": 0,
-     "evidence": true,
-     "exception": null,
-     "cost_usd": null,
-     "input_tokens": null,
-     "output_tokens": null,
-     "seconds": 65.4
-    },
-    {
-     "item": "dashboard-7207",
-     "kind": "dashboard",
-     "trial": "dashboard-7207__JWm7evQ",
-     "reward": 1.0,
-     "submitted": true,
-     "answer": "1664",
-     "correct": true,
-     "pixels_used": 51109,
-     "n_calls": 17,
-     "tools": {
-      "info": 1,
-      "view": 15,
-      "submit": 1
-     },
-     "refused_calls": 0,
-     "evidence": true,
-     "exception": null,
-     "cost_usd": null,
-     "input_tokens": null,
-     "output_tokens": null,
-     "seconds": 64.9
-    },
-    {
-     "item": "dashboard-7208",
-     "kind": "dashboard",
-     "trial": "dashboard-7208__nX9pQGz",
-     "reward": 1.0,
-     "submitted": true,
-     "answer": "7456",
-     "correct": true,
-     "pixels_used": 51061,
-     "n_calls": 16,
-     "tools": {
-      "info": 1,
-      "view": 14,
-      "submit": 1
-     },
-     "refused_calls": 0,
-     "evidence": true,
-     "exception": null,
-     "cost_usd": null,
-     "input_tokens": null,
-     "output_tokens": null,
-     "seconds": 62.9
-    },
-    {
-     "item": "dashboard-7209",
-     "kind": "dashboard",
-     "trial": "dashboard-7209__585FcJo",
-     "reward": 1.0,
-     "submitted": true,
-     "answer": "507",
-     "correct": true,
-     "pixels_used": 51061,
-     "n_calls": 16,
-     "tools": {
-      "info": 1,
-      "view": 14,
-      "submit": 1
-     },
-     "refused_calls": 0,
-     "evidence": true,
-     "exception": null,
-     "cost_usd": null,
-     "input_tokens": null,
-     "output_tokens": null,
-     "seconds": 55.5
-    },
-    {
-     "item": "dashboard-7210",
-     "kind": "dashboard",
-     "trial": "dashboard-7210__UaTutq3",
-     "reward": 1.0,
-     "submitted": true,
-     "answer": "78849",
-     "correct": true,
-     "pixels_used": 51061,
-     "n_calls": 16,
-     "tools": {
-      "info": 1,
-      "view": 14,
-      "submit": 1
-     },
-     "refused_calls": 0,
-     "evidence": true,
-     "exception": null,
-     "cost_usd": null,
-     "input_tokens": null,
-     "output_tokens": null,
-     "seconds": 53.9
-    },
-    {
-     "item": "dialogs-7101",
-     "kind": "dialogs",
-     "trial": "dialogs-7101__5StbQYc",
-     "reward": 1.0,
-     "submitted": true,
-     "answer": "HPKWL4",
-     "correct": true,
-     "pixels_used": 58224,
-     "n_calls": 17,
-     "tools": {
-      "info": 1,
-      "view": 15,
-      "submit": 1
-     },
-     "refused_calls": 0,
-     "evidence": true,
-     "exception": null,
-     "cost_usd": null,
-     "input_tokens": null,
-     "output_tokens": null,
-     "seconds": 53.6
-    },
-    {
-     "item": "dialogs-7102",
-     "kind": "dialogs",
-     "trial": "dialogs-7102__fWQjai3",
-     "reward": 1.0,
-     "submitted": true,
-     "answer": "S6CU34",
-     "correct": true,
-     "pixels_used": 58224,
-     "n_calls": 17,
-     "tools": {
-      "info": 1,
-      "view": 15,
-      "submit": 1
-     },
-     "refused_calls": 0,
-     "evidence": true,
-     "exception": null,
-     "cost_usd": null,
-     "input_tokens": null,
-     "output_tokens": null,
-     "seconds": 53.8
-    },
-    {
-     "item": "dialogs-7103",
-     "kind": "dialogs",
-     "trial": "dialogs-7103__EBm3SBF",
-     "reward": 1.0,
-     "submitted": true,
-     "answer": "9VP0H3",
-     "correct": true,
-     "pixels_used": 57864,
-     "n_calls": 16,
-     "tools": {
-      "info": 1,
-      "view": 14,
-      "submit": 1
-     },
-     "refused_calls": 0,
-     "evidence": true,
-     "exception": null,
-     "cost_usd": null,
-     "input_tokens": null,
-     "output_tokens": null,
-     "seconds": 62.0
-    },
-    {
-     "item": "dialogs-7104",
-     "kind": "dialogs",
-     "trial": "dialogs-7104__55GAa8A",
-     "reward": 1.0,
-     "submitted": true,
-     "answer": "0M06N2",
-     "correct": true,
-     "pixels_used": 58224,
-     "n_calls": 17,
-     "tools": {
-      "info": 1,
-      "view": 15,
-      "submit": 1
-     },
-     "refused_calls": 0,
-     "evidence": true,
-     "exception": null,
-     "cost_usd": null,
-     "input_tokens": null,
-     "output_tokens": null,
-     "seconds": 61.4
-    },
-    {
-     "item": "dialogs-7105",
-     "kind": "dialogs",
-     "trial": "dialogs-7105__J9prYyA",
-     "reward": 1.0,
-     "submitted": true,
-     "answer": "HCAQKE",
-     "correct": true,
-     "pixels_used": 58224,
-     "n_calls": 17,
-     "tools": {
-      "info": 1,
-      "view": 15,
-      "submit": 1
-     },
-     "refused_calls": 0,
-     "evidence": true,
-     "exception": null,
-     "cost_usd": null,
-     "input_tokens": null,
-     "output_tokens": null,
-     "seconds": 61.7
-    },
-    {
-     "item": "dialogs-7106",
-     "kind": "dialogs",
-     "trial": "dialogs-7106__RXYfE4C",
-     "reward": 1.0,
-     "submitted": true,
-     "answer": "SQPY4M",
-     "correct": true,
-     "pixels_used": 58224,
      "n_calls": 17,
      "tools": {
       "info": 1,
@@ -402,12 +172,127 @@
      "seconds": 61.1
     },
     {
-     "item": "dialogs-7107",
-     "kind": "dialogs",
-     "trial": "dialogs-7107__4gVqZFe",
+     "item": "dashboard-7207",
+     "kind": "dashboard",
+     "trial": "dashboard-7207__8JRZqCK",
      "reward": 1.0,
      "submitted": true,
-     "answer": "QLNCL5",
+     "answer": "988",
+     "correct": true,
+     "pixels_used": 51109,
+     "n_calls": 17,
+     "tools": {
+      "info": 1,
+      "view": 15,
+      "submit": 1
+     },
+     "refused_calls": 0,
+     "evidence": true,
+     "exception": null,
+     "cost_usd": null,
+     "input_tokens": null,
+     "output_tokens": null,
+     "seconds": 61.2
+    },
+    {
+     "item": "dashboard-7208",
+     "kind": "dashboard",
+     "trial": "dashboard-7208__c7yNRMD",
+     "reward": 1.0,
+     "submitted": true,
+     "answer": "819",
+     "correct": true,
+     "pixels_used": 51061,
+     "n_calls": 16,
+     "tools": {
+      "info": 1,
+      "view": 14,
+      "submit": 1
+     },
+     "refused_calls": 0,
+     "evidence": true,
+     "exception": null,
+     "cost_usd": null,
+     "input_tokens": null,
+     "output_tokens": null,
+     "seconds": 61.0
+    },
+    {
+     "item": "dashboard-7209",
+     "kind": "dashboard",
+     "trial": "dashboard-7209__H6JbXnK",
+     "reward": 1.0,
+     "submitted": true,
+     "answer": "43267",
+     "correct": true,
+     "pixels_used": 51061,
+     "n_calls": 16,
+     "tools": {
+      "info": 1,
+      "view": 14,
+      "submit": 1
+     },
+     "refused_calls": 0,
+     "evidence": true,
+     "exception": null,
+     "cost_usd": null,
+     "input_tokens": null,
+     "output_tokens": null,
+     "seconds": 60.7
+    },
+    {
+     "item": "dashboard-7210",
+     "kind": "dashboard",
+     "trial": "dashboard-7210__xXfDt7b",
+     "reward": 1.0,
+     "submitted": true,
+     "answer": "429",
+     "correct": true,
+     "pixels_used": 51061,
+     "n_calls": 16,
+     "tools": {
+      "info": 1,
+      "view": 14,
+      "submit": 1
+     },
+     "refused_calls": 0,
+     "evidence": true,
+     "exception": null,
+     "cost_usd": null,
+     "input_tokens": null,
+     "output_tokens": null,
+     "seconds": 60.8
+    },
+    {
+     "item": "dialogs-7101",
+     "kind": "dialogs",
+     "trial": "dialogs-7101__hHM3yhv",
+     "reward": 1.0,
+     "submitted": true,
+     "answer": "QJQ3XD",
+     "correct": true,
+     "pixels_used": 58224,
+     "n_calls": 17,
+     "tools": {
+      "info": 1,
+      "view": 15,
+      "submit": 1
+     },
+     "refused_calls": 0,
+     "evidence": true,
+     "exception": null,
+     "cost_usd": null,
+     "input_tokens": null,
+     "output_tokens": null,
+     "seconds": 46.8
+    },
+    {
+     "item": "dialogs-7102",
+     "kind": "dialogs",
+     "trial": "dialogs-7102__hbKrvjt",
+     "reward": 1.0,
+     "submitted": true,
+     "answer": "E393QW",
      "correct": true,
      "pixels_used": 57864,
      "n_calls": 16,
@@ -422,21 +307,136 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 73.8
+     "seconds": 47.1
+    },
+    {
+     "item": "dialogs-7103",
+     "kind": "dialogs",
+     "trial": "dialogs-7103__hCudme2",
+     "reward": 1.0,
+     "submitted": true,
+     "answer": "9DFZCG",
+     "correct": true,
+     "pixels_used": 58224,
+     "n_calls": 17,
+     "tools": {
+      "info": 1,
+      "view": 15,
+      "submit": 1
+     },
+     "refused_calls": 0,
+     "evidence": true,
+     "exception": null,
+     "cost_usd": null,
+     "input_tokens": null,
+     "output_tokens": null,
+     "seconds": 46.6
+    },
+    {
+     "item": "dialogs-7104",
+     "kind": "dialogs",
+     "trial": "dialogs-7104__fgcNJNf",
+     "reward": 1.0,
+     "submitted": true,
+     "answer": "W1J6ES",
+     "correct": true,
+     "pixels_used": 58584,
+     "n_calls": 18,
+     "tools": {
+      "info": 1,
+      "view": 16,
+      "submit": 1
+     },
+     "refused_calls": 0,
+     "evidence": true,
+     "exception": null,
+     "cost_usd": null,
+     "input_tokens": null,
+     "output_tokens": null,
+     "seconds": 47.1
+    },
+    {
+     "item": "dialogs-7105",
+     "kind": "dialogs",
+     "trial": "dialogs-7105__GnqGcP3",
+     "reward": 1.0,
+     "submitted": true,
+     "answer": "NSREDT",
+     "correct": true,
+     "pixels_used": 58224,
+     "n_calls": 17,
+     "tools": {
+      "info": 1,
+      "view": 15,
+      "submit": 1
+     },
+     "refused_calls": 0,
+     "evidence": true,
+     "exception": null,
+     "cost_usd": null,
+     "input_tokens": null,
+     "output_tokens": null,
+     "seconds": 46.6
+    },
+    {
+     "item": "dialogs-7106",
+     "kind": "dialogs",
+     "trial": "dialogs-7106__sx9FAAn",
+     "reward": 1.0,
+     "submitted": true,
+     "answer": "T2TM8D",
+     "correct": true,
+     "pixels_used": 58224,
+     "n_calls": 17,
+     "tools": {
+      "info": 1,
+      "view": 15,
+      "submit": 1
+     },
+     "refused_calls": 0,
+     "evidence": true,
+     "exception": null,
+     "cost_usd": null,
+     "input_tokens": null,
+     "output_tokens": null,
+     "seconds": 46.2
+    },
+    {
+     "item": "dialogs-7107",
+     "kind": "dialogs",
+     "trial": "dialogs-7107__SXpMTbq",
+     "reward": 1.0,
+     "submitted": true,
+     "answer": "EFJ9V3",
+     "correct": true,
+     "pixels_used": 58224,
+     "n_calls": 17,
+     "tools": {
+      "info": 1,
+      "view": 15,
+      "submit": 1
+     },
+     "refused_calls": 0,
+     "evidence": true,
+     "exception": null,
+     "cost_usd": null,
+     "input_tokens": null,
+     "output_tokens": null,
+     "seconds": 46.2
     },
     {
      "item": "dialogs-7108",
      "kind": "dialogs",
-     "trial": "dialogs-7108__ietTRn9",
+     "trial": "dialogs-7108__Zeyhv5j",
      "reward": 1.0,
      "submitted": true,
-     "answer": "XFQ5KL",
+     "answer": "GRPPYD",
      "correct": true,
-     "pixels_used": 58224,
-     "n_calls": 17,
+     "pixels_used": 57864,
+     "n_calls": 16,
      "tools": {
       "info": 1,
-      "view": 15,
+      "view": 14,
       "submit": 1
      },
      "refused_calls": 0,
@@ -445,15 +445,15 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 73.6
+     "seconds": 46.5
     },
     {
      "item": "dialogs-7109",
      "kind": "dialogs",
-     "trial": "dialogs-7109__xHzkg46",
+     "trial": "dialogs-7109__P5MoNKy",
      "reward": 1.0,
      "submitted": true,
-     "answer": "N7YJXJ",
+     "answer": "8K5BVR",
      "correct": true,
      "pixels_used": 58224,
      "n_calls": 17,
@@ -468,21 +468,21 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 73.1
+     "seconds": 46.4
     },
     {
      "item": "dialogs-7110",
      "kind": "dialogs",
-     "trial": "dialogs-7110__XczLL2g",
+     "trial": "dialogs-7110__4MmpBXU",
      "reward": 1.0,
      "submitted": true,
-     "answer": "YSW43R",
+     "answer": "WXZ87X",
      "correct": true,
-     "pixels_used": 58224,
-     "n_calls": 17,
+     "pixels_used": 57864,
+     "n_calls": 16,
      "tools": {
       "info": 1,
-      "view": 15,
+      "view": 14,
       "submit": 1
      },
      "refused_calls": 0,
@@ -491,15 +491,15 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 72.7
+     "seconds": 46.7
     },
     {
      "item": "logstream-7001",
      "kind": "logstream",
-     "trial": "logstream-7001__W22MvH7",
+     "trial": "logstream-7001__oRUm8Dg",
      "reward": 1.0,
      "submitted": true,
-     "answer": "5E87B9DA",
+     "answer": "EDB9831E",
      "correct": true,
      "pixels_used": 51104,
      "n_calls": 17,
@@ -514,21 +514,21 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 71.0
+     "seconds": 47.3
     },
     {
      "item": "logstream-7002",
      "kind": "logstream",
-     "trial": "logstream-7002__bNqEWDL",
+     "trial": "logstream-7002__6jN46hN",
      "reward": 1.0,
      "submitted": true,
-     "answer": "20EBAE8F",
+     "answer": "A16D8166",
      "correct": true,
-     "pixels_used": 50012,
-     "n_calls": 16,
+     "pixels_used": 51104,
+     "n_calls": 17,
      "tools": {
       "info": 1,
-      "view": 14,
+      "view": 15,
       "submit": 1
      },
      "refused_calls": 0,
@@ -537,15 +537,15 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 71.3
+     "seconds": 47.2
     },
     {
      "item": "logstream-7003",
      "kind": "logstream",
-     "trial": "logstream-7003__sUTCL69",
+     "trial": "logstream-7003__xKPZ4rc",
      "reward": 1.0,
      "submitted": true,
-     "answer": "E75020D3",
+     "answer": "6822FECF",
      "correct": true,
      "pixels_used": 51104,
      "n_calls": 17,
@@ -560,21 +560,21 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 70.6
+     "seconds": 47.4
     },
     {
      "item": "logstream-7004",
      "kind": "logstream",
-     "trial": "logstream-7004__t6A8cPS",
+     "trial": "logstream-7004__sCMmkbU",
      "reward": 1.0,
      "submitted": true,
-     "answer": "9090A0D6",
+     "answer": "1925890C",
      "correct": true,
-     "pixels_used": 51104,
-     "n_calls": 17,
+     "pixels_used": 52196,
+     "n_calls": 18,
      "tools": {
       "info": 1,
-      "view": 15,
+      "view": 16,
       "submit": 1
      },
      "refused_calls": 0,
@@ -583,21 +583,21 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 70.9
+     "seconds": 47.1
     },
     {
      "item": "logstream-7005",
      "kind": "logstream",
-     "trial": "logstream-7005__cg7grn2",
+     "trial": "logstream-7005__635HRXp",
      "reward": 1.0,
      "submitted": true,
-     "answer": "48205A5C",
+     "answer": "62DEC8FF",
      "correct": true,
-     "pixels_used": 51104,
-     "n_calls": 17,
+     "pixels_used": 50012,
+     "n_calls": 16,
      "tools": {
       "info": 1,
-      "view": 15,
+      "view": 14,
       "submit": 1
      },
      "refused_calls": 0,
@@ -606,15 +606,15 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 77.6
+     "seconds": 47.5
     },
     {
      "item": "logstream-7006",
      "kind": "logstream",
-     "trial": "logstream-7006__HybSfE5",
+     "trial": "logstream-7006__L2VUyq5",
      "reward": 1.0,
      "submitted": true,
-     "answer": "68A901EA",
+     "answer": "7B141049",
      "correct": true,
      "pixels_used": 51104,
      "n_calls": 17,
@@ -629,15 +629,15 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 77.5
+     "seconds": 46.8
     },
     {
      "item": "logstream-7007",
      "kind": "logstream",
-     "trial": "logstream-7007__rHTf7rb",
+     "trial": "logstream-7007__R7yCFKF",
      "reward": 1.0,
      "submitted": true,
-     "answer": "866DD56C",
+     "answer": "CEDA3715",
      "correct": true,
      "pixels_used": 50012,
      "n_calls": 16,
@@ -652,15 +652,15 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 77.6
+     "seconds": 47.2
     },
     {
      "item": "logstream-7008",
      "kind": "logstream",
-     "trial": "logstream-7008__kWMt6vL",
+     "trial": "logstream-7008__LWLSqxm",
      "reward": 1.0,
      "submitted": true,
-     "answer": "F8A5EFC4",
+     "answer": "58205557",
      "correct": true,
      "pixels_used": 50012,
      "n_calls": 16,
@@ -675,21 +675,21 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 77.4
+     "seconds": 46.6
     },
     {
      "item": "logstream-7009",
      "kind": "logstream",
-     "trial": "logstream-7009__d7rUooS",
+     "trial": "logstream-7009__ycLwXsA",
      "reward": 1.0,
      "submitted": true,
-     "answer": "F62C4095",
+     "answer": "DB41501F",
      "correct": true,
-     "pixels_used": 50012,
-     "n_calls": 16,
+     "pixels_used": 52196,
+     "n_calls": 18,
      "tools": {
       "info": 1,
-      "view": 14,
+      "view": 16,
       "submit": 1
      },
      "refused_calls": 0,
@@ -698,15 +698,15 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 54.8
+     "seconds": 47.2
     },
     {
      "item": "logstream-7010",
      "kind": "logstream",
-     "trial": "logstream-7010__YzeXcXW",
+     "trial": "logstream-7010__LXH5YkZ",
      "reward": 1.0,
      "submitted": true,
-     "answer": "A896FBE4",
+     "answer": "D1893B41",
      "correct": true,
      "pixels_used": 51104,
      "n_calls": 17,
@@ -721,7 +721,7 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 54.3
+     "seconds": 46.6
     }
    ]
   },
@@ -756,12 +756,12 @@
     }
    },
    "cost_usd": null,
-   "wall_seconds": 483,
+   "wall_seconds": 311,
    "trials": [
     {
      "item": "dashboard-7201",
      "kind": "dashboard",
-     "trial": "dashboard-7201__WwWgT3p",
+     "trial": "dashboard-7201__FbNmcFT",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -775,12 +775,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 66.8
+     "seconds": 41.6
     },
     {
      "item": "dashboard-7202",
      "kind": "dashboard",
-     "trial": "dashboard-7202__KEnmckS",
+     "trial": "dashboard-7202__fzDdoVg",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -794,12 +794,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 66.6
+     "seconds": 41.7
     },
     {
      "item": "dashboard-7203",
      "kind": "dashboard",
-     "trial": "dashboard-7203__uotLYpa",
+     "trial": "dashboard-7203__BydUhN2",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -813,12 +813,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 66.3
+     "seconds": 41.4
     },
     {
      "item": "dashboard-7204",
      "kind": "dashboard",
-     "trial": "dashboard-7204__MVa2ftP",
+     "trial": "dashboard-7204__PmGiiEL",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -832,12 +832,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 66.1
+     "seconds": 41.5
     },
     {
      "item": "dashboard-7205",
      "kind": "dashboard",
-     "trial": "dashboard-7205__iN8UFxZ",
+     "trial": "dashboard-7205__CnUW3U5",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -851,12 +851,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 64.9
+     "seconds": 43.7
     },
     {
      "item": "dashboard-7206",
      "kind": "dashboard",
-     "trial": "dashboard-7206__gDKeUsm",
+     "trial": "dashboard-7206__3P4E7Nh",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -870,12 +870,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 65.0
+     "seconds": 43.6
     },
     {
      "item": "dashboard-7207",
      "kind": "dashboard",
-     "trial": "dashboard-7207__HcqYRN8",
+     "trial": "dashboard-7207__7jKntHr",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -889,12 +889,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 64.3
+     "seconds": 43.6
     },
     {
      "item": "dashboard-7208",
      "kind": "dashboard",
-     "trial": "dashboard-7208__nvqYgn8",
+     "trial": "dashboard-7208__8D74sEg",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -908,12 +908,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 64.7
+     "seconds": 43.3
     },
     {
      "item": "dashboard-7209",
      "kind": "dashboard",
-     "trial": "dashboard-7209__7h8bbsP",
+     "trial": "dashboard-7209__8xKpRQP",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -927,12 +927,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 64.6
+     "seconds": 42.0
     },
     {
      "item": "dashboard-7210",
      "kind": "dashboard",
-     "trial": "dashboard-7210__MzV2dmF",
+     "trial": "dashboard-7210__BtQ9FBo",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -946,12 +946,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 64.6
+     "seconds": 42.2
     },
     {
      "item": "dialogs-7101",
      "kind": "dialogs",
-     "trial": "dialogs-7101__LSiDXYT",
+     "trial": "dialogs-7101__KrTetRa",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -965,12 +965,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 64.8
+     "seconds": 42.0
     },
     {
      "item": "dialogs-7102",
      "kind": "dialogs",
-     "trial": "dialogs-7102__L6jYowb",
+     "trial": "dialogs-7102__3MLdXwf",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -984,12 +984,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 64.3
+     "seconds": 41.7
     },
     {
      "item": "dialogs-7103",
      "kind": "dialogs",
-     "trial": "dialogs-7103__LghimbV",
+     "trial": "dialogs-7103__JVwM8dj",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -1003,12 +1003,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 53.0
+     "seconds": 37.2
     },
     {
      "item": "dialogs-7104",
      "kind": "dialogs",
-     "trial": "dialogs-7104__DkTHdCW",
+     "trial": "dialogs-7104__KqszPKW",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -1022,12 +1022,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 56.6
+     "seconds": 37.4
     },
     {
      "item": "dialogs-7105",
      "kind": "dialogs",
-     "trial": "dialogs-7105__k9nrfbX",
+     "trial": "dialogs-7105__b5CtJrp",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -1041,12 +1041,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 56.8
+     "seconds": 37.1
     },
     {
      "item": "dialogs-7106",
      "kind": "dialogs",
-     "trial": "dialogs-7106__vfcsMW6",
+     "trial": "dialogs-7106__Ui6byGE",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -1060,12 +1060,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 56.4
+     "seconds": 37.3
     },
     {
      "item": "dialogs-7107",
      "kind": "dialogs",
-     "trial": "dialogs-7107__gbrC65W",
+     "trial": "dialogs-7107__X7hxtXy",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -1079,12 +1079,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 50.1
+     "seconds": 36.7
     },
     {
      "item": "dialogs-7108",
      "kind": "dialogs",
-     "trial": "dialogs-7108__LatfEw4",
+     "trial": "dialogs-7108__m7LXLhT",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -1098,12 +1098,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 46.8
+     "seconds": 36.7
     },
     {
      "item": "dialogs-7109",
      "kind": "dialogs",
-     "trial": "dialogs-7109__XXujM6N",
+     "trial": "dialogs-7109__6CuGiCN",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -1117,12 +1117,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 46.8
+     "seconds": 36.4
     },
     {
      "item": "dialogs-7110",
      "kind": "dialogs",
-     "trial": "dialogs-7110__WSZ6eq8",
+     "trial": "dialogs-7110__R2cF9Vg",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -1136,12 +1136,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 47.0
+     "seconds": 36.2
     },
     {
      "item": "logstream-7001",
      "kind": "logstream",
-     "trial": "logstream-7001__2H9SFsQ",
+     "trial": "logstream-7001__uSSS8Zj",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -1155,12 +1155,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 77.0
+     "seconds": 36.8
     },
     {
      "item": "logstream-7002",
      "kind": "logstream",
-     "trial": "logstream-7002__vynCczK",
+     "trial": "logstream-7002__p5g7bPv",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -1174,12 +1174,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 76.2
+     "seconds": 36.7
     },
     {
      "item": "logstream-7003",
      "kind": "logstream",
-     "trial": "logstream-7003__TYVCQet",
+     "trial": "logstream-7003__4dGy8wz",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -1193,12 +1193,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 75.7
+     "seconds": 36.7
     },
     {
      "item": "logstream-7004",
      "kind": "logstream",
-     "trial": "logstream-7004__E8PMXGd",
+     "trial": "logstream-7004__Jdp9m2p",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -1212,12 +1212,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 75.4
+     "seconds": 36.7
     },
     {
      "item": "logstream-7005",
      "kind": "logstream",
-     "trial": "logstream-7005__p6STequ",
+     "trial": "logstream-7005__mUzjSKj",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -1231,12 +1231,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 60.1
+     "seconds": 36.9
     },
     {
      "item": "logstream-7006",
      "kind": "logstream",
-     "trial": "logstream-7006__ypp2DX3",
+     "trial": "logstream-7006__won98ZX",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -1250,12 +1250,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 63.2
+     "seconds": 37.1
     },
     {
      "item": "logstream-7007",
      "kind": "logstream",
-     "trial": "logstream-7007__fPBoHrw",
+     "trial": "logstream-7007__HkKEBUP",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -1269,12 +1269,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 63.1
+     "seconds": 36.9
     },
     {
      "item": "logstream-7008",
      "kind": "logstream",
-     "trial": "logstream-7008__CG3n9KL",
+     "trial": "logstream-7008__qmC5mam",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -1288,12 +1288,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 62.6
+     "seconds": 36.5
     },
     {
      "item": "logstream-7009",
      "kind": "logstream",
-     "trial": "logstream-7009__7uz9E2p",
+     "trial": "logstream-7009__PisuLBy",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -1307,12 +1307,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 45.7
+     "seconds": 35.9
     },
     {
      "item": "logstream-7010",
      "kind": "logstream",
-     "trial": "logstream-7010__etPE2No",
+     "trial": "logstream-7010__VRWqaps",
      "reward": 0.0,
      "submitted": false,
      "answer": null,
@@ -1326,7 +1326,7 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 42.7
+     "seconds": 35.2
     }
    ]
   },
@@ -1361,12 +1361,12 @@
     }
    },
    "cost_usd": null,
-   "wall_seconds": 489,
+   "wall_seconds": 182,
    "trials": [
     {
      "item": "dashboard-7201",
      "kind": "dashboard",
-     "trial": "dashboard-7201__bpfXTou",
+     "trial": "dashboard-7201__A9GnkJZ",
      "reward": 0.0,
      "submitted": true,
      "answer": "807",
@@ -1384,12 +1384,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 62.1
+     "seconds": 81.5
     },
     {
      "item": "dashboard-7202",
      "kind": "dashboard",
-     "trial": "dashboard-7202__CW6zMvc",
+     "trial": "dashboard-7202__pTSNuc9",
      "reward": 0.0,
      "submitted": true,
      "answer": "7608",
@@ -1407,12 +1407,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 62.4
+     "seconds": 81.2
     },
     {
      "item": "dashboard-7203",
      "kind": "dashboard",
-     "trial": "dashboard-7203__AhCbwEL",
+     "trial": "dashboard-7203__BeSCfPb",
      "reward": 0.0,
      "submitted": true,
      "answer": "47200",
@@ -1430,12 +1430,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 62.5
+     "seconds": 81.7
     },
     {
      "item": "dashboard-7204",
      "kind": "dashboard",
-     "trial": "dashboard-7204__Fkdyd8z",
+     "trial": "dashboard-7204__vUKtMt5",
      "reward": 0.0,
      "submitted": true,
      "answer": "2958",
@@ -1453,12 +1453,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 61.9
+     "seconds": 81.2
     },
     {
      "item": "dashboard-7205",
      "kind": "dashboard",
-     "trial": "dashboard-7205__zGjC8Y2",
+     "trial": "dashboard-7205__Ar2ZfYS",
      "reward": 0.0,
      "submitted": true,
      "answer": "9225",
@@ -1476,12 +1476,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 62.0
+     "seconds": 81.6
     },
     {
      "item": "dashboard-7206",
      "kind": "dashboard",
-     "trial": "dashboard-7206__BnCcSsK",
+     "trial": "dashboard-7206__DQ6nLrq",
      "reward": 0.0,
      "submitted": true,
      "answer": "783",
@@ -1499,12 +1499,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 62.1
+     "seconds": 81.5
     },
     {
      "item": "dashboard-7207",
      "kind": "dashboard",
-     "trial": "dashboard-7207__4Jf7bw3",
+     "trial": "dashboard-7207__nwBC7g2",
      "reward": 0.0,
      "submitted": true,
      "answer": "479",
@@ -1522,12 +1522,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 62.2
+     "seconds": 81.1
     },
     {
      "item": "dashboard-7208",
      "kind": "dashboard",
-     "trial": "dashboard-7208__fA6tAzJ",
+     "trial": "dashboard-7208__geWNhCQ",
      "reward": 0.0,
      "submitted": true,
      "answer": "69695",
@@ -1545,12 +1545,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 61.7
+     "seconds": 81.0
     },
     {
      "item": "dashboard-7209",
      "kind": "dashboard",
-     "trial": "dashboard-7209__cANLVCU",
+     "trial": "dashboard-7209__Cr7MUb2",
      "reward": 0.0,
      "submitted": true,
      "answer": "2327",
@@ -1568,12 +1568,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 60.0
+     "seconds": 81.3
     },
     {
      "item": "dashboard-7210",
      "kind": "dashboard",
-     "trial": "dashboard-7210__jBqDvoP",
+     "trial": "dashboard-7210__aBXdhAT",
      "reward": 0.0,
      "submitted": true,
      "answer": "53615",
@@ -1591,12 +1591,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 59.4
+     "seconds": 80.9
     },
     {
      "item": "dialogs-7101",
      "kind": "dialogs",
-     "trial": "dialogs-7101__zbrqqWa",
+     "trial": "dialogs-7101__a2sDXkm",
      "reward": 0.0,
      "submitted": true,
      "answer": "A1P6WP",
@@ -1614,12 +1614,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 59.5
+     "seconds": 50.0
     },
     {
      "item": "dialogs-7102",
      "kind": "dialogs",
-     "trial": "dialogs-7102__jbUiWCX",
+     "trial": "dialogs-7102__BZepUie",
      "reward": 0.0,
      "submitted": true,
      "answer": "DFHV9I",
@@ -1637,12 +1637,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 59.4
+     "seconds": 50.0
     },
     {
      "item": "dialogs-7103",
      "kind": "dialogs",
-     "trial": "dialogs-7103__oApupzZ",
+     "trial": "dialogs-7103__z2KGwi2",
      "reward": 0.0,
      "submitted": true,
      "answer": "8IW1GS",
@@ -1660,12 +1660,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 60.6
+     "seconds": 49.9
     },
     {
      "item": "dialogs-7104",
      "kind": "dialogs",
-     "trial": "dialogs-7104__pWSYHb5",
+     "trial": "dialogs-7104__zDGhWA3",
      "reward": 0.0,
      "submitted": true,
      "answer": "CVFSHA",
@@ -1683,12 +1683,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 60.8
+     "seconds": 50.2
     },
     {
      "item": "dialogs-7105",
      "kind": "dialogs",
-     "trial": "dialogs-7105__25KZsDn",
+     "trial": "dialogs-7105__EEJBruw",
      "reward": 0.0,
      "submitted": true,
      "answer": "8EYVJN",
@@ -1706,12 +1706,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 60.6
+     "seconds": 50.3
     },
     {
      "item": "dialogs-7106",
      "kind": "dialogs",
-     "trial": "dialogs-7106__yj96xvN",
+     "trial": "dialogs-7106__VgUkxww",
      "reward": 0.0,
      "submitted": true,
      "answer": "6LMSDT",
@@ -1729,12 +1729,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 60.2
+     "seconds": 49.6
     },
     {
      "item": "dialogs-7107",
      "kind": "dialogs",
-     "trial": "dialogs-7107__XhvrnCC",
+     "trial": "dialogs-7107__inPERJ2",
      "reward": 0.0,
      "submitted": true,
      "answer": "PQZMA7",
@@ -1752,12 +1752,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 65.8
+     "seconds": 49.5
     },
     {
      "item": "dialogs-7108",
      "kind": "dialogs",
-     "trial": "dialogs-7108__7Mcgazv",
+     "trial": "dialogs-7108__d2rrQoK",
      "reward": 0.0,
      "submitted": true,
      "answer": "R96DOK",
@@ -1775,12 +1775,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 65.8
+     "seconds": 49.7
     },
     {
      "item": "dialogs-7109",
      "kind": "dialogs",
-     "trial": "dialogs-7109__VdPyRbY",
+     "trial": "dialogs-7109__wXVETBc",
      "reward": 0.0,
      "submitted": true,
      "answer": "WYFUI9",
@@ -1798,12 +1798,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 65.6
+     "seconds": 49.8
     },
     {
      "item": "dialogs-7110",
      "kind": "dialogs",
-     "trial": "dialogs-7110__EUe3Eok",
+     "trial": "dialogs-7110__B7iAgw8",
      "reward": 0.0,
      "submitted": true,
      "answer": "AFW3BZ",
@@ -1821,12 +1821,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 65.8
+     "seconds": 49.8
     },
     {
      "item": "logstream-7001",
      "kind": "logstream",
-     "trial": "logstream-7001__8bfNzct",
+     "trial": "logstream-7001__zkho8xf",
      "reward": 0.0,
      "submitted": true,
      "answer": "01ACD424",
@@ -1844,12 +1844,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 60.1
+     "seconds": 50.1
     },
     {
      "item": "logstream-7002",
      "kind": "logstream",
-     "trial": "logstream-7002__hPAkkLn",
+     "trial": "logstream-7002__JzeCVWp",
      "reward": 0.0,
      "submitted": true,
      "answer": "3AA71814",
@@ -1867,12 +1867,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 59.6
+     "seconds": 50.1
     },
     {
      "item": "logstream-7003",
      "kind": "logstream",
-     "trial": "logstream-7003__xHEHwJS",
+     "trial": "logstream-7003__NdfEB6B",
      "reward": 0.0,
      "submitted": true,
      "answer": "0FA1A17F",
@@ -1890,12 +1890,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 58.9
+     "seconds": 50.1
     },
     {
      "item": "logstream-7004",
      "kind": "logstream",
-     "trial": "logstream-7004__qubMB5e",
+     "trial": "logstream-7004__XBuhtxf",
      "reward": 0.0,
      "submitted": true,
      "answer": "81A4F3C3",
@@ -1913,12 +1913,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 60.1
+     "seconds": 48.3
     },
     {
      "item": "logstream-7005",
      "kind": "logstream",
-     "trial": "logstream-7005__A7drqSf",
+     "trial": "logstream-7005__2yT8gnB",
      "reward": 0.0,
      "submitted": true,
      "answer": "6CBF5E75",
@@ -1936,12 +1936,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 67.7
+     "seconds": 50.1
     },
     {
      "item": "logstream-7006",
      "kind": "logstream",
-     "trial": "logstream-7006__3TaCSfc",
+     "trial": "logstream-7006__KM6apLq",
      "reward": 0.0,
      "submitted": true,
      "answer": "47A85251",
@@ -1959,12 +1959,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 67.5
+     "seconds": 49.8
     },
     {
      "item": "logstream-7007",
      "kind": "logstream",
-     "trial": "logstream-7007__hQEVcjt",
+     "trial": "logstream-7007__fAEUM4y",
      "reward": 0.0,
      "submitted": true,
      "answer": "A70EB0B8",
@@ -1982,12 +1982,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 66.9
+     "seconds": 50.2
     },
     {
      "item": "logstream-7008",
      "kind": "logstream",
-     "trial": "logstream-7008__HboKXAC",
+     "trial": "logstream-7008__HZ2xZAh",
      "reward": 0.0,
      "submitted": true,
      "answer": "0D95C2EA",
@@ -2005,12 +2005,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 66.7
+     "seconds": 49.6
     },
     {
      "item": "logstream-7009",
      "kind": "logstream",
-     "trial": "logstream-7009__NrxhXQ5",
+     "trial": "logstream-7009__M9YbcV8",
      "reward": 0.0,
      "submitted": true,
      "answer": "AC7BF491",
@@ -2028,12 +2028,12 @@
      "cost_usd": null,
      "input_tokens": null,
      "output_tokens": null,
-     "seconds": 50.7
+     "seconds": 49.9
     },
     {
      "item": "logstream-7010",
      "kind": "logstream",
-     "trial": "logstream-7010__qwECMTw",
+     "trial": "logstream-7010__L8xGGmM",
      "reward": 0.0,
      "submitted": true,
      "answer": "8203F681",
