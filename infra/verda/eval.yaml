@@ -4,7 +4,8 @@
 name: fh-eval
 
 resources:
-  infra: verda/FIN-01
+  # Any Verda region: the instance type alone fixes the hardware (the box records its region).
+  infra: verda
   # Pinned so every run (and base vs LoRA evals) gets the same GPU: speed decides how much an agent
   # gets done before the 30-minute agent timeout. `fh eval-up --instance-type` overrides it for smokes.
   instance_type: 1H100.80S.30V
@@ -101,10 +102,11 @@ run: |
   socat_pid=$!
   trap 'kill $vllm_pid $socat_pid 2>/dev/null || true' EXIT
   python3 - "$model" "${args[@]}" > "$ST/box.json" <<'PY'
-  import json, socket, subprocess, sys
+  import json, os, socket, subprocess, sys
   gpu = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader"],
                        capture_output=True, text=True).stdout.strip().splitlines()
-  print(json.dumps({"hostname": socket.gethostname(), "gpus": gpu, "vllm_cmd": ["vllm", "serve", *sys.argv[1:]]}))
+  print(json.dumps({"hostname": socket.gethostname(), "gpus": gpu, "vllm_cmd": ["vllm", "serve", *sys.argv[1:]],
+                    "cluster_info": json.loads(os.environ.get("SKYPILOT_CLUSTER_INFO") or "{}")}))
   PY
   served() {  # every name in $names is listed by /v1/models
     curl -sf -H "Authorization: Bearer $QWEN_API_KEY" http://127.0.0.1:8000/v1/models | python3 -c \
