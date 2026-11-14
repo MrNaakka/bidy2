@@ -45,6 +45,46 @@ All 1920×1080, 10 fps, 3–8 minutes long (n_frames chosen from the seed).
 
 K and event times are random. Events sit in roughly the 10–90 % range of the video.
 
+### Second slice: toasts and leaderboard (EVAL v2)
+
+Opus 5.5 scored 3/10 on logstream but 8–10/10 on dialogs and dashboard (EVAL v1).
+Logstream is hard because being slightly wrong still yields a confident wrong answer:
+one frame early, the (K-1)-th ERROR line is on screen as a convincing distractor; a few
+frames late, newer lines have scrolled in, so "the newest line" is wrong. In dialogs and
+dashboard the answer holds for seconds on both sides of the event, sits at a fixed spot
+and has no look-alike on screen, so an imprecise search still lands on it. The two new
+kinds carry logstream's mechanism into other settings. EVAL v2 is logstream + toasts +
+leaderboard (10 each); dialogs and dashboard stay in the code, in DEV and in TRAIN.
+
+- `toasts`: the same desktop app as `dialogs`, with non-modal toast notifications
+  stacking at the top right: Info (blue), Warning (amber), Error (red), each with a
+  6-character code (all codes in a scene share a 2-character prefix). The newest toast
+  takes the top slot and pushes the others down; at most 5 are visible; each lives
+  8–12 s (or until 5 newer ones arrive). Arrivals are 0.5–3 s apart, in bursts. The bell
+  badge counts Error toasts only. Question: "What code was shown on the K-th Error
+  toast?" Guarantees: K ≥ 2 and on frame f-1 the (K-1)-th Error toast is still on
+  screen as the newest red toast (same prefix); the next toast arrives 0.3–1.5 s after
+  f, so a few frames late the target is no longer on top (it stays visible lower in the
+  stack). The level of every toast is visible at 1/8 from its 24-px colour stripe.
+- `leaderboard`: an API error tracker. The "Endpoints by errors / min" table lists 10
+  endpoints (all always visible), sorted by value, and refreshes every 1 s (10 frames):
+  values change and rows move (an endpoint changes row on about a third of the
+  refreshes). Endpoint names are large (sans-bold 22, readable at 1/2 to 1/3); values
+  are small monospace digits (mono 13), readable only at native resolution. Trace: a
+  big `alerts fired: N` counter (top right). Question: "What errors/min value did
+  endpoint E show on the first frame where the alerts counter reached K?" Every alert
+  fires on a table refresh, so the value is shown for exactly [f, f+9] (1 s). E's value
+  and E's row both differ on f-1 and on f+10, and no other row shows the same number on
+  f. Unlike `dashboard` (KPI holds ≥ 1 s on both sides), there is no slack before f.
+
+What the agent must decide in both: find the exact event frame on the cheap trace and
+**verify it** before reading (one frame early is a confident wrong answer), then read on
+**that same frame**, after **re-finding the moving target** there (the top toast is
+only the target for 0.3–1.5 s; the endpoint's row moves every second). The reference
+does exactly this: binary search on the trace at ≤ 1/8, a 1/8 check of the top toast's
+stripe (toasts) or a 1/4 look at the name column to find E's row (leaderboard), then one
+native crop. It needs at most 41k (toasts) and 48k (leaderboard) pixels of the 120k.
+
 ## Interfaces
 
 ### Package `framehunt/` (scene generation)
@@ -63,14 +103,15 @@ class Scene(ABC):
     meta: SceneMeta
     question: str        # natural language; names on-screen elements
     answer: str          # canonical exact answer (already normalized)
-    answer_format: str   # shown to the agent, e.g. "6 characters, A-Z and 0-9"
+    answer_format: str   # shown to the agent; states the exact alphabet, e.g.
+                         # "6 characters: uppercase letters A-Z except I and O, and digits 0-9"
     def render(self, frame: int) -> PIL.Image.Image: ...
         # RGB, meta.width × meta.height. Pure function of (seed, frame).
     def debug_info(self) -> dict: ...
         # key frames of events etc. For tests/analysis only; the server never exposes it.
 
 # framehunt/scenes/__init__.py
-KINDS: tuple[str, ...] = ("logstream", "dialogs", "dashboard")
+KINDS: tuple[str, ...] = ("logstream", "dialogs", "dashboard", "toasts", "leaderboard")
 def make_scene(kind: str, seed: int) -> Scene: ...
 
 # framehunt/answers.py
@@ -118,7 +159,8 @@ reward binary leaves no term to farm.
 ### Harbor tasks
 
 `scripts/build_tasks.py --split eval` writes `tasks/eval/<item_id>/` for the split's
-fixed, committed item ids in `framehunt/splits.py`. The scene seed of each item is
+fixed, committed item ids in `framehunt/splits.py` (`--split eval --v1` builds the first
+EVAL set, `EVAL_V1`, into `tasks/eval-v1/`). The scene seed of each item is
 secret (see "Item secrecy"). Each task follows the step0 probe layout: `task.toml`
 with the MCP server `framehunt` at `http://fh-mcp:8000/mcp`, `instruction.md`
 (question + rules + budget), `environment/docker-compose.yaml` (the `fh-mcp` sidecar

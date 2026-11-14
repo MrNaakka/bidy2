@@ -2,22 +2,32 @@
 
 FrameHunt is an RL environment for **active video sampling under a pixel budget**. The
 agent gets a question about a long synthetic screen recording (a scrolling service log,
-a desktop app with pop-up error dialogs, or a monitoring dashboard). It can't watch the
-video. Through an MCP server it can only ask for single frames, optionally cropped and
+a desktop app with stacking toast notifications, or an API error tracker whose endpoint
+table re-sorts every second). It can't watch the video. Through an MCP server it can only ask for single frames, optionally cropped and
 downscaled, and every returned pixel is charged against a hard budget of 120,000 pixels
 per item (about 6% of one full 1920x1080 frame, which is 2,073,600 pixels). A request
 that would exceed the budget is refused.
 
-Each question is about a brief event that leaves a lasting trace on screen: a counter,
-a badge or a tile that stays red. The trace is readable at 1/8 scale. The answer (a
-request id, an error code, a KPI value) is random and only readable at native
-resolution. Good play: binary-search the cheap trace to find *when*, then spend pixels
+Each question is about a brief event that leaves a lasting trace on screen: a counter
+or a badge. The trace is readable at 1/8 scale. The answer (a request id, a toast code,
+an errors/min value) is random and only readable at native resolution. Being slightly
+off is punished with a confident wrong answer: one frame early, a look-alike (the
+previous ERROR line, the previous Error toast, the endpoint's previous value) sits where
+the answer will be; a little late, the answer has moved or changed. Good play: binary-search the cheap trace to find *when*, then spend pixels
 on one sharp crop of *where*. Reward is 1 for an exact answer on the first submission,
 else 0. Design details: [docs/design.md](docs/design.md).
 
 ## Results
 
-30 EVAL items (10 per kind), 120k-pixel budget, run through Harbor.
+**EVAL v2** (current, `framehunt/splits.py` `EVAL`): 10 logstream, 10 toasts and 10
+leaderboard items. Final v2 numbers come later. The tables below are **v1** results on
+the first EVAL set (`EVAL_V1`: 10 each of logstream, dialogs and dashboard; rebuild it
+with `scripts/build_tasks.py --split eval --v1`). The logstream items are the same in
+both sets. Dialogs and dashboard were too easy for Opus (8–10/10), so v2 replaces them
+with `toasts` and `leaderboard`, which carry logstream's failure mechanism into new
+settings (see "Second slice" in [docs/design.md](docs/design.md)).
+
+v1: 30 EVAL_V1 items (10 per kind), 120k-pixel budget, run through Harbor.
 
 | Run | Mean reward | Correct |
 | --- | --- | --- |
@@ -28,7 +38,7 @@ else 0. Design details: [docs/design.md](docs/design.md).
 | Opus 5.5 (OpenCode), run 2 | 0.700 | 21/30 |
 | Opus 5.5 (OpenCode), run 3 | in progress | |
 
-Per kind:
+Per kind (v1):
 
 | Kind | Opus run 1 | Opus run 2 | Reference |
 | --- | --- | --- | --- |
@@ -44,6 +54,10 @@ A full Harbor run log of Opus run 1, with its score, is in
 [examples/harbor-runs/](examples/harbor-runs/).
 
 ## Why it's hard
+
+(Failure analysis of the v1 runs. Toasts and leaderboard were built to test the same
+decisions: verify the event frame before reading, and read the moving target on that
+same frame.)
 
 The agent has everything it needs. The instruction states the question, the video
 facts, the budget and the cost of every call. The trace (counter, badge or red tile) is
@@ -100,7 +114,7 @@ and `ANTHROPIC_API_KEY` in the environment or in `.env` for the agent runs.
 scripts/eval.sh
 ```
 
-This builds the 30 EVAL tasks and runs, through Harbor, in this order:
+This builds the 30 EVAL (v2) tasks and runs, through Harbor, in this order:
 
 | Stage | Harbor job (`runs/<job>`) | What it is |
 | --- | --- | --- |
@@ -176,14 +190,16 @@ directory.
 
 ```bash
 uv run pytest -m "not reference"     # unit and server tests
-uv run pytest -m reference -s        # the reference policy on all 30 EVAL items, in-process, no Docker
+uv run pytest -m reference -s        # the reference policy on all 30 EVAL items (in-process HTTP, no Docker)
+                                     # and on 200 random seeds per new kind
 ```
 
 ## Layout
 
-- `framehunt/scenes/`: scene generators (`logstream`, `dialogs`, `dashboard`)
+- `framehunt/scenes/`: scene generators (`logstream`, `toasts`, `leaderboard` in EVAL v2;
+  `dialogs`, `dashboard` in EVAL v1, DEV and TRAIN)
 - `framehunt/server.py`: the MCP server (the agent's tools and the budget)
 - `framehunt/reference.py`: the reference policy
 - `framehunt/baselines/`: the stop-early baseline agent
-- `framehunt/splits.py`: the fixed EVAL and DEV item lists
+- `framehunt/splits.py`: the fixed EVAL (v2), EVAL_V1 and DEV item lists
 - `scripts/build_tasks.py`, `scripts/eval.sh`, `scripts/summarize.py`
