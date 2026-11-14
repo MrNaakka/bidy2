@@ -36,6 +36,7 @@ derived seed).
 from __future__ import annotations
 
 import argparse
+import os
 import secrets
 import shutil
 import sys
@@ -330,6 +331,11 @@ def main(argv=None) -> int:
             ap.error(f"unknown item ids for split {a.split}: {sorted(unknown)}")
         items = [it for it in items if it[0] in a.only]
     salt = load_salt(a.split)
+    v1_salt = salt_path("eval-v1")
+    if a.v1 and not os.environ.get("FH_SALT_EVAL") and v1_salt.is_file():
+        # EVAL v1 was run (and its logs published) under the salt that was in use then,
+        # kept as secrets/eval-v1.salt when EVAL v2 got a fresh one.
+        salt = v1_salt.read_text().strip()
     if salt is None:
         salt = load_salt(a.split, create=True)
         print(f"generated a new secret salt for split {a.split!r}: {salt_path(a.split)} "

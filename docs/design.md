@@ -69,8 +69,9 @@ doesn't spend. Dialogs is the common E2E case. Toasts is the explicit **control*
 has the same mechanism (a lasting counter pins the event, the answer is only briefly
 where you'd look, look-alikes before and after), but verification is cheap and in the
 same place (the badge right above the stack). Opus verifies there and succeeds (pilots
-below), which shows its logstream failures come from verification cost, not from the
-mechanism or the UI. Leaderboard stays in DEV and TRAIN as a replication experiment
+below). That fits the hypothesis that its logstream failures come from verification cost
+rather than from the mechanism. It isn't proof: the kinds also differ in layout and
+distractors, and only a matched intervention would isolate the cause. Leaderboard stays in DEV and TRAIN as a replication experiment
 (Opus DEV pilot 2/6, below); dashboard is in EVAL_V1, DEV and TRAIN.
 
 - `toasts`: the same desktop app as `dialogs`, with non-modal toast notifications
@@ -269,6 +270,12 @@ saves it. Consequences:
   `instruction.md` holds only the question and the video facts. With a 64-bit secret
   seed, `info()` fingerprints (`n_frames` etc.) identify nothing useful: there is no
   table to look them up in.
+
+Published run logs (`examples/harbor-runs/`) contain answers for the items of the salt
+they were run with. So after publishing EVAL v1 logs, EVAL v2 got a fresh salt in this
+checkout; the old one is kept privately as `secrets/eval-v1.salt`, and
+`build_tasks.py --split eval --v1` uses it to rebuild the v1 items. Never publish logs of
+the salt you are still evaluating with.
 
 This doesn't hide anything the task needs. The agent gets exactly the same
 `info()`, instruction and tools as before. Rule 5 ("no hidden information") is about
