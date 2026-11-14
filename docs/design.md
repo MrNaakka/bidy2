@@ -107,7 +107,7 @@ frames late (E's next value), and one misread of the counter on 24-px contact-sh
 tiles that was never checked at a legible scale. Toasts 6/6: even when Opus read 1 to 7
 frames late, it combined the badge count with the stack order and the red stripe to pick
 the right toast lower in the stack (Error toasts are a minority, so usually only one or
-two are visible). The toast mechanism does not bite yet; see the README / open issues.
+two are visible). The toast mechanism does not bite yet (open issue).
 
 ## Interfaces
 
