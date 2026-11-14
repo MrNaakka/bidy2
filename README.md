@@ -135,6 +135,18 @@ scripts/eval.sh --stage summarize   # rebuild the summary from runs/
 
 Options: `-n 4` concurrent trials (default 4), `--runs 3`, `--model ...`.
 
+`--env <harbor environment>` runs every Harbor job in another environment (default
+`docker`, local Docker, which needs nothing extra). For example, on Modal:
+
+```bash
+uv tool install --force 'harbor[modal]==0.25.0'
+export MODAL_TOKEN_ID=... MODAL_TOKEN_SECRET=...
+scripts/eval.sh --env modal -n 30
+```
+
+This adds `-e modal` to every `harbor run`. On Modal, `-n` can be as high as the number
+of tasks, because trials don't use local CPU or RAM.
+
 ### Other models
 
 `--model <provider/model>` is passed to `harbor run -a opencode -m <provider/model>`

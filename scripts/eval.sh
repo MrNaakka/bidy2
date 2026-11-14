@@ -10,7 +10,9 @@
 #
 # Options: -n N (concurrent trials, default 4), --runs R (agent runs, default 3),
 #          --model M (default anthropic/claude-opus-5-5; "qwen" = Qwen3.8-27B via infra/verda,
-#          "qwen-fh" = the same with our LoRA adapter), --split S (default eval).
+#          "qwen-fh" = the same with our LoRA adapter), --split S (default eval),
+#          --env E (Harbor environment for every job, default docker; e.g. "modal", which
+#          needs harbor[modal] and MODAL_TOKEN_ID / MODAL_TOKEN_SECRET in the environment).
 # OpenCode is pinned to $OPENCODE_VERSION (the version the training data was captured with).
 # Only agent-install timeouts (before the agent sees anything) are retried, up to 2 times.
 # Jobs have fixed names and go to runs/<job>; an existing runs/<job> is replaced.
@@ -24,6 +26,7 @@ N=4
 RUNS=3
 MODEL="anthropic/claude-opus-5-5"
 SPLIT=eval
+HARBOR_ENV=docker
 OPENCODE_VERSION=1.19.5
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -32,11 +35,21 @@ while [ $# -gt 0 ]; do
     --runs) RUNS="$2"; shift 2 ;;
     --model) MODEL="$2"; shift 2 ;;
     --split) SPLIT="$2"; shift 2 ;;
-    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+    --env) HARBOR_ENV="$2"; shift 2 ;;
+    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 case "$STAGE" in all|baselines|agents|summarize) ;; *) echo "bad --stage: $STAGE" >&2; exit 2 ;; esac
+# Default (docker) passes nothing, so the plain command is exactly Harbor's default.
+ENV_ARGS=()
+[ "$HARBOR_ENV" = docker ] || ENV_ARGS=(-e "$HARBOR_ENV")
+if [ "$HARBOR_ENV" = modal ] && [ "$STAGE" != summarize ]; then
+  if [ -z "${MODAL_TOKEN_ID:-}" ] || [ -z "${MODAL_TOKEN_SECRET:-}" ]; then
+    echo "--env modal needs MODAL_TOKEN_ID and MODAL_TOKEN_SECRET in the environment." >&2
+    exit 2
+  fi
+fi
 
 TASKS="tasks/$SPLIT"
 OUT=runs
@@ -57,7 +70,7 @@ job() {  # job name, then harbor run args
   # sees anything. Other start/build/healthcheck errors are not retried: with the separate
   # verifier, Harbor can raise them after the agent has run, and a retry would hand the agent
   # a fresh pixel budget. Failures after the agent started count as failures.
-  harbor run -p "$TASKS" --job-name "$name" -o "$OUT" -n "$N" -r 2 \
+  harbor run -p "$TASKS" --job-name "$name" -o "$OUT" -n "$N" -r 2 ${ENV_ARGS[@]+"${ENV_ARGS[@]}"} \
     --retry-include AgentSetupTimeoutError -y "$@"
   stage_time "$name" $((SECONDS - t0))
 }
