@@ -87,7 +87,10 @@ if [ "$STAGE" = all ] || [ "$STAGE" = agents ]; then
   # Build if missing or if the task dir doesn't hold exactly the split's items (e.g. it
   # was built from an older item list).
   WANT="$(uv run python -c "from framehunt.splits import SPLITS; print(' '.join(sorted(i for i, _, _ in SPLITS['$SPLIT'])))")"
-  HAVE="$( [ -d "$TASKS" ] && find "$TASKS" -mindepth 2 -maxdepth 2 -name task.toml -printf '%h\n' | xargs -rn1 basename | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+  HAVE=""
+  if [ -d "$TASKS" ]; then
+    HAVE="$(find "$TASKS" -mindepth 2 -maxdepth 2 -name task.toml -printf '%h\n' | xargs -rn1 basename | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+  fi
   [ "$WANT" = "$HAVE" ] || uv run python scripts/build_tasks.py --split "$SPLIT"
   # Give Harbor only the one key the model needs, not the whole .env.
   KEYENV="$(mktemp)"; trap 'rm -f "$KEYENV"' EXIT
