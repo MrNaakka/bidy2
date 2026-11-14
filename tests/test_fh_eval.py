@@ -35,6 +35,7 @@ class FakeVerda:
 def verda(monkeypatch):
     fake = FakeVerda([], [])
     monkeypatch.setattr(fh, "verda_client", lambda: fake)
+    monkeypatch.setattr(fh, "sky_user_hash", lambda: "f5c0b31c")
     return fake
 
 
@@ -234,9 +235,23 @@ def test_sweep_deletes_only_leaked_instances_of_clusters_skypilot_lost(verda, mo
     verda.volumes = [SimpleNamespace(id="v1", name="fh-ev-dev-qwen-2-f5c0b31c-head", status="detached"),
                      SimpleNamespace(id="q", name="fh-qwen", status="detached"),
                      SimpleNamespace(id="v2", name="fh-ev-dev-qwen-2-x-head", status="attached")]
+    verda.instances.append(inst("e", "fh-ev-dev-qwen-2-0teammate-head", "ve"))   # same name, someone else's
+    monkeypatch.setattr(fh, "sky_user_hash", lambda: "f5c0b31c")
     monkeypatch.setattr(fh, "cluster_status", lambda n: "UP" if n == "fh-ev-dev-qwen-1" else None)
     notes = fh.sweep_leaks(["fh-ev-dev-qwen-1", "fh-ev-dev-qwen-2", "fh-serve"])
     assert verda.deleted == [("a", "delete", ["va"]), ("v1", "volume")] and len(notes) == 2
+
+
+def test_up_leaves_unknown_clusters_alone_and_new_needs_a_stopped_fleet(evalbox, sandbox, monkeypatch):
+    monkeypatch.setattr(fh, "cluster_status", lambda name: "UP")
+    with pytest.raises(SystemExit, match="not a box of fleet"):
+        fh.cmd_eval_up(eval_args(evalbox))
+    assert sandbox.down == []
+    monkeypatch.setattr(fh, "cluster_status", lambda name: None)
+    monkeypatch.setattr(fh, "launch_eval_boxes", fake_launch({}))
+    fh.cmd_eval_up(eval_args(evalbox))
+    with pytest.raises(SystemExit, match="eval-down first"):
+        fh.cmd_eval_up(eval_args(evalbox, n=4, new=True, only=[1]))
 
 
 def test_wait_keeps_sweeping_after_a_failed_launch_for_a_while(evalbox, sandbox, monkeypatch):

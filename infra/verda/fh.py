@@ -847,6 +847,10 @@ def cmd_eval_up(args) -> None:
                 raise SystemExit(f"fleet {defn['fleet']} exists with different {diff}; its runs would not be "
                                  f"comparable. Use --new to start over (old results in runs/ are replaced).")
             if args.new:
+                live = [b["cluster"] for b in fleet["boxes"].values()
+                        if b["state"] in ("running", "launching") or cluster_status(b["cluster"]) is not None]
+                if live:
+                    raise SystemExit(f"--new: fleet {defn['fleet']} still has {live}; eval-down first")
                 fleet = None
         if fleet is None:
             fleet = {"meta": {**defn, "created_at": time.time()}, "boxes": {}, "max_usd": args.max_usd}
@@ -854,10 +858,14 @@ def cmd_eval_up(args) -> None:
         for i in runs:
             cluster, _ = eval_names(defn["split"], defn["label"], i)
             box = fleet["boxes"].get(str(i))
-            if box and box["state"] == "running" and cluster_status(cluster) is not None:
-                raise SystemExit(f"{cluster} is running; eval-down --only {i} first to relaunch it")
-            if cluster_status(cluster) is not None:
-                down(cluster)
+            if cluster_status(cluster) is None:
+                continue
+            if not box:   # not launched from this state file: leave it alone
+                raise SystemExit(f"{cluster} exists but is not a box of fleet {defn['fleet']} in {EVAL_STATE_PATH}; "
+                                 f"check `fh sky status` and delete it yourself if it is yours")
+            if box["state"] in ("running", "launching"):
+                raise SystemExit(f"{cluster} is {box['state']}; eval-down --only {i} first to relaunch it")
+            down(cluster)   # ours and finished (e.g. a failed delete earlier)
         evals[defn["fleet"]] = fleet
         save_evals(evals)
         stage = stage_eval(defn)
@@ -891,6 +899,12 @@ def cmd_eval_up(args) -> None:
             f"timed-out launch leaves behind for {LEAK_WINDOW_S // 60} minutes.")
 
 
+def sky_user_hash() -> str:
+    from sky.utils import common_utils
+
+    return common_utils.get_user_hash()
+
+
 def verda_client():
     from sky.adaptors.verda import VerdaClient
 
@@ -907,10 +921,10 @@ def sweep_leaks(clusters: list[str]) -> list[str]:
     gone = [c for c in clusters if c.startswith("fh-ev-") and cluster_status(c) is None]
     if not gone:
         return []
-    client, notes = verda_client(), []
+    client, notes, user = verda_client(), [], sky_user_hash()
 
-    def ours(name: str) -> bool:
-        return any(name.startswith(c + "-") for c in gone)
+    def ours(name: str) -> bool:   # <cluster>-<our SkyPilot user hash>-...: not a teammate's box of the same name
+        return any(name.startswith(f"{c}-{user}-") for c in gone)
 
     for inst in client.instances_get():
         if ours(inst.hostname):
@@ -965,11 +979,13 @@ def fetch_eval(fleet: dict, box: dict, job_status: str | None) -> Path:
     subprocess.run(["rsync", "-a", "--delete", "--exclude", "fh-status/", "-e", rsh,
                     f"--rsync-path=mkdir -p {remote_dir} && rsync", f"{box['cluster']}:{remote_dir}/", f"{dest}/"],
                    check=True, timeout=FETCH_TIMEOUT_S)
-    subprocess.run(["rsync", "-a", "-e", rsh, f"{box['cluster']}:fh/status/", f"{dest}/fh-status/"],
-                   check=False, timeout=FETCH_TIMEOUT_S)
+    subprocess.run(["rsync", "-a", "--delete", "-e", rsh, f"{box['cluster']}:fh/status/", f"{dest}/fh-status/"],
+                   check=True, timeout=FETCH_TIMEOUT_S)
     boxinfo = {}
     with contextlib.suppress(OSError, ValueError):
         boxinfo = json.loads((dest / "fh-status" / "box.json").read_text())
+    if job_status == "SUCCEEDED" and not boxinfo.get("vllm_cmd"):
+        raise RuntimeError(f"{box['cluster']}: fh-status/box.json is missing after a successful job")
     timings = {}
     with contextlib.suppress(OSError):
         for line in (dest / "fh-status" / "timings.txt").read_text().splitlines():
@@ -1009,7 +1025,7 @@ def eval_tick(fleet: dict) -> list[str]:
             try:
                 fetch_eval(fleet, box, job)
                 box["fetched_at"] = time.time()
-            except (OSError, subprocess.SubprocessError) as e:
+            except (OSError, RuntimeError, subprocess.SubprocessError) as e:
                 box["fetch_error"] = f"{type(e).__name__}: {e}"
                 box["fetch_failures"] = box.get("fetch_failures", 0) + 1
                 if not over and box["fetch_failures"] < EVAL_FETCH_TRIES:
@@ -1108,7 +1124,7 @@ def cmd_eval_down(args) -> None:
                 continue
             status = cluster_status(box["cluster"])
             if status == "UP" and not args.no_fetch and not box.get("fetched_at"):
-                with contextlib.suppress(OSError, subprocess.SubprocessError):
+                with contextlib.suppress(OSError, RuntimeError, subprocess.SubprocessError):
                     fetch_eval(fleet, box, last_job_status(box["cluster"]))
                     box["fetched_at"] = time.time()
             if status is not None:
