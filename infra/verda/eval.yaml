@@ -135,7 +135,4 @@ run: |
   mark harbor_end
   curl -s http://127.0.0.1:8000/metrics > "$ST/metrics.txt" || true
   printf '{"exit": %d, "finished_at": %d}\n' "$rc" "$(date +%s)" > "$ST/done.json"
-  mkdir -p "runs/$JOB"
-  tail -n 3000 "$ST/vllm.log" > "runs/$JOB/fh-vllm.log" || true
-  for f in box.json timings.txt done.json metrics.txt; do cp "$ST/$f" "runs/$JOB/fh-$f" 2>/dev/null || true; done
-  exit "$rc"
+  exit "$rc"   # fh eval-fetch copies runs/$JOB and ~/fh/status (box.json, timings, vLLM log and metrics)

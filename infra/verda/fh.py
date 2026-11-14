@@ -675,6 +675,7 @@ RUNS_DIR = ROOT / "runs"
 EVAL_RELAY_URL = "http://172.17.0.1:18000/v1"   # socat on the box's Docker bridge -> vLLM 127.0.0.1:8000
 OPENCODE_VERSION = "1.19.5"
 EVAL_TERMINAL = {"SUCCEEDED", "FAILED", "FAILED_SETUP", "FAILED_DRIVER", "FAILED_PRECHECKS", "CANCELLED"}
+EVAL_FETCH_TRIES = 3
 EVAL_NAME_RE = r"[a-z0-9][a-z0-9-]{0,15}"
 LORA_FILES = ("adapter_config.json", "adapter_model.safetensors")
 EVAL_PROBE = r"""
@@ -922,18 +923,22 @@ def fetch_eval(fleet: dict, box: dict, job_status: str | None) -> Path:
     dest = RUNS_DIR / box["job"]
     dest.mkdir(parents=True, exist_ok=True)
     rsh = shlex.join(ssh_base(box["cluster"]))
-    subprocess.run(["rsync", "-a", "--delete", "-e", rsh, f"{box['cluster']}:fh/runs/{box['job']}/", f"{dest}/"],
+    remote_dir = f"fh/runs/{box['job']}"
+    # mkdir: a job that failed before Harbor started has no run dir, and we still want its status files
+    subprocess.run(["rsync", "-a", "--delete", "--exclude", "fh-status/", "-e", rsh,
+                    f"--rsync-path=mkdir -p {remote_dir} && rsync", f"{box['cluster']}:{remote_dir}/", f"{dest}/"],
                    check=True, timeout=FETCH_TIMEOUT_S)
-    remote = ssh_out(box["cluster"], "cat ~/fh/status/box.json; echo; cat ~/fh/status/timings.txt", timeout=60)
-    lines = remote.stdout.splitlines()
+    subprocess.run(["rsync", "-a", "-e", rsh, f"{box['cluster']}:fh/status/", f"{dest}/fh-status/"],
+                   check=False, timeout=FETCH_TIMEOUT_S)
     boxinfo = {}
-    with contextlib.suppress(ValueError, IndexError):
-        boxinfo = json.loads(lines[0])
+    with contextlib.suppress(OSError, ValueError):
+        boxinfo = json.loads((dest / "fh-status" / "box.json").read_text())
     timings = {}
-    for line in lines[1:]:
-        k, _, v = line.partition(" ")
-        if v.isdigit():
-            timings[k] = int(v)
+    with contextlib.suppress(OSError):
+        for line in (dest / "fh-status" / "timings.txt").read_text().splitlines():
+            k, _, v = line.partition(" ")
+            if v.isdigit():
+                timings[k] = int(v)
     meta = {**fleet["meta"], "run": box["job"], "cluster": box["cluster"], "job_status": job_status,
             "complete": job_status == "SUCCEEDED", "fetched_at": time.time(), "launches": box.get("launches"),
             "launched_at": box.get("launched_at"), "cost_so_far": cluster_cost_since(box["cluster"],
@@ -969,11 +974,12 @@ def eval_tick(fleet: dict) -> list[str]:
                 box["fetched_at"] = time.time()
             except (OSError, subprocess.SubprocessError) as e:
                 box["fetch_error"] = f"{type(e).__name__}: {e}"
-                if not over:
+                box["fetch_failures"] = box.get("fetch_failures", 0) + 1
+                if not over and box["fetch_failures"] < EVAL_FETCH_TRIES:
                     notes.append(f"run {i}: fetch failed ({box['fetch_error']}); retrying next tick")
                     continue
             box["job_status"] = job
-            box["state"] = "budget" if over and job not in EVAL_TERMINAL else "done"
+            box["state"] = ("done" if job == "SUCCEEDED" else "failed") if job in EVAL_TERMINAL else "budget"
             down(box["cluster"])
             notes.append(f"run {i}: job {job}; fetched to runs/{box['job']}/ and deleted {box['cluster']}")
         elif over:

@@ -77,8 +77,8 @@ Comparability: every box uses the instance type pinned in `eval.yaml` (`1H100.80
 `--on-demand`), the same vLLM flags and the same `-n`; speed matters because of the 30-minute agent timeout.
 `runs/<job>/fh-eval-meta.json` records the fleet definition (instance type, spot, `-n`, model and revision,
 vLLM/Harbor/OpenCode versions, tasks and adapter hashes, `eval.yaml` hash, git commit), the box's GPUs and
-exact `vllm serve` command, phase timings and the cost. The box also leaves `fh-vllm.log` (tail),
-`fh-metrics.txt` (vLLM metrics at the end) and `fh-timings.txt` there. A LoRA eval adds only
+exact `vllm serve` command, phase timings and the cost. `runs/<job>/fh-status/` holds the box's `vllm.log`,
+`metrics.txt` (vLLM metrics at the end), `timings.txt` and `done.json` (Harbor's exit code). A LoRA eval adds only
 `--enable-lora --max-lora-rank 16 --lora-modules qwen3.8-27b-fh=<adapter>` to the base eval's flags.
 
 Weights: each box downloads `Qwen/Qwen3.8-27B` at the pinned revision from Hugging Face to its own 250 GB

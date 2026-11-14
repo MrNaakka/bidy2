@@ -166,14 +166,39 @@ def test_fetch_writes_comparability_metadata(evalbox, sandbox, monkeypatch):
     box = fleet["boxes"]["1"]
     monkeypatch.setattr(fh, "ssh_base", lambda c: ["ssh"])
     monkeypatch.setattr(fh, "cluster_cost_since", lambda n, s: 2.5)
-    monkeypatch.setattr(fh.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=0))
-    monkeypatch.setattr(fh, "ssh_out", lambda c, cmd, timeout=60: SimpleNamespace(
-        returncode=0, stdout='{"gpus": ["NVIDIA H100"], "vllm_cmd": ["vllm", "serve"]}\njob_start 100\nvllm_healthy 400\n'))
+    calls = []
+
+    def fake_rsync(cmd, **k):
+        calls.append(cmd)
+        if cmd[-1].endswith("fh-status/"):
+            st = Path(cmd[-1])
+            st.mkdir(parents=True)
+            (st / "box.json").write_text('{"gpus": ["NVIDIA H100"], "vllm_cmd": ["vllm", "serve"]}')
+            (st / "timings.txt").write_text("job_start 100\nvllm_healthy 400\n")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(fh.subprocess, "run", fake_rsync)
     dest = fh.fetch_eval(fleet, box, "SUCCEEDED")
     meta = json.loads((dest / "fh-eval-meta.json").read_text())
     assert meta["complete"] and meta["instance_type"] == "1H100.80S.30V" and meta["n_concurrent"] == 10
     assert meta["box"]["gpus"] == ["NVIDIA H100"] and meta["timings_rel_s"]["vllm_healthy"] == 300
     assert meta["cost_so_far"] == 2.5 and meta["run"] == "fh-dev-qwen-run1"
+    assert any(c.startswith("--rsync-path=mkdir -p fh/runs/fh-dev-qwen-run1") for c in calls[0])
+
+
+def test_tick_gives_up_fetching_after_a_few_tries(evalbox, sandbox, monkeypatch):
+    fleet = fleet_state(evalbox, ["running"])
+    monkeypatch.setattr(fh, "cluster_status", lambda n: "UP")
+    monkeypatch.setattr(fh, "last_job_status", lambda n: "FAILED_SETUP")
+    monkeypatch.setattr(fh, "cluster_cost_since", lambda n, s: 0.0)
+
+    def broken(f, b, j):
+        raise fh.subprocess.CalledProcessError(23, "rsync")
+
+    monkeypatch.setattr(fh, "fetch_eval", broken)
+    for _ in range(fh.EVAL_FETCH_TRIES):
+        fh.eval_tick(fleet)
+    assert fleet["boxes"]["1"]["state"] == "failed" and sandbox.down == ["fh-ev-dev-qwen-1"]
 
 
 def test_probe_parsing():
