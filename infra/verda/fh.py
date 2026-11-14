@@ -863,8 +863,13 @@ def cmd_eval_up(args) -> None:
             if not box:   # not launched from this state file: leave it alone
                 raise SystemExit(f"{cluster} exists but is not a box of fleet {defn['fleet']} in {EVAL_STATE_PATH}; "
                                  f"check `fh sky status` and delete it yourself if it is yours")
+            if args.resume:   # `sky launch` again on the same box: keeps its packages and weights
+                if last_job_status(cluster) in JOB_ACTIVE:
+                    raise SystemExit(f"{cluster} has a job running; nothing to resume")
+                continue
             if box["state"] in ("running", "launching"):
-                raise SystemExit(f"{cluster} is {box['state']}; eval-down --only {i} first to relaunch it")
+                raise SystemExit(f"{cluster} is {box['state']}; eval-down --only {i} first to relaunch it, "
+                                 f"or --resume to run the job again on it")
             down(cluster)   # ours and finished (e.g. a failed delete earlier)
         evals[defn["fleet"]] = fleet
         save_evals(evals)
@@ -1154,6 +1159,8 @@ def add_eval_parsers(sub) -> None:
     s.add_argument("--max-usd", type=float, default=60, help="cost cap for the whole fleet (eval-wait enforces it)")
     s.add_argument("--max-run-hours", type=int, default=4, help="hard limit per box job")
     s.add_argument("--new", action="store_true", help="replace an existing fleet with a different definition")
+    s.add_argument("--resume", action="store_true",
+                   help="run the job again on existing boxes (interrupted eval-up, failed job) instead of refusing")
     s.set_defaults(fn=cmd_eval_up)
     for name, fn in (("eval-status", cmd_eval_status), ("eval-fetch", cmd_eval_fetch), ("eval-wait", cmd_eval_wait),
                      ("eval-down", cmd_eval_down)):

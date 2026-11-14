@@ -60,7 +60,7 @@ def evalbox(tmp_path, monkeypatch, verda):
 def eval_args(evalbox, **kw):
     base = {"tasks": str(evalbox.tasks), "split": None, "label": None, "lora": None, "runs": 3, "only": None,
             "n": 10, "instance_type": None, "disk_size": None, "on_demand": False, "model_repo": None,
-            "model_rev": None, "max_usd": 60, "max_run_hours": 4, "new": False}
+            "model_rev": None, "max_usd": 60, "max_run_hours": 4, "new": False, "resume": False}
     return SimpleNamespace(**{**base, **kw})
 
 
