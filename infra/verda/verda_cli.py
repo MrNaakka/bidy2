@@ -15,6 +15,7 @@ import contextlib
 import fcntl
 import io
 import json
+import re
 import os
 import secrets
 import signal
@@ -61,12 +62,14 @@ SERVED_NAME = "qwen3.8-27b"
 LORA_NAME = "qwen3.8-27b-fh"  # LoRA adapter served next to the base model (serve-up --lora PATH)
 LORA_MAX_RANK = 16
 PORT = 8000
-# Every instance this CLI creates is named OWN_PREFIX + role + random id. The account is
-# ours alone, so reconcile treats any untracked "fh-" instance as an orphan of ours.
-OWN_PREFIX = "fh-"
-SERVE_PREFIX = "fh-serve-"
-DL_PREFIX = "fh-dl-"
+# Every instance this CLI creates is named fhbot-<serve|dl>-<12 hex> (machine-generated,
+# nobody types that by hand). Reconcile sweeps untracked instances only if their name
+# matches OWN_HOSTNAME_RE exactly; every other name (including other fh-* names and
+# legacy fh-qwen-*/fh-serve-*/fh-dl-* boxes) is report-only unless tracked by id.
+SERVE_PREFIX = "fhbot-serve-"
+DL_PREFIX = "fhbot-dl-"
 ROLE_PREFIX = {"serve": SERVE_PREFIX, "download": DL_PREFIX}
+OWN_HOSTNAME_RE = re.compile(r"^fhbot-(serve|dl)-[0-9a-f]{12}$")
 DOWNLOAD_FALLBACK = ["CPU.8V.32G", "CPU.16V.64G", "CPU.4V.16G", "CPU.32V.128G"]
 STARTUP_GRACE_S = 40 * 60  # a serving box that is not healthy after this is replaced
 GONE_STATUSES = ("deleted", "discontinued")  # get_by_id status of an instance that no longer exists/bills
@@ -611,7 +614,9 @@ def _ledger_has(event: str, inst_id: str) -> bool:
 
 
 def _role_of(hostname: str) -> str | None:
-    return next((r for r, pfx in ROLE_PREFIX.items() if hostname.startswith(pfx)), None)
+    """'serve'/'download' for a hostname this CLI generated, else None (not ours to sweep)."""
+    m = OWN_HOSTNAME_RE.match(hostname or "")
+    return None if m is None else {"serve": "serve", "dl": "download"}[m.group(1)]
 
 
 def live_creating_hostnames(st: dict) -> set[str]:
@@ -623,7 +628,7 @@ def reconcile(c) -> dict:
     """Bring state in line with the account. Runs at the start of every cloud command.
 
     Ownership rule: this Verda account is ours alone, so every instance whose hostname
-    starts with OWN_PREFIX ("fh-") is ours. Such an instance that is neither the tracked
+    matches OWN_HOSTNAME_RE (fhbot-<role>-<12 hex>) is ours. Such an instance that is neither the tracked
     serve/download box nor being created by a live process is an orphan: it is adopted
     as the serving box (with the config from its intent, if any) when it is a serve box
     and none is tracked, and deleted otherwise. Instances without the prefix are only
@@ -669,10 +674,10 @@ def reconcile(c) -> dict:
             to_delete.append(live[dl["id"]])
         tracked = {(st.get("serve") or {}).get("id"), dl.get("id")}
         for i in live.values():  # the fh- sweep
-            if not i.hostname.startswith(OWN_PREFIX):
-                out["unknown"].append(i.id)
-                continue
             if i.id in tracked or i.hostname in creating:
+                continue
+            if _role_of(i.hostname) is None:  # not a name we generate: report only
+                out["unknown"].append(i.id)
                 continue
             if not _ledger_has("create", i.id):
                 ledger_append(event="create", kind="instance", id=i.id, type=i.instance_type, hostname=i.hostname,
@@ -722,7 +727,7 @@ def reconcile(c) -> dict:
     for iid in out["unknown"]:
         i = live[iid]
         log(f"WARNING: instance {i.id} ({i.hostname}, {i.instance_type}, {i.status}) is not ours "
-            f"(no '{OWN_PREFIX}' prefix); left alone")
+            f"(not tracked, name not fhbot-<role>-<id>); left alone")
     return out
 
 
@@ -760,8 +765,11 @@ def wait_running(c, inst_id: str, timeout_s: int = 1200):
     raise TimeoutError(f"instance {inst_id} not running after {timeout_s}s")
 
 
-def our_instances(c, prefix: str):
-    return [i for i in c.instances.get() if i.hostname.startswith(prefix)]
+def role_instances(c, role: str):
+    """Instances of a role: the one tracked in state by id (whatever its hostname, e.g. a
+    legacy fh-qwen-serve-* box), plus any with a generated name for that role."""
+    tracked = (load_state().get(role) or {}).get("id")
+    return [i for i in c.instances.get() if i.id == tracked or _role_of(i.hostname) == role]
 
 
 def cmd_instances(args) -> None:
@@ -825,7 +833,7 @@ def cmd_download(args) -> None:
     inst, hostnames, status, verified = None, [], "", {}
     # Refuse (without touching it) a box that is busy with, or kept for, a different request.
     rec = state.get("download") or {}
-    for i in our_instances(c, DL_PREFIX):
+    for i in role_instances(c, "download"):
         if i.id == rec.get("id") and rec.get("request") != request and (rec.get("keep") or owner_alive(rec)):
             sys.exit(f"download box {i.id} is {'kept' if rec.get('keep') else 'in use'} for a different request "
                      f"{sorted(rec.get('request') or {})}; rerun with the same --repos, or `delete {i.id}` first")
@@ -833,7 +841,7 @@ def cmd_download(args) -> None:
     # creating or booting the box still deletes it (unless --keep).
     try:
         attempt = None
-        for i in our_instances(c, DL_PREFIX):
+        for i in role_instances(c, "download"):
             if i.id == rec.get("id") and rec.get("attempt") and rec.get("request") == request:
                 inst, attempt = i, rec["attempt"]
                 log(f"reusing download instance {inst.id} ({inst.status}), attempt {attempt}")
@@ -1113,7 +1121,7 @@ def _serve_up(c, args) -> None:
     state = load_state()
     if not get_volume(c, state) or "weights" not in state:
         sys.exit("volume/weights missing; run volume-create and download first")
-    existing = [i for i in our_instances(c, SERVE_PREFIX) if i.status not in ("error", *GONE_STATUSES)]
+    existing = [i for i in role_instances(c, "serve") if i.status not in ("error", *GONE_STATUSES)]
     if existing:
         inst = existing[0]
         log(f"serving instance already exists: {inst.id} {inst.instance_type} {inst.status}")
@@ -1218,7 +1226,7 @@ def cmd_serve_down(args) -> None:
 
 def _serve_down(c) -> None:
     failed = []
-    for inst in our_instances(c, SERVE_PREFIX):
+    for inst in role_instances(c, "serve"):
         try:
             delete_instance(c, inst.id, reason="serve-down")
         except DeleteFailed as e:
@@ -1241,7 +1249,7 @@ def cmd_serve_status(args) -> None:
     c = client()
     env = load_env()
     state = load_state()
-    insts = our_instances(c, SERVE_PREFIX)
+    insts = role_instances(c, "serve")
     info = tunnel_info()
     if not insts:
         print("no serving instance")
@@ -1355,7 +1363,7 @@ def cmd_serve_ensure(args) -> None:
         state = load_state()
         key = load_env().get("QWEN_API_KEY", "")
         creating = live_creating_hostnames(state)
-        insts = [i for i in our_instances(c, SERVE_PREFIX) if i.status not in GONE_STATUSES]
+        insts = [i for i in role_instances(c, "serve") if i.status not in GONE_STATUSES]
         for i in insts:
             if i.hostname in creating:  # a live create owns it (never ours to replace)
                 log(f"{i.id} is being created by another process; leaving it alone")
