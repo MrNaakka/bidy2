@@ -21,7 +21,7 @@ Plan (same for every kind):
      matching against the bundled fonts, then ``submit``.
 
 Every tool call is printed to stdout as one JSON line (and optionally saved with
-``--trace``). Dependencies: stdlib, pillow, numpy.
+``--trace``). Dependencies: pillow, numpy, mcp.
 """
 
 from __future__ import annotations
@@ -35,17 +35,20 @@ import os
 import re
 import sys
 import time
-import urllib.request
+from contextlib import ExitStack
+from datetime import timedelta
 from pathlib import Path
 
 import numpy as np
+from anyio.from_thread import start_blocking_portal
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
 from PIL import Image, ImageDraw, ImageFont
 
 FONT_DIR = Path(os.environ.get("FH_FONT_DIR") or Path(__file__).resolve().parent / "assets" / "fonts")
 FONT_FILES = {"sans": "DejaVuSans.ttf", "sans-bold": "DejaVuSans-Bold.ttf",
               "mono": "DejaVuSansMono.ttf", "mono-bold": "DejaVuSansMono-Bold.ttf"}
 RESAMPLE = Image.Resampling.LANCZOS  # what the server uses to downscale
-PROTOCOL = "2025-06-18"
 W, H = 1920, 1080
 
 _fonts: dict = {}
@@ -58,60 +61,29 @@ def font(name: str, size: int) -> ImageFont.FreeTypeFont:
     return _fonts[key]
 
 
-# ============================================================== MCP client (stdlib)
+# ============================================================== MCP client
 class MCPClient:
-    """Minimal MCP streamable-HTTP client: JSON-RPC over POST, JSON or SSE replies."""
+    """Synchronous wrapper over the mcp library's async ClientSession."""
 
-    def __init__(self, url: str, timeout: float = 120.0):
-        self.url, self.timeout = url, timeout
-        self.headers: dict[str, str] = {}
-        self._id = 0
+    def __init__(self, url: str):
+        with ExitStack() as stack:
+            self._portal = stack.enter_context(start_blocking_portal())
+            read, write, _ = stack.enter_context(self._portal.wrap_async_context_manager(streamable_http_client(url)))
+            self._session = stack.enter_context(self._portal.wrap_async_context_manager(ClientSession(read, write, read_timeout_seconds=timedelta(seconds=120))))
+            self._portal.call(self._session.initialize)
+            self._stack = stack.pop_all()
 
-    def rpc(self, method: str, params: dict | None = None, notify: bool = False):
-        body: dict = {"jsonrpc": "2.0", "method": method}
-        if params is not None:
-            body["params"] = params
-        if not notify:
-            self._id += 1
-            body["id"] = self._id
-        headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream",
-                   **self.headers}
-        req = urllib.request.Request(self.url, data=json.dumps(body).encode(), headers=headers, method="POST")
-        with urllib.request.urlopen(req, timeout=self.timeout) as r:
-            sid = r.headers.get("mcp-session-id")
-            if sid:
-                self.headers["Mcp-Session-Id"] = sid
-            ctype = r.headers.get("content-type", "")
-            raw = r.read().decode()
-        if notify:
-            return None
-        if "text/event-stream" in ctype:
-            msgs = [json.loads(ln[5:].strip()) for ln in raw.splitlines() if ln.startswith("data:")]
-        else:
-            msgs = [json.loads(raw)] if raw.strip() else []
-        for m in msgs:
-            if m.get("id") == body["id"]:
-                if "error" in m:
-                    raise RuntimeError(f"{method}: {m['error']}")
-                return m["result"]
-        raise RuntimeError(f"{method}: no response in {raw[:300]!r}")
-
-    def connect(self) -> None:
-        init = self.rpc("initialize", {"protocolVersion": PROTOCOL, "capabilities": {},
-                                       "clientInfo": {"name": "framehunt-reference", "version": "1"}})
-        self.headers["MCP-Protocol-Version"] = init.get("protocolVersion", PROTOCOL)
-        self.rpc("notifications/initialized", notify=True)
+    def close(self):
+        self._stack.close()
 
     def call(self, tool: str, args: dict) -> tuple[Image.Image | None, str]:
-        res = self.rpc("tools/call", {"name": tool, "arguments": args})
-        texts = [c["text"] for c in res.get("content", []) if c.get("type") == "text"]
-        if res.get("isError"):
-            raise RuntimeError(f"{tool}({args}) refused: {' '.join(texts)}")
-        img = None
-        for c in res.get("content", []):
-            if c.get("type") == "image":
-                img = Image.open(io.BytesIO(base64.b64decode(c["data"]))).convert("RGB")
-        return img, "\n".join(texts)
+        res = self._portal.call(self._session.call_tool, tool, args)
+        text = "\n".join(c.text for c in res.content if c.type == "text")
+        if res.isError:
+            raise RuntimeError(f"{tool}({args}) refused: {text}")
+        img = next((Image.open(io.BytesIO(base64.b64decode(c.data))).convert("RGB")
+                    for c in res.content if c.type == "image"), None)
+        return img, text
 
 
 # ============================================================== session + trace
@@ -477,7 +449,13 @@ class Dash:
 def run(url: str, out=sys.stdout) -> dict:
     t0 = time.time()
     c = MCPClient(url)
-    c.connect()
+    try:
+        return _run(c, out, t0)
+    finally:
+        c.close()
+
+
+def _run(c: MCPClient, out, t0: float) -> dict:
     s = Session(c, out=out)
     info = s.info()
     q = parse_question(info["question"])

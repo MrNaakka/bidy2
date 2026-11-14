@@ -2,7 +2,7 @@
 
     harbor run ... --agent framehunt.baselines.stop_early:StopEarly   (repo root on PYTHONPATH)
 
-Uploads stop_early_client.py (stdlib only) into the agent's container and runs it there,
+Uploads stop_early_client.py into the agent's container and runs it there,
 so it reaches the MCP sidecar over the task network like any agent: `info`, one
 low-res `view`, then `submit` of a well-formed guess seeded by the item id. Expected
 reward is ~0: the answers are random strings from a large space.

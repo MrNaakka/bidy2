@@ -55,7 +55,7 @@ from framehunt.splits import SPLITS, derive_seed, load_salt, salt_path
 
 # Pinned to uv.lock (Python 3.12 resolution).
 SIDECAR_PIP = ["mcp==1.30.0", "pillow==13.0.0", "numpy==2.5.4", "stretchable==1.1.8", "attrs==25.4.0"]
-MAIN_PIP = ["pillow==13.0.0", "numpy==2.5.4"]  # for the reference solution
+MAIN_PIP = ["pillow==13.0.0", "numpy==2.5.4", "mcp==1.30.0"]  # for the reference solution
 MCP_HOST = "fh-mcp"
 AGENT_TIMEOUT_SEC = 1800.0
 VERIFIER_TIMEOUT_SEC = 120.0
@@ -243,7 +243,7 @@ SOLVE_SH = """\
 # like an agent. Its tool-call trace goes to stdout (oracle.txt) and /logs/agent.
 set -euo pipefail
 cd "$(dirname "$0")"
-python3 -c "import PIL, numpy" 2>/dev/null \\
+python3 -c "import PIL, numpy, mcp" 2>/dev/null \\
   || pip3 install --no-cache-dir --break-system-packages {pins} \\
   || pip install --no-cache-dir {pins}
 mkdir -p /logs/agent

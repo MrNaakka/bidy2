@@ -1,4 +1,4 @@
-"""Stop-early client: runs inside the agent's container, stdlib only.
+"""Stop-early client: runs inside the agent's container.
 
     python3 stop_early_client.py URL ITEM_ID
 
@@ -8,54 +8,18 @@ never reads the image: that is the point of the baseline (stopping before doing 
 work). Prints one JSON line per tool call.
 """
 
-from __future__ import annotations
-
+import asyncio
 import json
 import random
 import re
 import sys
-import urllib.request
+from datetime import timedelta
 
-PROTOCOL = "2025-06-18"
-
-
-class Client:
-    def __init__(self, url: str):
-        self.url, self.headers, self.n = url, {}, 0
-
-    def rpc(self, method, params=None, notify=False):
-        body = {"jsonrpc": "2.0", "method": method}
-        if params is not None:
-            body["params"] = params
-        if not notify:
-            self.n += 1
-            body["id"] = self.n
-        req = urllib.request.Request(self.url, data=json.dumps(body).encode(), method="POST", headers={
-            "Content-Type": "application/json", "Accept": "application/json, text/event-stream", **self.headers})
-        with urllib.request.urlopen(req, timeout=120) as r:
-            if r.headers.get("mcp-session-id"):
-                self.headers["Mcp-Session-Id"] = r.headers["mcp-session-id"]
-            ctype, raw = r.headers.get("content-type", ""), r.read().decode()
-        if notify:
-            return None
-        msgs = ([json.loads(x[5:]) for x in raw.splitlines() if x.startswith("data:")]
-                if "text/event-stream" in ctype else [json.loads(raw)])
-        for m in msgs:
-            if m.get("id") == body["id"]:
-                if "error" in m:
-                    raise RuntimeError(m["error"])
-                return m["result"]
-        raise RuntimeError(f"no response to {method}")
-
-    def call(self, tool, args):
-        res = self.rpc("tools/call", {"name": tool, "arguments": args})
-        text = "\n".join(c["text"] for c in res.get("content", []) if c.get("type") == "text")
-        print(json.dumps({"tool": tool, "args": args, "isError": res.get("isError", False),
-                          "text": text[:300] if tool != "info" else "(info)"}), flush=True)
-        return text
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
 
 
-def guess(answer_format: str, rng: random.Random) -> str:
+def guess(answer_format: str, rng: random.Random):
     """A well-formed but uninformed answer for the stated format."""
     fmt = answer_format.lower()
     if "integer" in fmt or "digits only" in fmt:
@@ -69,21 +33,24 @@ def guess(answer_format: str, rng: random.Random) -> str:
     return "".join(rng.choice(alphabet) for _ in range(n))
 
 
-def main(url: str, item_id: str) -> int:
-    c = Client(url)
-    init = c.rpc("initialize", {"protocolVersion": PROTOCOL, "capabilities": {},
-                                "clientInfo": {"name": "framehunt-stop-early", "version": "1"}})
-    c.headers["MCP-Protocol-Version"] = init.get("protocolVersion", PROTOCOL)
-    c.rpc("notifications/initialized", notify=True)
-    info = dict(line.split(":", 1) for line in c.call("info", {}).splitlines()
-                if ":" in line and not line.startswith(" "))
-    info = {k.strip(): v.strip() for k, v in info.items()}
-    c.call("view", {"t": float(info["duration_s"]) / 2, "out_width": int(info["width"]) // 8})
-    answer = guess(info["answer_format"], random.Random(f"stop-early/{item_id}"))
-    c.call("submit", {"answer": answer})
-    print(json.dumps({"summary": True, "item_id": item_id, "answer": answer}), flush=True)
-    return 0
+async def main(url: str, item_id: str):
+    async with streamable_http_client(url) as (read, write, _), ClientSession(read, write, read_timeout_seconds=timedelta(seconds=120)) as session:
+        await session.initialize()
+
+        async def call(tool, args):
+            res = await session.call_tool(tool, args)
+            text = "\n".join(c.text for c in res.content if c.type == "text")
+            print(json.dumps({"tool": tool, "args": args, "isError": res.isError,
+                              "text": text[:300] if tool != "info" else "(info)"}), flush=True)
+            return text
+
+        info = {k.strip(): v.strip() for k, v in (line.split(":", 1) for line in (await call("info", {})).splitlines()
+                                                  if ":" in line and not line.startswith(" "))}
+        await call("view", {"t": float(info["duration_s"]) / 2, "out_width": int(info["width"]) // 8})
+        answer = guess(info["answer_format"], random.Random(f"stop-early/{item_id}"))
+        await call("submit", {"answer": answer})
+        print(json.dumps({"summary": True, "item_id": item_id, "answer": answer}), flush=True)
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else "unknown"))
+    asyncio.run(main(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else "unknown"))
