@@ -152,8 +152,15 @@ def init_from_adapter(model, d: Path, a) -> None:
 
     cfg = json.loads((d / "adapter_config.json").read_text())
     ours = model.peft_config["default"]
-    # rank and alpha set the scale; the target modules are checked by the loaded keys below
-    mismatch = {k: (cfg.get(k), v) for k, v in (("r", ours.r), ("lora_alpha", ours.lora_alpha)) if cfg.get(k) != v}
+    # everything that sets the shapes or the scale (lora_alpha / r, or / sqrt(r) with rsLoRA, per-module
+    # patterns, DoRA) must match; the target modules are checked by the loaded keys below
+    defaults = {"use_rslora": False, "use_dora": False, "rank_pattern": {}, "alpha_pattern": {}}
+    mismatch = {}
+    for k in ("r", "lora_alpha", *defaults):
+        theirs = cfg.get(k, defaults.get(k))
+        mine = getattr(ours, k, defaults.get(k))
+        if (theirs or defaults.get(k)) != (mine or defaults.get(k)):
+            mismatch[k] = (theirs, mine)
     if mismatch:
         raise SystemExit(f"--init-adapter {d}: config differs from this run (adapter, run): {mismatch}")
     sd = load_file(str(d / "adapter_model.safetensors"))
