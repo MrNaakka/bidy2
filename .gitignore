@@ -7,6 +7,8 @@ runs/
 tasks/
 reviews/*.log
 infra/verda/.serve-ensure.lock
+infra/verda/.state.lock
+infra/verda/state.json.tmp
 secrets/
 infra/verda/tunnel.pid
 infra/verda/tunnel.log

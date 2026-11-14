@@ -5,6 +5,8 @@ mount_data || exit 1
 ATTEMPT="__ATTEMPT__"
 STATUS="$MNT/logs/download-$ATTEMPT.status"
 mkdir -p "$MNT/models" "$MNT/logs" "$MNT/envs" "$MNT/bin"
+VERIFIED="$MNT/logs/download-$ATTEMPT.verified"
+: > "$VERIFIED"
 echo "running $ATTEMPT $(date -Is)" > "$STATUS"
 install_uv
 exec > >(tee -a "$MNT/logs/download.log") 2>&1
@@ -22,11 +24,18 @@ while read -r repo rev; do
   name="${repo#*/}"
   echo "[fh] downloading $repo@$rev -> $MNT/models/$name"
   t0=$(date +%s)
+  rm -f "$MNT/models/$name.REVISION"
+  ok=1
   uvx --python 3.12 --from 'huggingface_hub[cli,hf_transfer]' \
-      hf download "$repo" --revision "$rev" --local-dir "$MNT/models/$name" --max-workers 16 || fail=1
+      hf download "$repo" --revision "$rev" --local-dir "$MNT/models/$name" --max-workers 16 || ok=0
   echo "[fh] downloaded $repo in $(( $(date +%s) - t0 ))s"
-  uv run --no-project --python 3.12 python "$MNT/bin/verify_weights.py" "$repo" "$rev" "$MNT/models/$name" || fail=1
-  echo "$repo $rev" > "$MNT/models/$name.REVISION"
+  [ "$ok" = 1 ] && { uv run --no-project --python 3.12 python "$MNT/bin/verify_weights.py" "$repo" "$rev" "$MNT/models/$name" || ok=0; }
+  if [ "$ok" = 1 ]; then
+    echo "$repo $rev" > "$MNT/models/$name.REVISION"
+    echo "$repo $rev" >> "$VERIFIED"   # only checkpoints that downloaded and verified
+  else
+    fail=1
+  fi
 done <<'EOF'
 __MODELS__
 EOF

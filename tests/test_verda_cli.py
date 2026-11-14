@@ -19,7 +19,7 @@ import verda_cli as vc  # noqa: E402
 def sandbox(tmp_path, monkeypatch):
     for name, fname in [("ENV_PATH", ".env"), ("STATE_PATH", "state.json"), ("LEDGER_PATH", "ledger.jsonl"),
                         ("LOCK_PATH", "lock"), ("TUNNEL_PIDFILE", "tunnel.pid"), ("TUNNEL_LOG", "tunnel.log"),
-                        ("KNOWN_HOSTS", "known_hosts")]:
+                        ("KNOWN_HOSTS", "known_hosts"), ("STATE_LOCK", ".state.lock")]:
         monkeypatch.setattr(vc, name, tmp_path / fname)
     monkeypatch.setattr(vc, "ROOT", tmp_path)
     monkeypatch.setattr(vc.time, "sleep", lambda s: None)
@@ -40,8 +40,9 @@ def inst(id="i1", status="running", hostname="fh-qwen-serve-1", ip="1.2.3.4"):
 def fake_create(inst_id):
     """Stand-in for create_instance that tracks the box in state like the real one."""
     def create(c, state, **k):
-        state[k["role"]] = {"id": inst_id, "hostname": k["hostname"], "created": 0, **(k.get("record") or {})}
-        vc.save_state(state)
+        rec = {"id": inst_id, "hostname": k["hostname"], "created": 0, **(k.get("record") or {})}
+        vc.update_state(lambda st: st.__setitem__(k["role"], rec))
+        state[k["role"]] = rec
         return inst(inst_id, hostname=k["hostname"])
     return create
 
@@ -125,7 +126,7 @@ def test_serve_down_keeps_state_when_delete_fails(sandbox, monkeypatch):
 def test_serve_down_success_clears_state(sandbox, monkeypatch):
     vc.save_state({"serve": {"id": "i1"}})
     c = mock.Mock()
-    c.instances.get.return_value = [inst()]
+    c.instances.get.side_effect = [[inst()], []]  # listed, then gone after the delete
     c.instances.get_by_id.side_effect = [inst(), NOT_FOUND]
     c.startup_scripts.get.return_value = []
     monkeypatch.setattr(vc, "client", lambda: c)
@@ -421,7 +422,9 @@ def test_download_accepts_own_done(sandbox, cloud, monkeypatch):
     monkeypatch.setattr(vc, "create_instance", fake_create("dl1"))
     monkeypatch.setattr(vc, "wait_running", lambda c, i: inst("dl1"))
     monkeypatch.setattr(vc.secrets, "token_hex", lambda n: "NEWATTEMPT")
-    monkeypatch.setattr(vc, "ssh", lambda ip, cmd, **k: SimpleNamespace(stdout="done NEWATTEMPT 2026\n"))
+    monkeypatch.setattr(vc, "ssh", lambda ip, cmd, **k: SimpleNamespace(
+        stdout="".join(f"{r} {rev}\n" for r, rev in vc.MODELS.items()) if ".verified" in cmd
+        else "done NEWATTEMPT 2026\n"))
     vc.cmd_download(_download_args())
     st = vc.load_state()
     assert set(st["weights"]) == set(vc.MODELS) and "download" not in st
@@ -470,14 +473,24 @@ def test_create_intent_is_persisted_before_the_api_call(sandbox, monkeypatch):
     assert "fh-qwen-dl-9" in vc.load_state()["pending_creates"]
 
 
-def test_create_clean_rejection_forgets_intent(sandbox, monkeypatch):
+def test_create_definitive_rejection_forgets_intent(sandbox, monkeypatch):
     c = _real_create_cloud(monkeypatch)
-    c.instances.create.side_effect = APIException("not_enough_resources", "no capacity")
-    c.instances.get.return_value = []
+    c.instances.create.side_effect = APIException("invalid_request", "Not enough resources")
     with pytest.raises(APIException):
         vc.create_instance(c, _vol_state(), role="serve", itype="1A6000.10V", hostname="h1",
                            script_name="x", script="s", spot=True)
     assert "h1" not in vc.load_state().get("pending_creates", {})
+
+
+def test_create_ambiguous_api_error_keeps_intent_marked(sandbox, monkeypatch):
+    c = _real_create_cloud(monkeypatch)
+    c.instances.create.side_effect = APIException("server_error", "upstream timeout")
+    c.instances.get.return_value = []  # an empty listing proves nothing
+    with pytest.raises(APIException):
+        vc.create_instance(c, _vol_state(), role="serve", itype="1A6000.10V", hostname="h1",
+                           script_name="x", script="s", spot=True)
+    rec = vc.load_state()["pending_creates"]["h1"]
+    assert rec["create_error"].startswith("server_error") and rec["error_ts"] > 0
 
 
 def test_create_success_tracks_role_and_clears_intent(sandbox, monkeypatch):
@@ -537,12 +550,17 @@ def test_reconcile_leaves_in_flight_creates_alone(sandbox, recon):
     assert "h" in vc.load_state()["pending_creates"]
 
 
-def test_reconcile_drops_stale_intent_that_never_materialized(sandbox, recon):
-    vc.save_state({"pending_creates": {"old": {"role": "serve", "ts": 0, **_dead_owner()},
-                                       "recent": {"role": "serve", "ts": vc.time.time(), **_dead_owner()}}})
+def test_reconcile_expires_only_failed_intents(sandbox, recon):
+    now = vc.time.time()
+    vc.save_state({"pending_creates": {
+        "failed-old": {"role": "serve", "ts": 0, "error_ts": now - 2 * vc.PENDING_TTL_S, **_dead_owner()},
+        "failed-new": {"role": "serve", "ts": 0, "error_ts": now - 60, **_dead_owner()},
+        "unknown-old": {"role": "serve", "ts": 0, **_dead_owner()}}})  # outcome unknown: never expires
     recon.instances.get.return_value = []
     out = vc.reconcile(recon)
-    assert out["dropped"] == ["old"] and list(vc.load_state()["pending_creates"]) == ["recent"]
+    assert out["dropped"] == ["failed-old"]
+    assert sorted(vc.load_state()["pending_creates"]) == ["failed-new", "unknown-old"]
+    assert sorted(out["unresolved"]) == ["failed-new", "unknown-old"]
 
 
 def test_reconcile_deletes_orphaned_download_box_but_not_kept_one(sandbox, recon):
@@ -754,3 +772,220 @@ def test_serve_ensure_reprovisions_with_remembered_lora(sandbox, cloud, monkeypa
     monkeypatch.setattr(vc, "cmd_serve_up", up)
     vc.cmd_serve_ensure(_serve_args(wait=False))
     assert up.call_args[0][0].lora == "/mnt/fh/lora/fh-v1"
+
+
+# ---- r5 (1): unmatched intents are never cleared by an empty listing -----------------
+def test_cleanup_keeps_intent_when_listing_finds_nothing(sandbox):
+    vc.save_state({"pending_creates": {"h": {"role": "download", "ts": 0}}})
+    c = mock.Mock()
+    c.instances.get.return_value = []  # order may still be processing
+    vc.delete_by_hostnames(c, ["h"], reason="t")
+    assert "h" in vc.load_state()["pending_creates"]
+
+
+def test_cleanup_clears_intent_only_after_confirmed_delete(sandbox, monkeypatch):
+    vc.save_state({"pending_creates": {"h": {"role": "download", "ts": 0}}})
+    c = mock.Mock()
+    c.instances.get.return_value = [inst("x", hostname="h")]
+    monkeypatch.setattr(vc, "delete_instance", mock.Mock(side_effect=vc.DeleteFailed("api down")))
+    with pytest.raises(vc.DeleteFailed):
+        vc.delete_by_hostnames(c, ["h"], reason="t")
+    assert "h" in vc.load_state()["pending_creates"]
+    monkeypatch.setattr(vc, "delete_instance", mock.Mock())
+    vc.delete_by_hostnames(c, ["h"], reason="t")
+    assert "pending_creates" not in vc.load_state()
+
+
+def test_late_instance_for_kept_intent_is_cleaned_by_reconcile(sandbox, recon):
+    vc.save_state({"pending_creates": {"h": {"role": "download", "ts": 0, **_dead_owner()}}})
+    recon.instances.get.return_value = []
+    vc.reconcile(recon)  # nothing yet: kept
+    recon.instances.get.return_value = [inst("late", hostname="h")]  # the order went through after all
+    out = vc.reconcile(recon)
+    assert recon.deleted == ["late"] and out["unknown"] == [] and "pending_creates" not in vc.load_state()
+
+
+def test_forget_intent_command(sandbox):
+    vc.save_state({"pending_creates": {"h": {"role": "serve", "ts": 0}}})
+    vc.cmd_forget_intent(SimpleNamespace(hostname="h"))
+    assert "pending_creates" not in vc.load_state()
+    with pytest.raises(SystemExit):
+        vc.cmd_forget_intent(SimpleNamespace(hostname="h"))
+
+
+# ---- r5 (2): serialized state transactions, no stale snapshots -------------------------
+def test_reconcile_does_not_erase_intent_written_during_its_listing(sandbox, recon):
+    vc.save_state({"serve": {"id": "g1", "created": 0}})
+
+    def listing():  # another command records an intent while reconcile waits on the API
+        vc.update_state(lambda st: st.setdefault("pending_creates", {}).__setitem__(
+            "fh-qwen-dl-7", {"role": "download", "ts": vc.time.time(), **vc.proc_identity()}))
+        return [inst("g1")]
+
+    recon.instances.get.side_effect = listing
+    vc.reconcile(recon)
+    assert "fh-qwen-dl-7" in vc.load_state()["pending_creates"]
+
+
+def test_reconcile_keeps_record_created_after_its_listing(sandbox, recon):
+    vc.save_state({})
+
+    def listing():  # serve-up records a new box after the listing request went out
+        vc.update_state(lambda st: st.__setitem__("serve", {"id": "new", "created": vc.time.time() + 1}))
+        return []
+
+    recon.instances.get.side_effect = listing
+    vc.reconcile(recon)
+    assert vc.load_state()["serve"]["id"] == "new"
+
+
+def test_commands_never_save_full_snapshots():
+    src = Path(vc.__file__).read_text()
+    assert src.count("save_state(") == 1  # only the definition; all writers use update_state
+
+
+def test_nested_state_transaction_is_refused(sandbox):
+    with pytest.raises(RuntimeError, match="nested"):
+        vc.update_state(lambda st: vc.update_state(lambda s2: None))
+
+
+def test_state_lock_serializes_processes(sandbox):
+    import subprocess as sp
+    vc.save_state({"a": 1})
+    code = ("import fcntl,json,sys,time\n"
+            f"f=open({str(vc.STATE_LOCK)!r},'a'); fcntl.flock(f, fcntl.LOCK_EX)\n"
+            f"p={str(vc.STATE_PATH)!r}; s=json.load(open(p)); print('locked', flush=True); time.sleep(1.0)\n"
+            "s['other']=True; json.dump(s, open(p,'w'))\n")
+    proc = sp.Popen([sys.executable, "-c", code], stdout=sp.PIPE, text=True)
+    assert proc.stdout.readline().strip() == "locked"
+    import time as _t
+    t0 = _t.monotonic()
+    vc.update_state(lambda st: st.__setitem__("mine", True))  # must wait for the other writer
+    assert _t.monotonic() - t0 > 0.5
+    proc.wait(timeout=10)
+    st = vc.load_state()
+    assert st["other"] is True and st["mine"] is True and st["a"] == 1
+
+
+# ---- r5 (3): download attempts are tied to their requested repos + revisions -----------
+FP8 = "Qwen/Qwen3.8-27B-FP8"
+BF16 = "Qwen/Qwen3.8-27B"
+
+
+def test_parse_verified_only_matching_request():
+    req = {FP8: vc.MODELS[FP8]}
+    text = f"{FP8} {vc.MODELS[FP8]}\n{BF16} {vc.MODELS[BF16]}\n{FP8} deadbeef\n"
+    assert vc.parse_verified(text, req) == {FP8: vc.MODELS[FP8]}
+
+
+def test_kept_box_for_other_request_is_refused_not_reused(sandbox, cloud, monkeypatch):
+    vc.save_state(_vol_state() | {"download": {"id": "dlk", "attempt": "OLD", "keep": True,
+                                               "request": {FP8: vc.MODELS[FP8]}, **_dead_owner()}})
+    cloud.instances.get.return_value = [inst("dlk", hostname="fh-qwen-dl-1")]
+    create = mock.Mock()
+    monkeypatch.setattr(vc, "create_instance", create)
+    with pytest.raises(SystemExit, match="different request"):
+        vc.cmd_download(_download_args())  # requests both checkpoints
+    create.assert_not_called()
+    assert cloud.deleted == []  # the kept box is left alone
+    assert vc.load_state()["weights"] == _vol_state()["weights"]
+
+
+def test_matching_kept_box_is_reused(sandbox, cloud, monkeypatch):
+    req = {FP8: vc.MODELS[FP8]}
+    vc.save_state(_vol_state() | {"weights": {}, "download": {"id": "dlk", "attempt": "OLD", "keep": True,
+                                                              "request": req, **_dead_owner()}})
+    cloud.instances.get.return_value = [inst("dlk", hostname="fh-qwen-dl-1")]
+    monkeypatch.setattr(vc, "create_instance", mock.Mock(side_effect=AssertionError("must reuse")))
+    monkeypatch.setattr(vc, "wait_running", lambda c, i: inst("dlk"))
+    monkeypatch.setattr(vc, "ssh", lambda ip, cmd, **k: SimpleNamespace(
+        stdout=f"{FP8} {vc.MODELS[FP8]}\n" if ".verified" in cmd else "done OLD 2026\n"))
+    vc.cmd_download(SimpleNamespace(**{**vars(_download_args()), "repos": [FP8]}))
+    assert vc.load_state()["weights"] == {FP8: {"revision": vc.MODELS[FP8], "path": "/mnt/fh/models/Qwen3.8-27B-FP8"}}
+
+
+def test_download_records_only_verified_and_merges(sandbox, cloud, monkeypatch):
+    prev = {FP8: {"revision": vc.MODELS[FP8], "path": "/mnt/fh/models/Qwen3.8-27B-FP8"}}
+    vc.save_state(_vol_state() | {"weights": prev})
+    monkeypatch.setattr(vc, "create_instance", fake_create("dl1"))
+    monkeypatch.setattr(vc, "wait_running", lambda c, i: inst("dl1"))
+    monkeypatch.setattr(vc.secrets, "token_hex", lambda n: "A1")
+    seen = {}
+
+    def fake_ssh(ip, cmd, **k):
+        if ".verified" in cmd:
+            return SimpleNamespace(stdout="")  # 'done' but nothing verified: don't trust it
+        return SimpleNamespace(stdout="done A1 2026\n")
+
+    monkeypatch.setattr(vc, "ssh", fake_ssh)
+    monkeypatch.setattr(vc, "render", lambda f, subs, vol: seen.update(subs) or "s")
+    with pytest.raises(SystemExit, match="verified only"):
+        vc.cmd_download(SimpleNamespace(**{**vars(_download_args()), "repos": [BF16]}))
+    assert seen["__MODELS__"] == f"{BF16} {vc.MODELS[BF16]}"
+    assert vc.load_state()["weights"] == prev  # BF16 not recorded, FP8 kept
+
+
+def test_download_record_carries_request(sandbox, cloud, monkeypatch):
+    vc.save_state(_vol_state())
+    rec = {}
+    monkeypatch.setattr(vc, "create_instance", lambda c, st, **k: rec.update(k["record"]) or inst("d"))
+    monkeypatch.setattr(vc, "wait_running", mock.Mock(side_effect=TimeoutError))
+    with pytest.raises(TimeoutError):
+        vc.cmd_download(SimpleNamespace(**{**vars(_download_args()), "repos": [FP8]}))
+    assert rec["request"] == {FP8: vc.MODELS[FP8]} and rec["attempt"]
+
+
+def test_download_script_records_only_verified_checkpoints():
+    text = (vc.REMOTE / "download.sh").read_text()
+    assert 'VERIFIED="$MNT/logs/download-$ATTEMPT.verified"' in text
+    loop = text[text.index("while read -r repo rev"):text.index("__MODELS__")]
+    assert loop.index('rm -f "$MNT/models/$name.REVISION"') < loop.index("hf download")
+    assert loop.index('>> "$VERIFIED"') > loop.index("verify_weights.py")
+
+
+# ---- r5 (6): serving config persisted before create, carried into adoption ----------
+def test_intent_has_serving_config_before_create(sandbox, monkeypatch):
+    c = _real_create_cloud(monkeypatch)
+    at_call = {}
+
+    def create(**kw):
+        at_call.update(vc.load_state())
+        raise ConnectionError("lost")
+
+    c.instances.create.side_effect = create
+    cfg = {"variant": "bf16", "vllm_args": ["--enable-lora"], "lora": "/mnt/fh/lora/fh-v1", "model_dir": "/m"}
+    with pytest.raises(ConnectionError):
+        vc.create_instance(c, _vol_state(), role="serve", itype="1A100.22V", hostname="h", script_name="x",
+                           script="s", spot=True, record=cfg)
+    assert at_call["pending_creates"]["h"]["record"] == cfg
+
+
+def test_serve_up_remembers_lora_before_create(serve_cloud, monkeypatch):
+    at_call = {}
+
+    def create(c, state, **k):
+        at_call.update(vc.load_state())
+        at_call["record"] = k["record"]
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(vc, "create_instance", create)
+    with pytest.raises(KeyboardInterrupt):
+        vc.cmd_serve_up(_serve_args(lora="/mnt/fh/lora/fh-v1"))
+    assert at_call["serve_lora"] == "/mnt/fh/lora/fh-v1" and at_call["record"]["lora"] == "/mnt/fh/lora/fh-v1"
+
+
+def test_adopted_orphan_keeps_lora_for_recovery(sandbox, recon, cloud, monkeypatch):
+    cfg = {"variant": "bf16", "lora": "/mnt/fh/lora/fh-v1", "vllm_args": ["--enable-lora"]}
+    vc.save_state(_vol_state() | {"pending_creates": {
+        "fh-qwen-serve-9": {"role": "serve", "ts": 5, "record": cfg, **_dead_owner()}}})
+    recon.instances.get.return_value = [inst("g9", hostname="fh-qwen-serve-9")]
+    vc.reconcile(recon)
+    st = vc.load_state()
+    assert st["serve"]["lora"] == cfg["lora"] and st["serve"]["vllm_args"] == cfg["vllm_args"]
+    assert st["serve_lora"] == cfg["lora"]
+    # the adopted box is then preempted: serve-ensure re-provisions with the adapter
+    up = mock.Mock()
+    monkeypatch.setattr(vc, "cmd_serve_up", up)
+    monkeypatch.setattr(vc, "reconcile", lambda c: None)
+    vc.cmd_serve_ensure(_serve_args(wait=False))
+    assert up.call_args[0][0].lora == cfg["lora"]

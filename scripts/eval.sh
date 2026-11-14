@@ -12,7 +12,7 @@
 #          --model M (default anthropic/claude-opus-5-5; "qwen" = Qwen3.8-27B via infra/verda,
 #          "qwen-fh" = the same with our LoRA adapter), --split S (default eval).
 # OpenCode is pinned to $OPENCODE_VERSION (the version the training data was captured with).
-# Infrastructure exceptions (e.g. agent install timeouts) are retried up to 2 times.
+# Only pre-agent infrastructure failures (setup/start/build timeouts) are retried, up to 2 times.
 # Jobs have fixed names and go to runs/<job>; an existing runs/<job> is replaced.
 set -euo pipefail
 
@@ -53,13 +53,18 @@ job() {  # job name, then harbor run args
   rm -rf "$OUT/$name"
   local t0=$SECONDS
   echo "=== $name: harbor run $*"
-  harbor run -p "$TASKS" --job-name "$name" -o "$OUT" -n "$N" -r 2 -y "$@"
+  # Retry only failures that happen before the agent sees anything (setup/start/build).
+  # Failures after the agent started count as failures: a retry would hand it a fresh budget.
+  harbor run -p "$TASKS" --job-name "$name" -o "$OUT" -n "$N" -r 2 \
+    --retry-include AgentSetupTimeoutError --retry-include EnvironmentStartTimeoutError \
+    --retry-include HealthcheckError --retry-include SandboxBuildFailedError -y "$@"
   stage_time "$name" $((SECONDS - t0))
 }
 
 if [ "$STAGE" = all ] || [ "$STAGE" = agents ]; then
-  if [ -z "${ANTHROPIC_API_KEY:-}" ] && ! grep -q '^ANTHROPIC_API_KEY=.' .env 2>/dev/null; then
-    echo "ANTHROPIC_API_KEY is not set (env or .env); needed for the agent runs." >&2
+  case "$MODEL" in qwen|qwen-fh) NEEDKEY=QWEN_API_KEY ;; *) NEEDKEY=ANTHROPIC_API_KEY ;; esac
+  if [ -z "${!NEEDKEY:-}" ] && ! grep -q "^$NEEDKEY=." .env 2>/dev/null; then
+    echo "$NEEDKEY is not set (env or .env); needed for the agent runs with --model $MODEL." >&2
     echo "Run 'scripts/eval.sh --stage baselines' to skip them." >&2
     exit 2
   fi
