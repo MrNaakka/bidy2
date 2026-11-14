@@ -20,6 +20,10 @@ bundled fonts, framehunt/reference.py) driving a varied coarse-to-fine plan:
      of the answer text (with random padding, sometimes including the label);
   6. submit, then one short final message (OpenCode ends the run there).
 
+scandoc (a scanned PDF) follows the reference's plan instead (contents -> printed page ->
+jump and correct by the printed number found -> table dated the asked year -> row and
+column at 1/4 -> one native crop), with every observation spelled out.
+
 Each assistant turn has a short reasoning text (what the last image showed, what to
 do next and why) and exactly one tool call. Only trajectories whose submitted answer
 the server marks correct are kept. Output:
@@ -93,9 +97,10 @@ def instruction_md(scene, budget: int) -> str:
     bt = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(bt)
     m = scene.meta
-    return bt.INSTRUCTION_MD.format(
+    template = bt.INSTRUCTION_DOC_MD if scene.kind in bt.DOCUMENT_KINDS else bt.INSTRUCTION_MD
+    return template.format(
         question=scene.question, answer_format=scene.answer_format, width=m.width, height=m.height, fps=m.fps,
-        n_frames=m.n_frames, duration=m.duration_s, budget=budget, full=m.width * m.height,
+        n_frames=m.n_frames, last=m.n_frames - 1, duration=m.duration_s, budget=budget, full=m.width * m.height,
         min_out=MIN_OUT_WIDTH, min_n=MIN_SHEET_N, max_n=MAX_SHEET_N, sep=SHEET_SEPARATOR_PX)
 
 
@@ -163,7 +168,7 @@ class Episode:
             args.update({"x": x, "y": y, "w": w, "h": h})
         args["out_width"] = out_width
         arr, text = self.call("view", args, plan)
-        got = int(re.search(r"frame=(\d+)", text).group(1))
+        got = int(re.search(r"(?:frame|page)=(\d+)", text).group(1))
         assert got == frame, (got, frame, text)
         return arr
 
@@ -626,8 +631,36 @@ def solve_leaderboard(ep: Episode, rng, q: dict) -> str:
     return val
 
 
+class _DocSession:
+    """reference.Doc's Session interface on top of an Episode: every look becomes one recorded
+    tool call whose reasoning is the look's purpose, prefixed by what the previous looks showed."""
+
+    def __init__(self, ep: Episode):
+        self.ep, self.n_frames, self.fps = ep, ep.n_frames, ep.fps
+
+    def view(self, frame: int, box, out_width: int, purpose: str) -> np.ndarray:
+        purpose = purpose[:1].upper() + purpose[1:]
+        return self.ep.view(frame, box, out_width, purpose if purpose.endswith((".", "?")) else purpose + ".")
+
+    def say(self, msg: str) -> None:
+        self.ep.note = (self.ep.note + " " + msg).strip()
+
+
+def solve_scandoc(ep: Episode, rng, q: dict) -> str:
+    """The reference's plan (contents -> printed page -> jump and correct by the printed number
+    -> table dated the asked year -> row/column at 1/4 -> one native crop), narrated."""
+    maybe_info(ep, rng)
+    ep.note = (ep.note + " " + pick(rng, [
+        "A full page at 1/4 scale costs about 136k px, more than the budget, so I only look at small crops: "
+        "header strips, one contents column, one table column.",
+        "Reading whole pages is unaffordable; I navigate with the contents and the running headers at 1/4 scale "
+        "and read only the one amount at native resolution."])).strip()
+    val, _ = R.Doc.solve(_DocSession(ep), q)
+    return val
+
+
 SOLVERS = {"logstream": solve_logstream, "dialogs": solve_dialogs, "dashboard": solve_dashboard,
-           "toasts": solve_toasts, "leaderboard": solve_leaderboard}
+           "toasts": solve_toasts, "leaderboard": solve_leaderboard, "scandoc": solve_scandoc}
 
 
 # ============================================================== one item

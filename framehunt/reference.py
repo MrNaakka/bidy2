@@ -450,6 +450,7 @@ class Dash:
             errs.append((float(np.abs(t[ry0:ry1] - names[ry0:ry1]).mean()), r))
         errs.sort()
         row = errs[0][1]
+        say(f"\"{q['title']}\" is row {row + 1} of the contents.")
         bg = cls.ALT if row % 2 else cls.PANEL
         vy = cls.TABLE_Y + 44 + row * cls.ROW_H + 11
         box = (cls.VALUE_X - 4, vy - 4, 79, 27)
@@ -577,6 +578,10 @@ class Board:
 
 
 # ============================================================== scanned document
+def fmt_amount_text(v: str) -> str:
+    return v if len(v) <= 3 else v[:-3] + " " + v[-3:]
+
+
 class Doc:
     """Scanned annual report (kind ``scandoc``): page index = frame index.
 
@@ -705,11 +710,14 @@ class Doc:
 
     @classmethod
     def solve(cls, s: Session, q: dict) -> tuple[str, dict]:
+        # `say` (optional, used by the SFT teacher) receives what each look showed.
+        say = getattr(s, "say", None) or (lambda msg: None)
         # 1. the Contents page: within the first few pages, header "Contents" at the top left
         toc_page, toc_shift = None, (0, 0)
         for p in range(1, 4):           # cover, then optional notice and blank pages
             t, sh = cls.read_header_left(s, p, ("Contents", "Important notice"),
-                                         "is this the Contents page? (header title at 1/4)")
+                                         f"Is PDF page {p} the Contents page? Its header title (top left) at 1/4 scale.")
+            say(f"PDF page {p}: the header reads \"{t}\"." if t else f"PDF page {p} has no header title.")
             if t == "Contents":
                 toc_page, toc_shift = p, sh
                 break
@@ -737,12 +745,17 @@ class Doc:
         title_end = cls.TOC_TITLE_X + font(*cls.TOC_FONT).getlength(q["title"])
         printed = min((cls.err(fobs, cls.template(fbox, cls.toc_row_items(str(n), title_end, row), sh, fow)), n)
                       for n in range(1, 520) for sh in cls.near(toc_shift, 2)[::4])[1]
+        say(f"The contents give printed page {printed} for this note. Printed numbers are not PDF indexes, "
+            "so I jump and correct by the number printed on the page I land on.")
         # 4. jump: printed page numbers are not PDF indexes; correct by the number found
         idx, hops = printed, []
         for _ in range(10):
             idx = min(max(idx, 0), s.n_frames - 1)
             folio, sh = cls.read_folio(s, idx, f"printed page number at PDF page {idx} (want {printed})")
             hops.append((idx, folio))
+            say(f"PDF page {idx} " + ("has no printed page number (an unnumbered inserted sheet)." if folio is None
+                                      else f"is printed page {folio}" + ("." if folio == printed else
+                                                                         f"; I want {printed}, so move {printed - folio:+d}.")))
             if folio == printed:
                 break
             idx += 1 if folio is None else printed - folio
@@ -761,6 +774,8 @@ class Doc:
             e_blank = cls.err(dobs, cls.template(dbox, [], (0, 0), dow))
             ybest = min(res, key=lambda y: res[y][0])
             seen.append((p, ybest, round(res[ybest][0], 3), round(e_blank, 3)))
+            say(f"PDF page {p}: " + (f"a table dated 31 December {ybest}." if res[ybest][0] < 0.6 * e_blank
+                                     else "no table date (a text page)."))
             if ybest == q["year"] and res[ybest][0] < 0.6 * e_blank:
                 table_page, tshift = p, res[ybest][1]
                 break
@@ -779,12 +794,14 @@ class Doc:
             rerrs.append((e, k))
         rerrs.sort()
         trow = rerrs[0][1]
+        say(f"\"{q['row']}\" is row {trow + 1} of the table.")
         cbox = (500, cls.COLHEAD_Y - 10, 660, 60)
         cow = cbox[2] // cls.SCALE
         cobs = cls.norm(s.view(table_page, cbox, cow, f"which column is \"{q['col']}\"? (headers at 1/4)"))
         cerrs = sorted((min(cls.err(cobs, cls.template(cbox, [(cls.COL_R[c], cls.COLHEAD_Y, q["col"], *cls.CUE, "right")], sh, cow))
                             for sh in cls.near(tshift, 2)[::2]), c) for c in (0, 1))
         col = cerrs[0][1]
+        say(f"\"{q['col']}\" is the {('left', 'right')[col]} amount column.")
         # 7. one native crop of the amount
         ry = cls.ROW_Y0 + trow * cls.ROW_PITCH + cls.AMOUNT_DY
         n_cells = 7
@@ -792,6 +809,7 @@ class Doc:
         abox = (cls.COL_R[col] - n_cells * cls.CELL - m, ry - m, n_cells * cls.CELL + 2 * m, cls.CELL_H + 6 + 2 * m)
         aobs = cls.norm(s.view(table_page, abox, abox[2], "read the amount at native resolution"))
         val, margin = cls.ocr_amount(aobs, abox, cls.COL_R[col], ry)
+        say(f"The native crop reads {fmt_amount_text(val)}.")
         return val, {"toc_page": toc_page, "toc_row": row, "printed_page": printed, "hops": hops,
                      "note_page": note_page, "table_page": table_page, "row": trow, "col": col,
                      "ocr_margin": round(margin, 3)}
