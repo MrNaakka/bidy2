@@ -191,7 +191,10 @@ def main(argv=None) -> int:
                 for d in stale:
                     os.replace(d, a.root / "stale" / d.name)
                 if len(fresh) >= a.min_groups:
-                    plan = {"groups": [str(d) for d in fresh[:a.max_groups]]}
+                    take = fresh[:a.max_groups]
+                    # group metadata read now: a group dir may be moved away while the update runs
+                    plan = {"groups": [str(d) for d in take],
+                            "meta": [json.loads((d / "group.json").read_text()) for d in take]}
         if world > 1:
             box = [plan]
             torch.distributed.broadcast_object_list(box, src=0)
@@ -252,8 +255,7 @@ def main(argv=None) -> int:
         if rank == 0:
             publish(model, a.root, version)
             by_kind, stale_h, n_samples = collections.defaultdict(list), collections.Counter(), 0
-            for g in groups:
-                gj = json.loads((g / "group.json").read_text())
+            for gj in plan["meta"]:
                 gn_ = gj.get("group_n", len(gj["rewards"]))          # every counted trial of the group
                 by_kind[gj["kind"]] += [gj.get("group_mean", 0.0)] * gn_
                 stale_h[version - 1 - gj["policy_version"]] += 1
@@ -276,7 +278,8 @@ def main(argv=None) -> int:
                 f.write(json.dumps(rec) + "\n")
             S.log(json.dumps(rec))
             for g in groups:
-                os.replace(g, a.root / "consumed" / g.name)
+                if g.exists():
+                    os.replace(g, a.root / "consumed" / g.name)
         S.barrier()
     S.barrier()
     return 0
