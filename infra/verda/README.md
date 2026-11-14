@@ -1,10 +1,12 @@
 # Verda tooling: Qwen3.8-27B endpoint and LoRA training
 
 We serve Qwen3.8-27B (vision + tool calls) as an OpenAI-compatible vLLM endpoint on a Verda spot GPU, and
-train LoRA adapters for it. [SkyPilot](https://github.com/jonibeach/skypilot) (our fork, pinned by commit in
-`fh`) launches the boxes. The weights, venvs and runs live on the 300 GB block volume `fh-qwen` in FIN-01.
-The fork adds Verda block volumes: it attaches the volume when it creates a box, waits for a deleted box to
-let go of it, and mounts it at `/mnt/fh`.
+train LoRA adapters for it.
+
+- [SkyPilot](https://github.com/jonibeach/skypilot) (our fork, pinned by commit in `fh`) launches the boxes.
+- The weights, venvs and runs live on the 300 GB block volume `fh-qwen` in FIN-01.
+- The fork adds Verda block volumes: it attaches the volume when it creates a box, waits for a deleted box
+  to let go of it, and mounts it at `/mnt/fh`.
 
 Run every command from the repo root:
 
@@ -13,9 +15,10 @@ infra/verda/fh <command>
 ```
 
 `fh` runs `fh.py` with uv in a side environment that holds the fork, so the project's `.venv` stays as it is
-(SkyPilot and Harbor need different `uvicorn` versions). SkyPilot reads Verda keys from
-`~/.verda/config.json` (`sky check verda` tells you if they work). `fh` writes `QWEN_API_KEY` to `.env`
-(made once) and `QWEN_BASE_URL` (when the endpoint is up).
+(SkyPilot and Harbor need different `uvicorn` versions).
+
+SkyPilot reads Verda keys from `~/.verda/config.json` (`sky check verda` tells you if they work). `fh` writes
+`QWEN_API_KEY` to `.env` (made once) and `QWEN_BASE_URL` (when the endpoint is up).
 
 ## Files
 
@@ -45,13 +48,13 @@ infra/verda/fh <command>
 | `train-down` | Stops the run and deletes the box. `train-up` with the same `--run` and arguments resumes from the last checkpoint. |
 | `train-status` / `train-fetch [--run NAME]` | Progress (loss, eval, spend) / copy `final/` and the logs from any box that has the volume. |
 
-Watchdogs: `scripts/watchdog.sh serve|train <logfile> <stopfile>` calls `<cmd>-ensure` every 2 minutes.
-`fh` serializes `serve-*`, `train-*` through a lock file, and a watchdog step skips its turn while
-another command holds it.
+**Watchdogs.** `scripts/watchdog.sh serve|train <logfile> <stopfile>` calls `<cmd>-ensure` every 2 minutes.
+`fh` serializes `serve-*` and `train-*` through a lock file. A watchdog step skips its turn while another
+command holds the lock.
 
 ## Parallel evals
 
-Each Qwen eval run gets its own box (`eval.yaml`, one SkyPilot cluster per run): box `i` mounts its own volume
+Each Qwen eval run gets its own box (`eval.yaml`, one SkyPilot cluster per run). Box `i` mounts its own volume
 `fh-eval-<i>` with the pinned weights, starts vLLM, and runs Harbor against it. Three runs take about as long as
 one.
 
@@ -66,6 +69,8 @@ infra/verda/fh eval-volumes                                       # the fh-eval-
 `scripts/eval.sh --stage agents --model qwen --fleet` (or `--model qwen-fh --lora train/out/<run>`) does both
 steps and then summarizes. It runs for 1-2 hours, so start it with `systemd-run --user`.
 
+### Eval commands
+
 | command | what it does |
 | --- | --- |
 | `eval-up --tasks DIR [--lora DIR] [--runs 3] [-n 15] [--only I] [--on-demand] [--weights-on volume\|disk] [--volume-location FIN-01] [--max-usd 60] [--max-run-hours 4] [--resume] [--new]` | Stages `.stage/eval-<fleet>-<attempt>/` (tasks with 0700 dirs, Harbor config, `eval_job.sh`, `verify_weights.py`, adapter, `meta.json`; deleted once the launch returns) and runs `sky launch -d` for every box in parallel (logs in `.stage/`). A failed launch (no capacity) is recorded and retried with `--only I`. Refuses to add a run whose tasks, adapter, instance type, `-n`, model or `eval.yaml` differ from the fleet's first runs (`--new` starts over). |
@@ -76,68 +81,97 @@ steps and then summarizes. It runs for 1-2 hours, so start it with `systemd-run 
 | `eval-volumes [--delete NAME --yes]` | Lists the `fh-eval-<i>` volumes (location, size, attached box, $/month). Volumes are deleted only here, by name, and never while attached. |
 | `fh sky <args>` | The SkyPilot CLI: `fh sky status`, `fh sky queue fh-ev-eval-qwen-1`, `fh sky logs fh-ev-eval-qwen-1`, `fh sky cost-report`. |
 
-Comparability: every box uses the instance type pinned in `eval.yaml` (`1H100.80S.30V`, spot unless
-`--on-demand`), the same vLLM flags and the same `-n`; speed matters because of the 30-minute agent timeout.
-`runs/<job>/fh-eval-meta.json` records the fleet definition (instance type, spot, `-n`, model and revision,
-vLLM/Harbor/OpenCode versions, tasks and adapter hashes, `eval.yaml` hash, git commit), the box's GPUs and
-exact `vllm serve` command, phase timings and the cost. `runs/<job>/fh-status/` holds the box's `vllm.log`,
-`metrics.txt` (vLLM metrics at the end), `timings.txt` and `done.json` (Harbor's exit code). A LoRA eval adds only
+### Comparability
+
+Every box uses the instance type pinned in `eval.yaml` (`1H100.80S.30V`, spot unless `--on-demand`), the same
+vLLM flags and the same `-n`. Speed matters because of the 30-minute agent timeout. A LoRA eval adds only
 `--enable-lora --max-lora-rank 16 --lora-modules qwen3.8-27b-fh=<adapter>` to the base eval's flags.
 
-Weights (`--weights-on volume`, the default): `eval-up` creates the missing `fh-eval-<i>` volumes (100 GB NVMe
-each, $20/month, in `--volume-location`, FIN-01 by default) and box `i` mounts `fh-eval-<i>` at `/mnt/fh`. On
-first use the box downloads `Qwen/Qwen3.8-27B` at the pinned revision, checks every file with
-`verify_weights.py` and writes `models/Qwen3.8-27B.REVISION`; it also builds the vLLM venv (with its own
-uv-managed Python, marker `.fh-ok`) and keeps the vLLM/Triton compile caches there. Later evals (base or LoRA)
-skip all of that: vLLM is up a few minutes after the box. The three boxes download in parallel. A block volume
-attaches to one box at a time, so two fleets cannot run at once (eval-up refuses a volume that is attached
-elsewhere), and `fh-qwen` is never used.
+Each run keeps a record:
 
-Trade-off: boxes with volumes must start in the volumes' location, so they only get that location's capacity
-(H100 spot in FIN-01 comes and goes). `--weights-on disk` lifts that: every box downloads the weights to its
-250 GB boot disk again (about 10 minutes, in parallel with the vLLM install) and may start in any Verda region.
-Where the weights came from is recorded with each run but does not affect comparability.
+- `runs/<job>/fh-eval-meta.json`: the fleet definition (instance type, spot, `-n`, model and revision,
+  vLLM/Harbor/OpenCode versions, tasks and adapter hashes, `eval.yaml` hash, git commit), the box's GPUs and
+  exact `vllm serve` command, phase timings and the cost.
+- `runs/<job>/fh-status/`: the box's `vllm.log`, `metrics.txt` (vLLM metrics at the end), `timings.txt` and
+  `done.json` (Harbor's exit code).
 
-Spot loss: the run is lost (Harbor has no trial resume). `eval-wait` reports it; `eval-up --tasks ... --only I`
-starts it again from scratch on a new box.
+### Weights
 
-Cost backstops: `eval-wait` enforces `--max-usd` for the fleet (SkyPilot's cost estimate, as `sky cost-report`
-shows it); the job on the box ends after `--max-run-hours`; a box whose job has ended deletes itself after
-60 idle minutes (`autostop` in `eval.yaml`), in case nobody runs `eval-wait`. Results not fetched by then are
-lost.
+With `--weights-on volume` (the default), `eval-up` creates the missing `fh-eval-<i>` volumes (100 GB NVMe
+each, $20/month, in `--volume-location`, FIN-01 by default). Box `i` mounts `fh-eval-<i>` at `/mnt/fh`.
 
-Leaked instances: when Verda's API is slow, the fork can time out on the create call, report no capacity
-and forget the instance, which Verda then boots anyway (seen in the smoke test). `eval-up`, `eval-wait`
-and `eval-down` delete Verda instances and volumes named `<eval cluster>-*` that SkyPilot no longer
-knows: `eval-up` for 5 minutes after a failed launch, `eval-wait` for 30 (also for the boxes of a fleet
-replaced with `--new`). An instance that boots later than that, with no `eval-wait` running, has no job and
-no autodown: check `fh sky status` and the Verda console after a failed launch.
+On first use the box:
 
-The key: SkyPilot passes it as a secret, and our job hands it to curl and Harbor only through 0600 files.
+- downloads `Qwen/Qwen3.8-27B` at the pinned revision, checks every file with `verify_weights.py` and writes
+  `models/Qwen3.8-27B.REVISION`;
+- builds the vLLM venv (with its own uv-managed Python, marker `.fh-ok`);
+- keeps the vLLM/Triton compile caches on the volume.
+
+Later evals (base or LoRA) skip all of that, and vLLM is up a few minutes after the box. The three boxes
+download in parallel. A block volume attaches to one box at a time, so two fleets cannot run at once
+(eval-up refuses a volume that is attached elsewhere). `fh-qwen` is never used.
+
+The trade-off: boxes with volumes must start in the volumes' location, so they only get that location's
+capacity (H100 spot in FIN-01 comes and goes). `--weights-on disk` removes that limit. Every box downloads
+the weights to its 250 GB boot disk again (about 10 minutes, in parallel with the vLLM install) and may start
+in any Verda region. Where the weights came from is recorded with each run but does not affect comparability.
+
+### Spot loss
+
+The run is lost (Harbor has no trial resume). `eval-wait` reports it; `eval-up --tasks ... --only I` starts it
+again from scratch on a new box.
+
+### Cost backstops
+
+- `eval-wait` enforces `--max-usd` for the fleet (SkyPilot's cost estimate, as `sky cost-report` shows it).
+- The job on the box ends after `--max-run-hours`.
+- A box whose job has ended deletes itself after 60 idle minutes (`autostop` in `eval.yaml`), in case nobody
+  runs `eval-wait`. Results not fetched by then are lost.
+
+### Leaked instances
+
+When Verda's API is slow, the fork can time out on the create call, report no capacity and forget the
+instance. Verda then boots it anyway (seen in the smoke test).
+
+`eval-up`, `eval-wait` and `eval-down` delete Verda instances and volumes named `<eval cluster>-*` that
+SkyPilot no longer knows. `eval-up` does this for 5 minutes after a failed launch, and `eval-wait` for 30
+(also for the boxes of a fleet replaced with `--new`).
+
+An instance that boots later than that, with no `eval-wait` running, has no job and no autodown. Check
+`fh sky status` and the Verda console after a failed launch.
+
+### API key and networking on the eval box
+
+SkyPilot passes the key as a secret, and our job hands it to curl and Harbor only through 0600 files.
 Harbor 0.25.0 itself passes the agent's environment as `docker compose exec -e QWEN_API_KEY=...`, so the key
 is in that process's arguments on the box while trials run. The box is single-user (root), and the trial
-containers have their own PID namespace and cannot see host processes; the same holds for local Harbor runs.
+containers have their own PID namespace and cannot see host processes. The same holds for local Harbor runs.
 
-Trial containers reach vLLM through `socat` on the Docker bridge (`http://172.17.0.1:18000/v1`); vLLM itself
+Trial containers reach vLLM through `socat` on the Docker bridge (`http://172.17.0.1:18000/v1`). vLLM itself
 listens on `127.0.0.1:8000`, with the key from the `QWEN_API_KEY` SkyPilot secret. Docker needs
-`docker-buildx` on the box: Harbor builds the separate verifier images with buildx.
+`docker-buildx` on the box, because Harbor builds the separate verifier images with buildx.
 
 ## Endpoint and tunnel
 
 vLLM listens on `127.0.0.1:8000` on the box only. `fh` reaches it with `ssh -N -L
 127.0.0.1:18000:127.0.0.1:8000 fh-serve` (SkyPilot writes the ssh config for `fh-serve`; pid in
 `tunnel.pid`, log in `tunnel.log`). The tunnel pins each box's host key in `known_hosts` on first use, under
-an alias per launch. Docker here is rootless (slirp4netns, host loopback enabled), so
-containers reach the host's `127.0.0.1` as `10.0.2.2`: `QWEN_BASE_URL=http://10.0.2.2:18000/v1`. The URL
-stays the same when the box changes. Override with `FH_TUNNEL_PORT`, `FH_TUNNEL_BIND`,
-`FH_TUNNEL_CONTAINER_HOST` (rootful Docker: bind and container host `172.17.0.1`). The API key still guards
-the port, since every container on this machine can reach it. vLLM gets the key through `VLLM_API_KEY`
-from a SkyPilot secret, so it never shows on a command line.
+an alias per launch.
+
+Docker here is rootless (slirp4netns, host loopback enabled), so containers reach the host's `127.0.0.1` as
+`10.0.2.2`: `QWEN_BASE_URL=http://10.0.2.2:18000/v1`. The URL stays the same when the box changes. Override
+with `FH_TUNNEL_PORT`, `FH_TUNNEL_BIND`, `FH_TUNNEL_CONTAINER_HOST` (rootful Docker: bind and container host
+`172.17.0.1`).
+
+The API key still guards the port, since every container on this machine can reach it. vLLM gets the key
+through `VLLM_API_KEY` from a SkyPilot secret, so it never shows on a command line.
 
 ## Training runs
 
 `train-up` hashes the dataset, the trainer code and its requirements, and stores the run definition in
-`.fh-state.json`. The box gets a copy of `train/` code and the dataset as its workdir. The job:
+`.fh-state.json`. The box gets a copy of the `train/` code and the dataset as its workdir.
+
+The job:
 
 - writes `/mnt/fh/runs/<run>/manifest.json` (data, code and requirements hashes, trainer arguments) on
   first start, and refuses to run when the manifest differs or when the directory holds a run without one;
@@ -148,7 +182,7 @@ from a SkyPilot secret, so it never shows on a command line.
 - publishes `final/` to `/mnt/fh/adapters/<run>`.
 
 `train-up` refuses to restage a run when the local data or code changed since it started. LoRA rank must be
-1..16 (serving's `--max-lora-rank`), and `--trainer-arg` takes only listed flags with exact names.
+1..16 (serving's `--max-lora-rank`). `--trainer-arg` takes only listed flags with exact names.
 
 ## Layout on the volume (`/mnt/fh`)
 
@@ -167,8 +201,8 @@ data/, runs/, adapters/        training inputs, runs, published adapters
 - vLLM 0.33.0 (the Qwen3.8 recipe needs >= 0.17.0), served as `qwen3.8-27b`. Flags: `--enable-auto-tool-choice --tool-call-parser qwen3_coder
   --reasoning-parser qwen3 --max-model-len 65536 --max-num-seqs 32 --kv-cache-dtype fp8 --gpu-memory-utilization 0.92
   --limit-mm-per-prompt '{"image": 64, "video": 0}'`, plus tensor parallel across all GPUs.
-- 75 GB of GPU memory or more uses BF16, less uses the official FP8 checkpoint, and GPUs under 44 GB also
-  get `--max-model-len 32768 --max-num-seqs 4`. `serve.yaml` lists only 80 GB+ types; add 40-48 GB types
+- With 75 GB of GPU memory or more, vLLM uses BF16; with less, it uses the official FP8 checkpoint. GPUs
+  under 44 GB also get `--max-model-len 32768 --max-num-seqs 4`. `serve.yaml` lists only 80 GB+ types; add 40-48 GB types
   to `any_of` to allow FP8.
 - Thinking is on by default. To turn it off for a request, send `chat_template_kwargs: {"enable_thinking": false}`.
 
@@ -203,7 +237,7 @@ harbor run -c cfg.json -p tasks/eval --print-config   # check that it resolves
 ```
 
 OpenCode sends MCP images back as a user message ("Attached media from tool result:" plus an `image_url`
-part). Each frame counts toward `--limit-mm-per-prompt` (64 images per request), and vLLM returns a 400 error
-past that, so raise it in `serve.yaml` if episodes run longer.
+part). Each frame counts toward `--limit-mm-per-prompt` (64 images per request). Past that, vLLM returns a
+400 error, so raise the limit in `serve.yaml` if episodes run longer.
 
 `ledger.jsonl` is the spend log of the earlier hand-written CLI; `sky cost-report` covers spend from here on.
