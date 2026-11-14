@@ -219,6 +219,19 @@ before the target and the asked year is printed first). Stop-early (a well-forme
 
 **Budget**: 120k, as for the videos, which is about 2.1× the reference's maximum.
 
+**DEV pilot** (Modal, 8 items `scandoc-3601..3608`, Opus 5.5 via OpenCode, one run): the
+reference 8/8, Opus **3/8**. Per failure: 3601 read the facing comparative-year table
+(2019 instead of 2020), from a 0.4-scale crop; 3602 right table, wrong row (Latvia for
+Netherlands), amount read at 1/2; 3607 right table and row, digits misread from a 1/3-scale
+crop when the budget was nearly gone; 3605 first assumed printed = PDF page, searched the
+wrong stretch, budget gone before the note (placeholder guess); 3608 spent 46k on one
+unreadable full view of the contents page, then skimmed headers with contact sheets,
+budget gone (guess). All 8 trials used the contents page; 7 of 8 corrected the page
+offset by reading printed numbers on landing pages, and none ended with more than 12k
+left (the reference uses 50–56k). The main mistakes are budget planning (broad looks
+before narrow ones, then amounts read below native) and skipping the date or row check
+on the look-alike table. Opus was ≤ 6/8, so no tuning was done.
+
 ## Interfaces
 
 ### Package `framehunt/` (scene generation)

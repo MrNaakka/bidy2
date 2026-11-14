@@ -68,6 +68,32 @@ with 113.5k or more spent, and 17 of them with less than 2.3k left.
 A full Harbor run log of Opus run 1, with its score, is in
 [examples/harbor-runs/](examples/harbor-runs/).
 
+### Prototype: scanned documents (`scandoc`, DEV and TRAIN only, not in EVAL)
+
+The same tools, budget and reward on a long **scanned PDF** (150–400 page images of an
+annual report, no text layer; PDF page index = frame index, stated in the instruction).
+The question asks for one amount in one note's table at a given year-end. Navigation cues
+(contents, running headers, printed page numbers, table date, row and column labels) are
+legible at 1/4; the 12-px amounts need a native crop. One full page at 1/4 costs more than
+the budget. The traps are all visible: printed page numbers are not PDF indexes (roman
+front matter plus unnumbered inserted sheets, at least one inside the notes before the
+target), and the comparative-year table with the same caption is on the facing page.
+Details: [docs/design.md](docs/design.md), "Prototype: scanned documents".
+
+DEV pilot on Modal (8 items `scandoc-3601..3608`, one run each):
+
+| Run | Score | Pixels used |
+| --- | --- | --- |
+| Reference (oracle) | 8/8 | 50–56k (100/100 on 100 random seeds in-process) |
+| Opus 5.5 (OpenCode) | 3/8 | 108–120k on every item |
+
+Opus's 5 failures: read the facing comparative-year table (1); right table, wrong row,
+amount read at 1/2 scale (1); misread digits read at 1/3 scale after the budget ran low (1);
+budget gone before reaching the table, placeholder guess (2: one first assumed printed =
+PDF page and searched the wrong pages, one spent 46k on an unreadable full view of the
+contents page and then skimmed headers with contact sheets). Every trial used 90 % or more
+of the budget; the reference needs under half of it. API cost: $1.33.
+
 ## Why it's hard
 
 (Failure analysis of the v1 runs. Toasts, the v2 control, tests the same decisions with
@@ -225,13 +251,15 @@ scripts/eval.sh --stage agents --model qwen-fh --lora train/out/<run> --fleet   
 ```bash
 uv run pytest -m "not reference"     # unit and server tests
 uv run pytest -m reference -s        # the reference policy on all 30 EVAL items (in-process HTTP, no Docker)
-                                     # and on 200 random seeds each of toasts and leaderboard
+                                     # and on 200 random seeds each of toasts and leaderboard,
+                                     # 100 of scandoc (FH_REF_N_DOC)
 ```
 
 ## Layout
 
 - `framehunt/scenes/`: scene generators (`logstream`, `dialogs`, `toasts` in EVAL v2;
-  `dashboard` in EVAL v1; `leaderboard` in DEV and TRAIN; all kinds in DEV and TRAIN)
+  `dashboard` in EVAL v1; `leaderboard` and the scanned-document prototype `scandoc` in
+  DEV and TRAIN; all kinds in DEV and TRAIN)
 - `framehunt/server.py`: the MCP server (the agent's tools and the budget)
 - `framehunt/reference.py`: the reference policy
 - `framehunt/baselines/`: the stop-early baseline agent
