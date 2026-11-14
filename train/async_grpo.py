@@ -23,7 +23,8 @@ Each update (one optimizer step, i.e. one pass over the rows of the groups taken
     the matched fraction is logged;
   * DDP: rows dealt round-robin to ranks, token count all-reduced, LoRA grads summed (sft_lora.py's
     scheme), grad clip, AdamW (state kept across updates), then rank 0 saves adapters/v<N+1>.
-Metrics: reward per kind, groups used, staleness histogram, clip fraction, approx KL (k3, behaviour ->
+Metrics: reward per kind (mean over all counted trials of the groups used; the scheduler's events.jsonl
+has every finished group, with or without signal), groups used, staleness histogram, clip fraction, approx KL (k3, behaviour ->
 current), ratio mean, grad norm, matched fraction, tokens, seconds, samples/min.
 """
 
@@ -253,9 +254,10 @@ def main(argv=None) -> int:
             by_kind, stale_h, n_samples = collections.defaultdict(list), collections.Counter(), 0
             for g in groups:
                 gj = json.loads((g / "group.json").read_text())
-                by_kind[gj["kind"]] += gj["rewards"]
+                gn_ = gj.get("group_n", len(gj["rewards"]))          # every counted trial of the group
+                by_kind[gj["kind"]] += [gj.get("group_mean", 0.0)] * gn_
                 stale_h[version - 1 - gj["policy_version"]] += 1
-                n_samples += len(gj["rewards"])
+                n_samples += gn_
             now = time.time()
             rec = {"version": version, "time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                    "groups": len(groups), "rows": int(tot["rows"]), "tokens": int(tot["tokens"]),

@@ -208,6 +208,7 @@ def main(argv=None) -> int:
                 if s["groups_with_signal"] and rows:
                     gj = {"item": j.item, "kind": kind, "policy_version": min(r["policy_version"] for r in rows),
                           "rewards": [r["reward"] for r in rows], "group_mean": rows[0]["group_mean"],
+                          "group_n": rows[0]["group_n"],
                           "job": j.name, "launch_version": j.launch_version}
                     write_json(out / "group.json", gj)
                     dst = R / "queue" / j.name
