@@ -196,10 +196,15 @@ def wait_healthy(tag: str, timeout_min: float = 45) -> dict:
     raise RuntimeError(f"endpoint {tag}: not healthy after {timeout_min} min")
 
 
-def stop_endpoint(tag: str) -> None:
+def stop_endpoint(tag: str, grace_s: float = 0) -> None:
+    """Stop flag (the container sees it within 10 s, stops vLLM, publishes `ended` with the log tail), then
+    after up to grace_s for that, cancel the call."""
     st = load_state()
     ep = st.get("endpoints", {}).get(tag)
-    remote_dict()[f"stop:{tag}"] = True   # the container stops vLLM and exits within ~10 s
+    remote_dict()[f"stop:{tag}"] = True
+    deadline = time.time() + grace_s
+    while time.time() < deadline and endpoint_info(tag).get("phase") not in ("ended", "failed"):
+        time.sleep(5)
     if ep:
         time.sleep(1)
         with contextlib.suppress(Exception):
@@ -310,12 +315,8 @@ def run_one(i: int, tag: str, job: str, defn: dict, tasks: Path, keyenv: Path, a
         meta["error"] = repr(e)
         log(f"{job}: FAILED {e!r}")
     finally:
-        stop_endpoint(tag)
-        for _ in range(12):   # the endpoint polls its stop flag every 10 s, then gives vLLM up to 60 s
-            time.sleep(10)
-            info = endpoint_info(tag)
-            if info.get("phase") in ("ended", "failed"):
-                break
+        stop_endpoint(tag, grace_s=120)   # lets the container publish its vLLM log tail before the cancel
+        info = endpoint_info(tag)
         meta["endpoint_end"] = {k: info.get(k) for k in ("phase", "reason", "ended_at", "started_at", "healthy_at")}
         (RUNS_DIR / job).mkdir(parents=True, exist_ok=True)
         if info.get("log_tail"):
