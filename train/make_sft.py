@@ -599,7 +599,7 @@ def solve_leaderboard(ep: Episode, rng, q: dict) -> str:
     if not verify_event(ep, rng, f, db, vow, lambda img: R.nearest(img, tv)[0], lambda v: f"alerts fired: {v}",
                         lambda v: v >= k, "alerts counter"):
         raise RuntimeError("verification failed")
-    ep.note += (" The table refreshes and re-sorts every second, so I must find the endpoint's row on this same "
+    ep.note += (" The table refreshes and re-sorts every half second, so I must find the endpoint's row on this same "
                 "frame and read its value on this same frame.")
 
     div = pick(rng, [3, 3, 4])

@@ -12,8 +12,9 @@ Construction guarantees (what makes being slightly off a confident wrong answer)
   * K >= 2, and at frame f-1 (just before the K-th Error toast appears) the (K-1)-th
     Error toast is still on screen, red and with the same code prefix, as the newest
     red toast, so reading one frame early gives a convincing wrong code;
-  * the next toast arrives 0.3-1.5 s after f, so the target leaves the top slot: a
-    few frames late, "the top toast" is a different toast (sometimes another Error).
+  * the next toast arrives 0.2-0.6 s after f, so the target leaves the top slot: a
+    few frames late, "the top toast" is a different toast, and half the time it is
+    the (K+1)-th Error, so "the newest red toast" is wrong too.
 The target stays on screen for its whole 8-12 s life, only in a different slot.
 """
 from __future__ import annotations
@@ -123,7 +124,7 @@ class ToastsScene(Scene):
                 lives.append(rr.randint(80, 120))           # 8-12 s
                 if rr.random() < 0.3:
                     burst = not burst
-                f += rr.randint(5, 9) if burst else rr.randint(10, 30)   # 0.5-3 s apart
+                f += rr.randint(2, 9) if burst else rr.randint(10, 30)   # 0.2-3 s apart
             n = len(arrivals)
             # A toast leaves when its life ends or when 5 newer toasts have arrived.
             ends = [min(a + life, arrivals[i + N_SLOTS] if i + N_SLOTS < n else a + life)
@@ -139,7 +140,7 @@ class ToastsScene(Scene):
                     continue
                 if not arrivals[j] <= fk - 1 < ends[j]:     # (K-1)-th Error still visible
                     continue
-                if not 3 <= arrivals[i + 1] - fk <= 15:     # next toast 0.3-1.5 s later
+                if not 2 <= arrivals[i + 1] - fk <= 6:      # next toast 0.2-0.6 s later
                     continue
                 cands.append(k)
             if cands:
@@ -147,6 +148,12 @@ class ToastsScene(Scene):
         else:  # pragma: no cover
             raise RuntimeError("could not build toast timeline")
         self.k = rr.choice(cands)
+        nxt = errs[self.k - 1] + 1
+        if levels[nxt] != "error" and rr.random() < 0.5:   # half the time the next one is an Error
+            levels[nxt] = "error"
+            errs = [i for i, lv in enumerate(levels) if lv == "error"]
+        if len(errs) > MAX_ERRORS:  # pragma: no cover (~40 errors per scene)
+            raise RuntimeError("too many Error toasts for a 2-digit badge")
         prefix = "".join(rr.choice(CODE_ALPHABET) for _ in range(2))
         codes: list[str] = []
         seen: set[str] = set()

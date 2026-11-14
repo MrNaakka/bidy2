@@ -66,30 +66,40 @@ leaderboard (10 each); dialogs and dashboard stay in the code, in DEV and in TRA
   stacking at the top right: Info (blue), Warning (amber), Error (red), each with a
   6-character code (all codes in a scene share a 2-character prefix). The newest toast
   takes the top slot and pushes the others down; at most 5 are visible; each lives
-  8–12 s (or until 5 newer ones arrive). Arrivals are 0.5–3 s apart, in bursts. The bell
+  8–12 s (or until 5 newer ones arrive). Arrivals are 0.2–3 s apart, in bursts. The bell
   badge counts Error toasts only. Question: "What code was shown on the K-th Error
   toast?" Guarantees: K ≥ 2 and on frame f-1 the (K-1)-th Error toast is still on
-  screen as the newest red toast (same prefix); the next toast arrives 0.3–1.5 s after
+  screen as the newest red toast (same prefix); the next toast arrives 0.2–0.6 s after
   f, so a few frames late the target is no longer on top (it stays visible lower in the
-  stack). The level of every toast is visible at 1/8 from its 24-px colour stripe.
+  stack), and half the time that next toast is the (K+1)-th Error, so "the newest red
+  toast" is wrong as well. The level of every toast is visible at 1/8 from its 24-px colour stripe.
 - `leaderboard`: an API error tracker. The "Endpoints by errors / min" table lists 10
-  endpoints (all always visible), sorted by value, and refreshes every 1 s (10 frames):
+  endpoints (all always visible), sorted by value, and refreshes every 0.5 s (5 frames):
   values change and rows move (an endpoint changes row on about a third of the
-  refreshes). Endpoint names are large (sans-bold 22, readable at 1/2 to 1/3); values
+  refreshes). Endpoint names are sans-bold 18 (readable at 1/2); values
   are small monospace digits (mono 13), readable only at native resolution. Trace: a
   big `alerts fired: N` counter (top right). Question: "What errors/min value did
   endpoint E show on the first frame where the alerts counter reached K?" Every alert
-  fires on a table refresh, so the value is shown for exactly [f, f+9] (1 s). E's value
-  and E's row both differ on f-1 and on f+10, and no other row shows the same number on
+  fires on a table refresh, so the value is shown for exactly [f, f+4] (0.5 s). E's
+  value and E's row both differ on f-1 and on f+5, and no other row shows the same number on
   f. Unlike `dashboard` (KPI holds ≥ 1 s on both sides), there is no slack before f.
 
 What the agent must decide in both: find the exact event frame on the cheap trace and
 **verify it** before reading (one frame early is a confident wrong answer), then read on
 **that same frame**, after **re-finding the moving target** there (the top toast is
-only the target for 0.3–1.5 s; the endpoint's row moves every second). The reference
+only the target for 0.2–0.6 s; the endpoint's row moves every half second). The reference
 does exactly this: binary search on the trace at ≤ 1/8, a 1/8 check of the top toast's
 stripe (toasts) or a 1/4 look at the name column to find E's row (leaderboard), then one
 native crop. It needs at most 41k (toasts) and 48k (leaderboard) pixels of the 120k.
+
+Pilot and tuning (DEV, Opus 5.5, 6 items per kind): the first version (toasts: next
+toast 0.3–1.5 s after f; leaderboard: 1 s refresh, sans-bold 22 names) scored 5/6 on
+both kinds. Both failures were the targeted mechanism (read one frame early: the
+(K-1)-th Error toast's code; E's previous value). The successes found the exact frame
+with dense contact sheets and then read up to 5 frames late, which those wide windows
+forgave, and found E's row with a cheap look. Tuned to the parameters above: a 0.2–0.6 s
+top-slot window with a red successor half the time, a 0.5 s value window, and names that
+need a deliberate 1/2-scale crop of the name column.
 
 ## Interfaces
 

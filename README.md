@@ -3,7 +3,7 @@
 FrameHunt is an RL environment for **active video sampling under a pixel budget**. The
 agent gets a question about a long synthetic screen recording (a scrolling service log,
 a desktop app with stacking toast notifications, or an API error tracker whose endpoint
-table re-sorts every second). It can't watch the video. Through an MCP server it can only ask for single frames, optionally cropped and
+table re-sorts every half second). It can't watch the video. Through an MCP server it can only ask for single frames, optionally cropped and
 downscaled, and every returned pixel is charged against a hard budget of 120,000 pixels
 per item (about 6% of one full 1920x1080 frame, which is 2,073,600 pixels). A request
 that would exceed the budget is refused.

@@ -367,8 +367,9 @@ def test_toasts_window(seed):
     assert sc.visible_at(f)[0] == tgt
     for g in range(f, f + 10):
         assert tgt in sc.visible_at(g)
-    # The next toast arrives 0.3-1.5 s later, so by f+15 the target left the top slot.
-    assert 3 <= info["top_slot_until"] - f <= 15
+    # The next toast arrives 0.2-0.6 s later, so by f+6 the target left the top slot.
+    assert 2 <= info["top_slot_until"] - f <= 6
+    assert sc.visible_at(f + 6)[0] != tgt
     assert sc.visible_at(f + 15)[0] != tgt
     # At most 5 toasts, newest first, nothing ever reappears.
     for g in range(f - 200, f + 200, 7):
@@ -378,6 +379,8 @@ def test_toasts_window(seed):
 
 @pytest.mark.parametrize("seed", NEW_SEEDS)
 def test_leaderboard_window(seed):
+    from framehunt.scenes.leaderboard import TICK
+
     sc = make_scene("leaderboard", seed)
     info = sc.debug_info()
     f, k, n = info["event_frame"], info["k"], sc.meta.n_frames
@@ -386,13 +389,13 @@ def test_leaderboard_window(seed):
     assert sc.alerts_at(f - 1) == k - 1 and sc.alerts_at(f) == k
     assert info["endpoint"] in sc.question and str(k) in sc.question
     row = sc.row_of(e, f)
-    # [f, f+9]: same row, same value (= answer).
-    for g in range(f, f + 10):
+    # [f, f+TICK-1]: same row, same value (= answer).
+    for g in range(f, f + TICK):
         assert sc.row_of(e, g) == row and str(sc.value_of(e, g)) == sc.answer
         assert sc.table_at(g)[row] == (info["endpoint"], int(sc.answer))
-    # f-1 and f+10: E sits in another row with another value; E's row at f shows
+    # f-1 and f+TICK: E sits in another row with another value; E's row at f shows
     # another endpoint with a well-formed value.
-    for g in (f - 1, f + 10):
+    for g in (f - 1, f + TICK):
         assert sc.row_of(e, g) != row and str(sc.value_of(e, g)) != sc.answer
         name, val = sc.table_at(g)[row]
         assert name != info["endpoint"] and 100 <= val <= 9999
@@ -477,3 +480,14 @@ def test_toast_texts_fit():
         for title, msg in items:
             assert text_width(msg.format(inv="INV-88888"), "sans", 15) <= TOAST_W - 56
             assert text_width(f"{LEVEL_WORD[lv]}: {title}", "sans-bold", 18) <= TOAST_W - 116
+
+
+def test_toasts_next_is_often_an_error():
+    """Half the time (plus the base rate) the toast right after the target is the
+    (K+1)-th Error, so "the newest red toast" a few frames late is wrong."""
+    hits = 0
+    for seed in range(100):
+        sc = make_scene("toasts", seed)
+        t = sc.debug_info()["target_index"]
+        hits += sc.toasts[t + 1]["level"] == "error"
+    assert 40 <= hits <= 80, hits

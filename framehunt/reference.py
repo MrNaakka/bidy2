@@ -503,8 +503,8 @@ class Board:
     COUNTER_FONT = ("mono-bold", 64)
     DIGITS_W = 200                            # right part of the counter: just the number
     PANEL_X, ROW_Y0, ROW_H, N_ROWS = 16, 156, 46, 10
-    NAME_DX, NAME_DY, VALUE_DX, VALUE_DY = 70, 10, 820, 16
-    NAME_FONT = ("sans-bold", 22)
+    NAME_DX, NAME_DY, VALUE_DX, VALUE_DY = 70, 12, 820, 16
+    NAME_FONT = ("sans-bold", 18)
     VALUE_FONT = ("mono", 13)
     TEXT, PANEL, ALT = (204, 204, 220), (24, 27, 31), (29, 32, 37)
     NAMES_W = 340
@@ -557,7 +557,7 @@ class Board:
             return nearest(s.view(f, db, ow, f"read alerts counter (want >= {k})"), tm)[0]
 
         f = first_true(0, last, lambda f: alerts_at(f) >= k)
-        # The table re-sorts every second: find the endpoint's row on this same frame,
+        # The table re-sorts every half second: find the endpoint's row on this same frame,
         # from the name column at 1/4, then read its value there at native resolution.
         nb = (cls.PANEL_X + cls.NAME_DX - 6, cls.ROW_Y0, cls.NAMES_W, cls.N_ROWS * cls.ROW_H)
         now = nb[2] // 4

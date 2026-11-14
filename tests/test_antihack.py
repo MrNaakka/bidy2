@@ -19,6 +19,7 @@ import pytest
 
 from framehunt.answers import normalize_answer
 from framehunt.scenes import KINDS, make_scene
+from framehunt.scenes.leaderboard import TICK
 from framehunt.server import FrameHuntEnv
 from framehunt.splits import derive_seed
 
@@ -80,8 +81,8 @@ def test_toasts_smart_cheap(toasts):
         # Right search, one frame early: the newest red toast is the (K-1)-th Error.
         e = [i for i in sc.visible_at(f - 1) if sc.toasts[i]["level"] == "error"]
         off_early += bool(e) and sc.toasts[e[0]]["code"] == sc.answer
-        # Right search, 1.5 s late, "the top toast".
-        late += sc.toasts[sc.visible_at(f + 15)[0]]["code"] == sc.answer
+        # Right search, 0.6 s late, "the top toast".
+        late += sc.toasts[sc.visible_at(f + 6)[0]]["code"] == sc.answer
     assert newest_err_last <= 0.02 * N
     assert off_early == 0 and late == 0
 
@@ -95,7 +96,7 @@ def test_leaderboard_smart_cheap(boards):
         top_last += str(sc.table_at(last)[0][1]) == sc.answer
         e_last += str(sc.value_of(e, last)) == sc.answer
         early += str(sc.value_of(e, f - 1)) == sc.answer
-        late += str(sc.value_of(e, f + 10)) == sc.answer
+        late += str(sc.value_of(e, f + TICK)) == sc.answer
         # Row found one frame early, value read on the right frame from that stale row.
         stale_row += str(sc.table_at(f)[sc.row_of(e, f - 1)][1]) == sc.answer
     assert top_last <= 0.02 * N and e_last <= 0.02 * N

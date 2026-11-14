@@ -1,17 +1,17 @@
 """`leaderboard`: an API error tracker with a live, re-sorted endpoint table.
 
 The "Endpoints by errors / min" table lists 10 endpoints (all always visible), sorted by
-their current errors/min, and refreshes every 1 s (10 frames): values change and the
-table re-sorts, so an endpoint's row moves. Endpoint names are large (readable at
-1/2..1/3 scale); the values are small monospace digits, readable only at native
+their current errors/min, and refreshes every 0.5 s (5 frames): values change and the
+table re-sorts, so an endpoint's row moves. Endpoint names are sans-bold 18 (readable
+at 1/2 scale); the values are small monospace digits, readable only at native
 resolution.
 
 Question: the errors/min value endpoint E showed on the first frame where the big
 `alerts fired: N` counter (top right; lasting, monotonic, legible at 1/8) reached K.
-Every alert fires on a table refresh, so the asked value is shown for exactly the 10
-frames [f, f+9]. Construction guarantees: E's value AND E's row differ at f-1 and at
-f+10, so reading one frame early, or a second late, or re-using a row found on another
-frame, gives a well-formed wrong number.
+Every alert fires on a table refresh, so the asked value is shown for exactly the 5
+frames [f, f+4]. Construction guarantees: E's value AND E's row differ at f-1 and at
+f+5, so reading one frame early, or half a second late, or re-using a row found on
+another frame, gives a well-formed wrong number.
 """
 from __future__ import annotations
 
@@ -27,15 +27,15 @@ from .base import Box, Scene, SceneMeta, draw_text, pick_event_frames
 
 W, H = 1920, 1080
 NAV_H = 52
-TICK = 10                       # table refresh period in frames (1 s)
+TICK = 5                        # table refresh period in frames (0.5 s)
 N_ROWS = 10
 PANEL_BOX = Box(16, 68, 1152, 572)
 HEAD_Y = PANEL_BOX.y + 48
 ROW_Y0, ROW_H = HEAD_Y + 40, 46
 RANK_DX, NAME_DX, SERVICE_DX, VALUE_DX = 20, 70, 560, 820
-NAME_FONT = ("sans-bold", 22)    # endpoint names: cap ~16 px native, ~5 px at 1/3
+NAME_FONT = ("sans-bold", 18)    # endpoint names: cap ~13 px native, ~6.5 px at 1/2
 VALUE_FONT = ("mono", 13)        # answer text: digits ~10 px native, ~2.4 px at 1/4
-TEXT_DY_NAME, TEXT_DY_VALUE = 10, 16
+TEXT_DY_NAME, TEXT_DY_VALUE = 12, 16
 COUNTER_BOX = Box(1184, 68, 720, 104)
 COUNTER_FONT = ("mono-bold", 64)  # trace: digits ~47 px native, ~6 px at 1/8
 VMIN, VMAX = 100, 9999
@@ -148,7 +148,7 @@ class LeaderboardScene(Scene):
         n_alerts = rt.randint(3, 12)
         t_lo = self._tick(int(0.05 * n_frames)) + 1
         t_hi = self._tick(int(0.95 * n_frames))
-        gap = 3
+        gap = 30 // TICK                                   # alerts >= 3 s apart
         n_before = rt.randint(0, min(n_alerts - 1, max(0, (self.j_event - gap - t_lo) // gap + 1)))
         n_after = min(n_alerts - 1 - n_before, max(0, (t_hi - self.j_event - gap) // gap + 1))
         before = pick_event_frames(rt, n_before, t_lo, self.j_event - gap, gap) if n_before else []
@@ -158,7 +158,7 @@ class LeaderboardScene(Scene):
         self.k = n_before + 1
         self.answer = str(int(vals[self.j_event, e]))
 
-        # Charts and stat panels (cosmetic, same 1 s refresh).
+        # Charts and stat panels (cosmetic, same refresh).
         hist = 90
         self.hist = hist
         self.series = [rng.normal(0, 1, T + hist).cumsum() for _ in range(3)]
@@ -174,7 +174,7 @@ class LeaderboardScene(Scene):
         E = self.endpoints[e][0]
         self.question = (
             f"This API error tracker shows the table \"Endpoints by errors / min\", which "
-            f"refreshes and re-sorts every second, so rows move. What errors/min value did "
+            f"refreshes and re-sorts every half second, so rows move. What errors/min value did "
             f"the endpoint \"{E}\" show in that table on the first frame where the "
             f"\"alerts fired\" counter (top right) reached {self.k}?"
         )
@@ -213,9 +213,9 @@ class LeaderboardScene(Scene):
         d.rounded_rectangle((1500, 10, 1700, 42), 4, outline=BORDER, fill=BG)
         draw_text(d, (1516, 16), "Last 60 seconds", "sans", 16, TEXT)
         d.rounded_rectangle((1712, 10, 1800, 42), 4, outline=BORDER, fill=BG)
-        draw_text(d, (1726, 16), "⟳  1s", "sans", 16, TEXT)
+        draw_text(d, (1726, 16), "⟳  0.5s", "sans", 16, TEXT)
         # Table (static parts).
-        self._panel(d, PANEL_BOX, "Endpoints by errors / min  ·  sorted, refreshes every 1 s")
+        self._panel(d, PANEL_BOX, "Endpoints by errors / min  ·  sorted, refreshes every 0.5 s")
         d.line((PANEL_BOX.x + 1, HEAD_Y, PANEL_BOX.right - 2, HEAD_Y), fill=BORDER)
         for text, dx in (("#", RANK_DX), ("Endpoint", NAME_DX), ("Service", SERVICE_DX),
                          ("Errors / min", VALUE_DX)):
