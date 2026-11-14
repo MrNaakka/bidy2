@@ -780,9 +780,10 @@ COMPARABLE_KEYS = ("tasks_sha", "lora_sha", "served_name", "agent_cfg_sha", "ins
                    "model_repo", "model_rev", "vllm_version", "harbor_version", "opencode_version", "eval_yaml_sha")
 
 
-def stage_eval(defn: dict) -> Path:
+def stage_eval(defn: dict, attempt: str = "") -> Path:
     """The dir eval.yaml mounts at ~/fh/in: tasks (secret seeds, kept 0700), Harbor config, LoRA, metadata."""
-    dest = STAGE_DIR / f"eval-{defn['fleet']}"
+    # one dir per launch attempt: a concurrent eval-up --only must not rebuild files a launch is syncing
+    dest = STAGE_DIR / f"eval-{defn['fleet']}{'-' + attempt if attempt else ''}"
     shutil.rmtree(dest, ignore_errors=True)
     dest.mkdir(parents=True, mode=0o700)
     dest.chmod(0o700)
@@ -891,15 +892,18 @@ def cmd_eval_up(args) -> None:
             down(cluster)   # ours and finished (e.g. a failed delete earlier)
         evals[defn["fleet"]] = fleet
         save_evals(evals)
-        stage = stage_eval(defn)
         attempt = secrets.token_hex(6)
+        stage = stage_eval(defn, attempt)
         for i in runs:
             cluster, job = eval_names(defn["split"], defn["label"], i)
             fleet["boxes"][str(i)] = {"cluster": cluster, "job": job, "state": "launching", "pending": attempt,
                                       "launched_at": time.time(),
                                       "launches": fleet["boxes"].get(str(i), {}).get("launches", 0) + 1}
         save_evals(evals)
-    rcs = launch_eval_boxes(defn, stage, runs)
+    try:
+        rcs = launch_eval_boxes(defn, stage, runs)
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)   # synced to the boxes; holds the tasks' secrets
     with _eval_lock():
         evals = load_evals()
         fleet = evals.get(defn["fleet"], {"boxes": {}})
