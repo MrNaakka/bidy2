@@ -667,6 +667,442 @@ def cmd_harbor_agent(args) -> None:
     print(json.dumps({"agents": [harbor_agent_entry(url, args.served_name, args.opencode_version)]}, indent=1))
 
 
+# ---- parallel evals: one Harbor run per box (eval.yaml) ---------------------------------------------
+EVAL_YAML = HERE / "eval.yaml"
+EVAL_STATE_PATH = HERE / ".fh-eval.json"
+EVAL_LOCK_PATH = HERE / ".fh-eval.lock"
+RUNS_DIR = ROOT / "runs"
+EVAL_RELAY_URL = "http://172.17.0.1:18000/v1"   # socat on the box's Docker bridge -> vLLM 127.0.0.1:8000
+OPENCODE_VERSION = "1.19.5"
+EVAL_TERMINAL = {"SUCCEEDED", "FAILED", "FAILED_SETUP", "FAILED_DRIVER", "FAILED_PRECHECKS", "CANCELLED"}
+EVAL_NAME_RE = r"[a-z0-9][a-z0-9-]{0,15}"
+LORA_FILES = ("adapter_config.json", "adapter_model.safetensors")
+EVAL_PROBE = r"""
+J=~/fh/runs/$1
+echo "trials=$(ls -d "$J"/*/ 2>/dev/null | wc -l)"
+echo "done=$(ls "$J"/*/result.json 2>/dev/null | wc -l)"
+echo "rewards=$(ls "$J"/*/verifier/reward.txt 2>/dev/null | wc -l)"
+echo "tasks=$(ls -d ~/fh/in/tasks/*/ 2>/dev/null | wc -l)"
+echo "phase=$(tail -n 1 ~/fh/status/timings.txt 2>/dev/null | cut -d' ' -f1)"
+curl -s -m 5 http://127.0.0.1:8000/metrics 2>/dev/null |
+  awk '/^vllm:(num_requests_running|num_requests_waiting|kv_cache_usage_perc|num_preemptions_total)[{ ]/ {
+         split($1, a, "{"); s[a[1]] += $NF } END { for (k in s) print k "=" s[k] }'
+"""
+
+
+@contextlib.contextmanager
+def _eval_lock():
+    with EVAL_LOCK_PATH.open("w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        yield
+
+
+def load_evals() -> dict:
+    return json.loads(EVAL_STATE_PATH.read_text()) if EVAL_STATE_PATH.exists() else {}
+
+
+def save_evals(evals: dict) -> None:
+    tmp = EVAL_STATE_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(evals, indent=1) + "\n")
+    tmp.replace(EVAL_STATE_PATH)
+
+
+def eval_yaml_resources() -> dict:
+    import yaml
+
+    return yaml.safe_load(EVAL_YAML.read_text())["resources"]
+
+
+def eval_yaml_envs() -> dict:
+    import yaml
+
+    return yaml.safe_load(EVAL_YAML.read_text())["envs"]
+
+
+def eval_names(split: str, label: str, i: int) -> tuple[str, str]:
+    return f"fh-ev-{split}-{label}-{i}", f"fh-{split}-{label}-run{i}"
+
+
+def git_commit() -> str | None:
+    r = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True, check=False)
+    return r.stdout.strip() or None
+
+
+def lora_rank(lora: Path) -> int:
+    return int(json.loads((lora / "adapter_config.json").read_text())["r"])
+
+
+def eval_definition(a) -> dict:
+    """Everything that must be identical across a fleet's boxes (and is recorded with every run)."""
+    tasks = Path(a.tasks).resolve()
+    if not tasks.is_dir() or not any(p.is_dir() for p in tasks.iterdir()):
+        raise SystemExit(f"{tasks}: not a directory of Harbor tasks (build it with scripts/build_tasks.py)")
+    split = a.split or tasks.name
+    lora = Path(a.lora).resolve() if a.lora else None
+    if lora:
+        if (lora / "final").is_dir():
+            lora = lora / "final"
+        missing = [f for f in LORA_FILES if not (lora / f).is_file()]
+        if missing:
+            raise SystemExit(f"{lora}: missing {missing}")
+        if not 1 <= lora_rank(lora) <= LORA_MAX_RANK:
+            raise SystemExit(f"{lora}: LoRA rank {lora_rank(lora)} is outside 1..{LORA_MAX_RANK}")
+    label = a.label or ("qwen-fh" if lora else "qwen")
+    for name, v in (("split", split), ("label", label)):
+        if not re.fullmatch(EVAL_NAME_RE, v):
+            raise SystemExit(f"{name} {v!r}: use lowercase letters, digits and '-' (max 16)")
+    res, envs = eval_yaml_resources(), eval_yaml_envs()
+    return {
+        "fleet": f"{split}-{label}", "split": split, "label": label,
+        "tasks_dir": str(tasks), "tasks_sha": data_sha(tasks), "n_tasks": sum(p.is_dir() for p in tasks.iterdir()),
+        "lora_dir": str(lora) if lora else None,
+        "lora_sha": sha_files([lora / f for f in LORA_FILES]) if lora else None,
+        "served_name": LORA_NAME if lora else SERVED_NAME,
+        "instance_type": a.instance_type or res["instance_type"],
+        "use_spot": not a.on_demand, "disk_size": a.disk_size or res["disk_size"],
+        "n_concurrent": a.n, "model_repo": a.model_repo or envs["MODEL_REPO"],
+        "model_rev": a.model_rev or envs["MODEL_REV"], "vllm_version": envs["VLLM_VERSION"],
+        "harbor_version": envs["HARBOR_VERSION"], "opencode_version": OPENCODE_VERSION,
+        "max_run_hours": a.max_run_hours, "eval_yaml_sha": sha_files([EVAL_YAML]), "git_commit": git_commit(),
+    }
+
+
+COMPARABLE_KEYS = ("tasks_sha", "lora_sha", "served_name", "instance_type", "disk_size", "n_concurrent",
+                   "model_repo", "model_rev", "vllm_version", "harbor_version", "opencode_version", "eval_yaml_sha")
+
+
+def stage_eval(defn: dict) -> Path:
+    """The dir eval.yaml mounts at ~/fh/in: tasks (secret seeds, kept 0700), Harbor config, LoRA, metadata."""
+    dest = STAGE_DIR / f"eval-{defn['fleet']}"
+    shutil.rmtree(dest, ignore_errors=True)
+    dest.mkdir(parents=True, mode=0o700)
+    dest.chmod(0o700)
+
+    def link_or_copy(src, dst):
+        try:
+            os.link(src, dst)
+        except OSError:
+            shutil.copy2(src, dst)
+
+    shutil.copytree(defn["tasks_dir"], dest / "tasks", copy_function=link_or_copy)
+    if data_sha(dest / "tasks") != defn["tasks_sha"]:
+        raise SystemExit(f"{defn['tasks_dir']} changed while staging; try again")
+    for d in [dest / "tasks", *(p for p in (dest / "tasks").rglob("*") if p.is_dir())]:
+        d.chmod(0o700)
+    if defn["lora_dir"]:
+        (dest / "lora").mkdir(mode=0o700)
+        for f in LORA_FILES:
+            shutil.copy2(Path(defn["lora_dir"]) / f, dest / "lora" / f)
+        if sha_files([dest / "lora" / f for f in LORA_FILES]) != defn["lora_sha"]:
+            raise SystemExit(f"{defn['lora_dir']} changed while staging; try again")
+    cfg = {"agents": [harbor_agent_entry(EVAL_RELAY_URL, defn["served_name"], defn["opencode_version"])]}
+    (dest / "cfg.json").write_text(json.dumps(cfg, indent=1) + "\n")
+    shutil.copy2(HERE / "verify_weights.py", dest / "verify_weights.py")
+    (dest / "meta.json").write_text(json.dumps(defn, indent=1) + "\n")
+    (dest / ".skyignore").write_text("")   # sync everything (tasks/ is git-ignored in the repo)
+    return dest
+
+
+def eval_launch_args(defn: dict, stage: Path, i: int) -> list[str]:
+    cluster, job = eval_names(defn["split"], defn["label"], i)
+    envs = {"JOB": job, "STAGE": str(stage), "N_CONCURRENT": str(defn["n_concurrent"]),
+            "LORA": "1" if defn["lora_dir"] else "0", "MODEL_REPO": defn["model_repo"],
+            "MODEL_REV": defn["model_rev"], "MAX_RUN_HOURS": str(defn["max_run_hours"])}
+    args = ["launch", "-y", "-d", "-c", cluster, str(EVAL_YAML), "--secret", "QWEN_API_KEY",
+            "--instance-type", defn["instance_type"], "--disk-size", str(defn["disk_size"]),
+            "--use-spot" if defn["use_spot"] else "--no-use-spot"]
+    for k, v in envs.items():
+        args += ["--env", f"{k}={v}"]
+    return args
+
+
+def launch_eval_boxes(defn: dict, stage: Path, runs: list[int]) -> dict[int, int]:
+    """`sky launch -d` for every box at once; each returns when its job is submitted. Logs in the stage dir."""
+    sky_bin = str(Path(sys.executable).parent / "sky")
+    env = {**os.environ, "QWEN_API_KEY": api_key()}
+    procs = {}
+    for i in runs:
+        logf = (STAGE_DIR / f"eval-{defn['fleet']}-launch-{i}.log").open("w")
+        procs[i] = (subprocess.Popen([sky_bin, *eval_launch_args(defn, stage, i)], env=env, stdout=logf,
+                                     stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL), logf)
+        log(f"eval: launching {eval_names(defn['split'], defn['label'], i)[0]} (log {logf.name})")
+    rcs = {}
+    for i, (p, logf) in procs.items():
+        rcs[i] = p.wait()
+        logf.close()
+    return rcs
+
+
+def cmd_eval_up(args) -> None:
+    defn = eval_definition(args)
+    runs = args.only or list(range(1, args.runs + 1))
+    with _eval_lock():
+        evals = load_evals()
+        fleet = evals.get(defn["fleet"])
+        if fleet:
+            diff = [k for k in COMPARABLE_KEYS if fleet["meta"].get(k) != defn.get(k)]
+            if diff and not args.new:
+                raise SystemExit(f"fleet {defn['fleet']} exists with different {diff}; its runs would not be "
+                                 f"comparable. Use --new to start over (old results in runs/ are replaced).")
+            if args.new:
+                fleet = None
+        if fleet is None:
+            fleet = {"meta": {**defn, "created_at": time.time()}, "boxes": {}, "max_usd": args.max_usd}
+        fleet["max_usd"] = args.max_usd
+        for i in runs:
+            cluster, _ = eval_names(defn["split"], defn["label"], i)
+            box = fleet["boxes"].get(str(i))
+            if box and box["state"] == "running" and cluster_status(cluster) is not None:
+                raise SystemExit(f"{cluster} is running; eval-down --only {i} first to relaunch it")
+            if cluster_status(cluster) is not None:
+                down(cluster)
+        evals[defn["fleet"]] = fleet
+        save_evals(evals)
+        stage = stage_eval(defn)
+        for i in runs:
+            cluster, job = eval_names(defn["split"], defn["label"], i)
+            fleet["boxes"][str(i)] = {"cluster": cluster, "job": job, "state": "launching",
+                                      "launched_at": time.time(),
+                                      "launches": fleet["boxes"].get(str(i), {}).get("launches", 0) + 1}
+        save_evals(evals)
+    rcs = launch_eval_boxes(defn, stage, runs)
+    with _eval_lock():
+        evals = load_evals()
+        fleet = evals[defn["fleet"]]
+        for i, rc in rcs.items():
+            box = fleet["boxes"][str(i)]
+            if rc == 0:
+                box["state"] = "running"
+            else:
+                box["state"] = "launch_failed"
+                if cluster_status(box["cluster"]) is not None:
+                    down(box["cluster"])
+        save_evals(evals)
+    for i in runs:
+        b = fleet["boxes"][str(i)]
+        log(f"eval {defn['fleet']} run {i}: {b['cluster']} {b['state']}")
+    if any(rc != 0 for rc in rcs.values()):
+        log(f"eval: some launches failed (no capacity?); see the launch logs in {STAGE_DIR}; "
+            f"retry with eval-up ... --only N")
+
+
+def pick_fleet(evals: dict, name: str | None) -> str:
+    if name:
+        if name not in evals:
+            raise SystemExit(f"no eval fleet {name!r} (have {sorted(evals)})")
+        return name
+    if not evals:
+        raise SystemExit("no eval fleets; run eval-up first")
+    return max(evals, key=lambda k: evals[k]["meta"]["created_at"])
+
+
+def fleet_cost(fleet: dict) -> dict[str, float]:
+    return {b["cluster"]: cluster_cost_since(b["cluster"], fleet["meta"]["created_at"])
+            for b in fleet["boxes"].values()}
+
+
+def parse_probe(out: str) -> dict:
+    d = {}
+    for line in out.splitlines():
+        if "=" in line:
+            k, v = line.split("=", 1)
+            with contextlib.suppress(ValueError):
+                d[k.removeprefix("vllm:")] = float(v) if "." in v or "e" in v else int(v)
+            d.setdefault(k.removeprefix("vllm:"), v)
+    return d
+
+
+def probe_box(box: dict) -> dict:
+    r = ssh_out(box["cluster"], f"bash -s {shlex.quote(box['job'])} <<'EOF'\n{EVAL_PROBE}\nEOF", timeout=60)
+    return parse_probe(r.stdout) if r.returncode == 0 else {"probe_error": r.stderr.strip()[-200:]}
+
+
+def fetch_eval(fleet: dict, box: dict, job_status: str | None) -> Path:
+    """rsync ~/fh/runs/<job>/ from the box to runs/<job>/ and write runs/<job>/fh-eval-meta.json."""
+    dest = RUNS_DIR / box["job"]
+    dest.mkdir(parents=True, exist_ok=True)
+    rsh = shlex.join(ssh_base(box["cluster"]))
+    subprocess.run(["rsync", "-a", "--delete", "-e", rsh, f"{box['cluster']}:fh/runs/{box['job']}/", f"{dest}/"],
+                   check=True, timeout=FETCH_TIMEOUT_S)
+    remote = ssh_out(box["cluster"], "cat ~/fh/status/box.json; echo; cat ~/fh/status/timings.txt", timeout=60)
+    lines = remote.stdout.splitlines()
+    boxinfo = {}
+    with contextlib.suppress(ValueError, IndexError):
+        boxinfo = json.loads(lines[0])
+    timings = {}
+    for line in lines[1:]:
+        k, _, v = line.partition(" ")
+        if v.isdigit():
+            timings[k] = int(v)
+    meta = {**fleet["meta"], "run": box["job"], "cluster": box["cluster"], "job_status": job_status,
+            "complete": job_status == "SUCCEEDED", "fetched_at": time.time(), "launches": box.get("launches"),
+            "launched_at": box.get("launched_at"), "cost_so_far": cluster_cost_since(box["cluster"],
+                                                                                      fleet["meta"]["created_at"]),
+            "box": boxinfo, "timings": timings}
+    if timings.get("job_start"):
+        meta["timings_rel_s"] = {k: v - timings["job_start"] for k, v in timings.items()}
+    (dest / "fh-eval-meta.json").write_text(json.dumps(meta, indent=1) + "\n")
+    return dest
+
+
+def eval_tick(fleet: dict) -> list[str]:
+    """One watchdog step: fetch and delete finished boxes, report lost ones, enforce the cost cap."""
+    notes = []
+    costs = fleet_cost(fleet)
+    total = sum(costs.values())
+    over = total >= fleet["max_usd"]
+    for i, box in sorted(fleet["boxes"].items(), key=lambda kv: int(kv[0])):
+        if box["state"] not in ("running", "launching"):
+            continue
+        status = cluster_status(box["cluster"])
+        if status is None and box["state"] == "launching" and time.time() - box["launched_at"] < 1800:
+            continue
+        if status is None:
+            box["state"] = "lost"
+            notes.append(f"run {i}: {box['cluster']} is gone (spot preemption or autodown) before its results "
+                         f"were fetched; relaunch with eval-up ... --only {i}")
+            continue
+        job = last_job_status(box["cluster"]) if status == "UP" else None
+        if job in EVAL_TERMINAL or (over and status == "UP"):
+            try:
+                fetch_eval(fleet, box, job)
+                box["fetched_at"] = time.time()
+            except (OSError, subprocess.SubprocessError) as e:
+                box["fetch_error"] = f"{type(e).__name__}: {e}"
+                if not over:
+                    notes.append(f"run {i}: fetch failed ({box['fetch_error']}); retrying next tick")
+                    continue
+            box["job_status"] = job
+            box["state"] = "budget" if over and job not in EVAL_TERMINAL else "done"
+            down(box["cluster"])
+            notes.append(f"run {i}: job {job}; fetched to runs/{box['job']}/ and deleted {box['cluster']}")
+        elif over:
+            down(box["cluster"])
+            box["state"] = "budget"
+            notes.append(f"run {i}: cost cap; deleted {box['cluster']} ({status})")
+    if over:
+        notes.append(f"cost cap reached: {total:.2f} >= {fleet['max_usd']}")
+    return notes
+
+
+def cmd_eval_status(args) -> None:
+    evals = load_evals()
+    name = pick_fleet(evals, args.fleet)
+    fleet = evals[name]
+    costs = fleet_cost(fleet)
+    m = fleet["meta"]
+    print(f"fleet {name}: {m['instance_type']} {'spot' if m['use_spot'] else 'on-demand'}, -n {m['n_concurrent']}, "
+          f"{m['n_tasks']} tasks, model {m['model_repo']}@{m['model_rev'][:7]}, served {m['served_name']}; "
+          f"cost {sum(costs.values()):.2f} of cap {fleet['max_usd']}")
+    for i, box in sorted(fleet["boxes"].items(), key=lambda kv: int(kv[0])):
+        status = cluster_status(box["cluster"])
+        line = f"  run {i} {box['cluster']}: {box['state']}, cluster {status}"
+        if status == "UP":
+            line += f", job {last_job_status(box['cluster'])}"
+            p = probe_box(box)
+            if "probe_error" in p:
+                line += f", probe failed: {p['probe_error']}"
+            else:
+                line += (f", phase {p.get('phase') or '-'}, trials {p.get('done', 0)}/{p.get('tasks', '?')} done "
+                         f"({p.get('rewards', 0)} rewards), vLLM running {p.get('num_requests_running', '-')} "
+                         f"waiting {p.get('num_requests_waiting', '-')} kv {p.get('kv_cache_usage_perc', '-')} "
+                         f"preemptions {p.get('num_preemptions_total', '-')}")
+        elif box["state"] == "running" and status is None:
+            line += " (gone: preempted? eval-wait reports it; relaunch with --only)"
+        line += f", cost {costs.get(box['cluster'], 0):.2f}"
+        print(line)
+
+
+def cmd_eval_fetch(args) -> None:
+    with _eval_lock():
+        evals = load_evals()
+        fleet = evals[pick_fleet(evals, args.fleet)]
+        for i, box in sorted(fleet["boxes"].items(), key=lambda kv: int(kv[0])):
+            if args.only and int(i) not in args.only:
+                continue
+            if cluster_status(box["cluster"]) != "UP":
+                log(f"run {i}: {box['cluster']} is not UP; nothing to fetch")
+                continue
+            job = last_job_status(box["cluster"])
+            if job not in EVAL_TERMINAL and not args.partial:
+                log(f"run {i}: job {job} still running; --partial fetches what is there")
+                continue
+            log(f"run {i}: fetched {fetch_eval(fleet, box, job).relative_to(ROOT)} (job {job})")
+        save_evals(evals)
+
+
+def cmd_eval_wait(args) -> None:
+    while True:
+        with _eval_lock():
+            evals = load_evals()
+            name = pick_fleet(evals, args.fleet)
+            fleet = evals[name]
+            for note in eval_tick(fleet):
+                log(f"eval {name}: {note}")
+            save_evals(evals)
+            active = [i for i, b in fleet["boxes"].items() if b["state"] in ("running", "launching")]
+        if not active:
+            states = {i: b["state"] for i, b in fleet["boxes"].items()}
+            log(f"eval {name}: no box left running; {states}")
+            if any(s != "done" for s in states.values()):
+                sys.exit(1)
+            return
+        time.sleep(args.interval)
+
+
+def cmd_eval_down(args) -> None:
+    with _eval_lock():
+        evals = load_evals()
+        fleet = evals[pick_fleet(evals, args.fleet)]
+        for i, box in sorted(fleet["boxes"].items(), key=lambda kv: int(kv[0])):
+            if args.only and int(i) not in args.only:
+                continue
+            status = cluster_status(box["cluster"])
+            if status == "UP" and not args.no_fetch and not box.get("fetched_at"):
+                with contextlib.suppress(OSError, subprocess.SubprocessError):
+                    fetch_eval(fleet, box, last_job_status(box["cluster"]))
+                    box["fetched_at"] = time.time()
+            if status is not None:
+                down(box["cluster"])
+            if box["state"] in ("running", "launching"):
+                box["state"] = "stopped"
+            log(f"run {i}: {box['cluster']} deleted ({box['state']})")
+        save_evals(evals)
+
+
+def add_eval_parsers(sub) -> None:
+    s = sub.add_parser("eval-up", help="launch one box per run (eval.yaml); see README")
+    s.add_argument("--tasks", required=True, help="Harbor tasks dir, e.g. tasks/eval")
+    s.add_argument("--split", help="name in job/cluster names (default: the tasks dir name)")
+    s.add_argument("--label", help="default qwen, or qwen-fh with --lora")
+    s.add_argument("--lora", help=f"adapter dir (train/out/<run> or its final/), served as {LORA_NAME}")
+    s.add_argument("--runs", type=int, default=3)
+    s.add_argument("--only", type=int, action="append", help="(re)launch only this run index (repeatable)")
+    s.add_argument("-n", type=int, default=10, help="concurrent trials per box")
+    s.add_argument("--instance-type", help="default: eval.yaml's pinned type")
+    s.add_argument("--disk-size", type=int)
+    s.add_argument("--on-demand", action="store_true")
+    s.add_argument("--model-repo", help="smoke tests only (recorded in the metadata)")
+    s.add_argument("--model-rev")
+    s.add_argument("--max-usd", type=float, default=60, help="cost cap for the whole fleet (eval-wait enforces it)")
+    s.add_argument("--max-run-hours", type=int, default=4, help="hard limit per box job")
+    s.add_argument("--new", action="store_true", help="replace an existing fleet with a different definition")
+    s.set_defaults(fn=cmd_eval_up)
+    for name, fn in (("eval-status", cmd_eval_status), ("eval-fetch", cmd_eval_fetch), ("eval-wait", cmd_eval_wait),
+                     ("eval-down", cmd_eval_down)):
+        s = sub.add_parser(name)
+        s.add_argument("--fleet", help="<split>-<label> (default: the newest)")
+        if name in ("eval-fetch", "eval-down"):
+            s.add_argument("--only", type=int, action="append")
+        if name == "eval-fetch":
+            s.add_argument("--partial", action="store_true", help="also fetch running jobs (snapshot)")
+        if name == "eval-down":
+            s.add_argument("--no-fetch", action="store_true")
+        if name == "eval-wait":
+            s.add_argument("--interval", type=float, default=120)
+        s.set_defaults(fn=fn)
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -701,6 +1137,7 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--max-usd", type=float, default=45)
     s.add_argument("--on-demand", action="store_true")
     s.set_defaults(fn=cmd_train_up)
+    add_eval_parsers(sub)
     sub.add_parser("train-ensure").set_defaults(fn=cmd_train_ensure)
     sub.add_parser("train-down").set_defaults(fn=cmd_train_down)
     sub.add_parser("train-status").set_defaults(fn=cmd_train_status)

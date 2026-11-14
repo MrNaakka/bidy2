@@ -14,3 +14,6 @@ infra/verda/.fh-state.json
 infra/verda/.fh-state.tmp
 infra/verda/.fh.lock
 infra/verda/.stage/
+infra/verda/.fh-eval.json
+infra/verda/.fh-eval.tmp
+infra/verda/.fh-eval.lock
