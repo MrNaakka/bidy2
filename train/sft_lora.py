@@ -27,6 +27,23 @@ checkpointed chunks (~1 GB instead of 15k x 248k x 4 B = 15 GB). Total ~70 GB, s
 bf16 LoRA fits one 80 GB GPU at batch 1 x 15k tokens; --quant 4bit (QLoRA, needs
 bitsandbytes) is the fallback for 40-48 GB GPUs or longer sequences.
 
+Multi-GPU data parallel (one box, a full model replica per GPU):
+
+    torchrun --standalone --nproc_per_node=4 train/sft_lora.py <same args>
+
+gives the same optimization as one GPU with the same args. Every optimizer step still
+consumes the same grad_accum conversations of the same per-epoch shuffled order (global
+micro indices start..start+grad_accum-1); rank r takes those with (i - start) % K == r,
+so grad_accum need not be a multiple of K. The trained-token total of the whole step is
+all-reduced before backward, each rank weights its micro-batch losses by k / global
+total, and the LoRA gradients are summed across ranks (manual all_reduce, no DDP
+wrapper), which is exactly the single-GPU gradient. Clipping, AdamW and the schedule then
+run identically on every rank. Rank 0 alone writes logs, checkpoints and final/; eval is
+sharded and reduced. Checkpoints hold the global step and micro position only, so a
+checkpoint resumes on any K (including one written by a single-GPU run, and vice
+versa). --resume-from <ckpt dir> starts a fresh --out from another run's checkpoint.
+LoRA dropout masks differ from the single-GPU run (per-rank RNG, reseeded each step).
+
 Logs: <out>/loss.jsonl (one line per optimizer step: step, epoch, loss, lr, tokens,
 grad_norm, seconds), <out>/eval.jsonl (held-out loss at each checkpoint),
 <out>/args.json. Final adapter: <out>/final (PEFT format, loadable by vLLM --lora-modules).
@@ -44,6 +61,7 @@ import shutil
 import signal
 import sys
 import time
+from datetime import timedelta
 from pathlib import Path
 
 import torch
@@ -54,6 +72,59 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fhdata
 
 STOP = {"flag": False}
+DIST = {"rank": 0, "world": 1}
+
+
+def init_dist(a) -> None:
+    """torchrun sets WORLD_SIZE/RANK/LOCAL_RANK; without them this is a no-op (single process)."""
+    world = int(os.environ.get("WORLD_SIZE", "1"))
+    if world <= 1:
+        return
+    import torch.distributed as dist
+    rank, local = int(os.environ["RANK"]), int(os.environ["LOCAL_RANK"])
+    if a.device.startswith("cuda"):
+        torch.cuda.set_device(local)
+        a.device = f"cuda:{local}"
+        backend = "nccl"
+    else:
+        backend = "gloo"
+    # Long timeout: rank 0 writes checkpoints while the others wait at the next collective.
+    dist.init_process_group(backend, timeout=timedelta(minutes=60))
+    DIST.update(rank=rank, world=world)
+
+
+def is_main() -> bool:
+    return DIST["rank"] == 0
+
+
+def barrier() -> None:
+    if DIST["world"] > 1:
+        torch.distributed.barrier()
+
+
+def all_sum(vals: list[float], device) -> list[float]:
+    """Sum a few scalars over ranks (float64)."""
+    if DIST["world"] == 1:
+        return list(vals)
+    t = torch.tensor(vals, dtype=torch.float64, device=device)
+    torch.distributed.all_reduce(t)
+    return t.tolist()
+
+
+def all_reduce_grads(params: list[torch.Tensor]) -> None:
+    """Sum trainable grads over ranks (one fp32 flat buffer). A rank that trained no rows
+    this step contributes zeros."""
+    flat = torch.cat([(p.grad if p.grad is not None else torch.zeros_like(p)).reshape(-1).float() for p in params])
+    torch.distributed.all_reduce(flat)
+    off = 0
+    for p in params:
+        n = p.numel()
+        g = flat[off:off + n].view_as(p).to(p.dtype)
+        if p.grad is None:
+            p.grad = g.clone()
+        else:
+            p.grad.copy_(g)
+        off += n
 
 
 def log(*a):
@@ -90,6 +161,9 @@ def parse_args(argv=None):
     ap.add_argument("--max-steps", type=int, default=None, help="stop after this many optimizer steps (testing)")
     ap.add_argument("--limit", type=int, default=None, help="use only the first N rows (testing)")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--resume-from", type=Path, default=None,
+                    help="checkpoint dir (ckpt-NNNNNN, e.g. from a single-GPU run) to start from when --out has none; "
+                         "the arguments that set the data order and schedule must match its run's args.json")
     ap.add_argument("--threads", type=int, default=None,
                     help="torch CPU threads (CPU runs on a busy box: 1-2 avoids oversubscription, which made the "
                          "reference Gated DeltaNet kernels ~10x slower in our test)")
@@ -109,8 +183,10 @@ def load_model(a):
             load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=dtype, bnb_4bit_use_double_quant=True,
             llm_int8_skip_modules=["visual", "lm_head"])
         kw["device_map"] = {"": a.device}
+    elif DIST["world"] > 1 and a.device.startswith("cuda"):
+        kw["device_map"] = {"": a.device}   # straight to this rank's GPU (K copies may not fit in host RAM)
     model = AutoModelForImageTextToText.from_pretrained(a.model, **kw)
-    if a.quant == "none":
+    if a.quant == "none" and "device_map" not in kw:
         model.to(a.device)
     processor = AutoProcessor.from_pretrained(a.model)
     for p in model.parameters():
@@ -132,8 +208,9 @@ def load_model(a):
                          for n in names), "LoRA must touch only the language model"
     n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
     n_all = sum(p.numel() for p in model.parameters())
-    log(f"model {type(core).__name__}: {n_all / 1e6:.1f}M params, LoRA trainable {n_train / 1e6:.2f}M "
-        f"({len(names)} tensors), target={target}")
+    if is_main():
+        log(f"model {type(core).__name__}: {n_all / 1e6:.1f}M params, LoRA trainable {n_train / 1e6:.2f}M "
+            f"({len(names)} tensors), target={target}")
     return model, core, processor
 
 
@@ -188,7 +265,8 @@ def save_ckpt(out: Path, model, opt, sched, state: dict, keep: int) -> Path:
     model.save_pretrained(tmp / "adapter")
     torch.save({"opt": opt.state_dict(), "sched": sched.state_dict(),
                 "rng": {"python": random.getstate(), "torch": torch.get_rng_state(),
-                        "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None}},
+                        "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() and DIST["world"] == 1
+                        else None}},
                tmp / "trainer_state.pt")
     (tmp / "state.json").write_text(json.dumps(state, indent=1))
     (tmp / "COMPLETE").write_text("ok\n")
@@ -213,8 +291,11 @@ def load_ckpt(d: Path, model, opt, sched) -> dict:
     sched.load_state_dict(ts["sched"])
     random.setstate(ts["rng"]["python"])
     torch.set_rng_state(ts["rng"]["torch"])
-    if ts["rng"].get("cuda") is not None and torch.cuda.is_available():
-        torch.cuda.set_rng_state_all(ts["rng"]["cuda"])
+    # Data-parallel runs reseed per rank and step instead (main loop); restoring here would also
+    # create CUDA contexts on other ranks' GPUs. A single process restores the devices it has.
+    if ts["rng"].get("cuda") is not None and torch.cuda.is_available() and DIST["world"] == 1:
+        for i, st in enumerate(ts["rng"]["cuda"][: torch.cuda.device_count()]):
+            torch.cuda.set_rng_state(st, i)
     return json.loads((d / "state.json").read_text())
 
 
@@ -245,18 +326,40 @@ def epoch_order(n: int, epoch: int, seed: int) -> list[int]:
 
 
 # ---------------------------------------------------------------------- main
+# Arguments that fix the data order, the step count and the schedule: a checkpoint from
+# another --out (--resume-from) is only meaningful if they match.
+RESUME_MUST_MATCH = ("epochs", "lr", "warmup_frac", "grad_accum", "weight_decay", "lora_r", "lora_alpha",
+                     "lora_linear_attn", "quant", "max_len", "eval_frac", "limit", "seed")
+
+
 def main(argv=None) -> int:
     a = parse_args(argv)
-    a.out.mkdir(parents=True, exist_ok=True)
+    init_dist(a)
+    rank, world = DIST["rank"], DIST["world"]
+    if is_main():
+        a.out.mkdir(parents=True, exist_ok=True)
+    barrier()
     args_path = a.out / "args.json"
     args_d = {k: str(v) if isinstance(v, Path) else v for k, v in vars(a).items()}
     if args_path.exists():
         prev = json.loads(args_path.read_text())
         diff = {k: (prev.get(k), v) for k, v in args_d.items()
-                if k not in ("max_steps", "device", "save_every", "keep", "threads") and prev.get(k) != v}
+                if k not in ("max_steps", "device", "save_every", "keep", "threads", "resume_from")
+                and prev.get(k) != v}
         if diff:
             raise SystemExit(f"{a.out} holds a run with different arguments: {diff}. Use a new --out.")
-    args_path.write_text(json.dumps(args_d, indent=1))
+    if a.resume_from is not None:
+        src_args = a.resume_from.parent / "args.json"
+        if src_args.exists():
+            prev = json.loads(src_args.read_text())
+            diff = {k: (prev.get(k), args_d.get(k)) for k in RESUME_MUST_MATCH if k in prev and prev.get(k) != args_d.get(k)}
+            if diff:
+                raise SystemExit(f"--resume-from {a.resume_from}: its run used different arguments {diff}")
+        elif is_main():
+            log(f"warning: no {src_args}; cannot check that --resume-from used the same data order and schedule")
+    barrier()
+    if is_main():
+        args_path.write_text(json.dumps(args_d, indent=1))
 
     if a.threads:
         torch.set_num_threads(a.threads)
@@ -265,7 +368,8 @@ def main(argv=None) -> int:
     rows = fhdata.read_jsonl(a.data / "sft.jsonl")[: a.limit]
     tools = json.loads((a.data / "tools.json").read_text())
     train_rows, eval_rows = split_rows(rows, a.eval_frac, a.seed)
-    (a.out / "eval_ids.json").write_text(json.dumps(sorted(r["id"] for r in eval_rows)))
+    if is_main():
+        (a.out / "eval_ids.json").write_text(json.dumps(sorted(r["id"] for r in eval_rows)))
 
     model, core, processor = load_model(a)
     dtype = torch.bfloat16 if a.dtype == "bf16" else torch.float32
@@ -284,19 +388,28 @@ def main(argv=None) -> int:
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_lambda)
     state = {"step": 0, "micro": 0, "skipped": []}
     cks = ckpt_dirs(a.out)
-    if cks:
-        state = load_ckpt(cks[-1], model, opt, sched)
-        log(f"resumed from {cks[-1].name}: step {state['step']}, micro {state['micro']}")
-    truncate_jsonl(a.out / "loss.jsonl", state["step"])
-    truncate_jsonl(a.out / "eval.jsonl", state["step"])
-    if state["step"] >= total_steps:
-        log("already finished")
-    log(f"{len(train_rows)} train rows, {len(eval_rows)} eval rows, {total_steps} optimizer steps "
-        f"({a.epochs} epochs x {micro_per_epoch} / accum {a.grad_accum}), warmup {warm}")
+    src = cks[-1] if cks else None
+    if src is None and a.resume_from is not None:
+        src = a.resume_from
+        if not (src / "COMPLETE").exists():
+            raise SystemExit(f"--resume-from {src}: no COMPLETE marker")
+    if src is not None:
+        state = load_ckpt(src, model, opt, sched)
+        assert state["micro"] == state["step"] * a.grad_accum, f"checkpoint position mismatch: {state}"
+        if is_main():
+            log(f"resumed from {src}: step {state['step']}, micro {state['micro']} (world {world})")
+    if is_main():
+        truncate_jsonl(a.out / "loss.jsonl", state["step"])
+        truncate_jsonl(a.out / "eval.jsonl", state["step"])
+        if state["step"] >= total_steps:
+            log("already finished")
+        log(f"{len(train_rows)} train rows, {len(eval_rows)} eval rows, {total_steps} optimizer steps "
+            f"({a.epochs} epochs x {micro_per_epoch} / accum {a.grad_accum}), warmup {warm}, data-parallel ranks {world}")
+    barrier()
 
     def on_term(signum, frame):
         STOP["flag"] = True
-        log(f"signal {signum}: will checkpoint at the next optimizer step and exit")
+        log(f"rank {rank} signal {signum}: will checkpoint at the next optimizer step and exit")
 
     signal.signal(signal.SIGTERM, on_term)
     signal.signal(signal.SIGINT, on_term)
@@ -311,7 +424,7 @@ def main(argv=None) -> int:
         model.eval()
         tot, n = 0.0, 0
         with torch.no_grad():
-            for r in eval_rows:
+            for r in eval_rows[rank::world]:
                 enc = fhdata.encode(r, a.data, processor, tools)
                 if enc["n_tokens"] > a.max_len:
                     continue
@@ -319,32 +432,54 @@ def main(argv=None) -> int:
                 tot += loss.item() * k
                 n += k
         model.train()
+        tot, n = all_sum([tot, n], a.device)
         return tot / max(n, 1)
 
     model.train()
-    loss_f = open(a.out / "loss.jsonl", "a")
+    loss_f = open(a.out / "loss.jsonl", "a") if is_main() else None
     t_step = time.time()
     while state["step"] < total_steps:
         opt.zero_grad(set_to_none=True)
+        if world > 1:
+            # LoRA dropout: distinct per rank, reproducible across resumes.
+            torch.manual_seed((a.seed * 1_000_003 + state["step"]) * 1024 + rank)
         acc_loss, acc_tok, acc_seq = 0.0, 0, 0
         # Each micro-batch's loss is a mean over its trained tokens; weight by tokens so the
-        # step's gradient is the mean over all trained tokens of the step.
-        encs = []
-        for _ in range(a.grad_accum):
-            r = row_at(state["micro"])
-            state["micro"] += 1
+        # step's gradient is the mean over all trained tokens of the step (over all ranks).
+        # The step owns global micro indices [start, start + grad_accum); rank r takes every
+        # world-th of them, so the rows and their order match a single-GPU run.
+        start = state["micro"]
+        state["micro"] += a.grad_accum
+        encs, skipped = [], []
+        for m in range(start + rank, start + a.grad_accum, world):
+            r = row_at(m)
             enc = fhdata.encode(r, a.data, processor, tools)
             if enc["n_tokens"] > a.max_len:
-                state["skipped"].append(r["id"])
+                skipped.append((m, r["id"]))
                 continue
             encs.append(enc)
-        tok_total = sum(e["n_train_tokens"] for e in encs) or 1
+        tok_local = sum(e["n_train_tokens"] for e in encs)
+        tok_total, n_encs, n_skipped = all_sum([tok_local, len(encs), len(skipped)], a.device)
+        tok_total = int(tok_total) or 1
+        if n_skipped:
+            if world > 1:
+                gathered = [None] * world
+                torch.distributed.all_gather_object(gathered, skipped)
+                skipped = sorted(x for g in gathered for x in g)
+            state["skipped"].extend(i for _, i in skipped)
         for enc in encs:
             loss, k = lm_loss(core, to_device(enc, a.device, dtype), a.loss_chunk)
             (loss * (k / tok_total)).backward()
             acc_loss += loss.item() * k
             acc_tok += k
             acc_seq += enc["n_tokens"]
+        if world > 1:
+            if n_encs:          # as on one GPU: a step with no trained rows leaves grads None (no update)
+                all_reduce_grads(params)
+            # Signals reach ranks at different times: every rank acts on the reduced flag.
+            acc_loss, acc_tok, acc_seq, sig = all_sum([acc_loss, acc_tok, acc_seq, float(STOP["flag"])], a.device)
+            acc_tok, acc_seq = int(acc_tok), int(acc_seq)
+            stop_synced = sig > 0
         gn = torch.nn.utils.clip_grad_norm_(params, a.max_grad_norm)
         opt.step()
         sched.step()
@@ -354,25 +489,31 @@ def main(argv=None) -> int:
                "grad_norm": round(float(gn), 4), "train_tokens": acc_tok, "seq_tokens": acc_seq,
                "seconds": round(time.time() - t_step, 2)}
         t_step = time.time()
-        loss_f.write(json.dumps(rec) + "\n")
-        loss_f.flush()
-        log(json.dumps(rec))
+        if is_main():
+            loss_f.write(json.dumps(rec) + "\n")
+            loss_f.flush()
+            log(json.dumps(rec))
+        stop = stop_synced if world > 1 else STOP["flag"]
         last = state["step"] >= total_steps or (a.max_steps is not None and state["step"] >= a.max_steps)
-        if state["step"] % a.save_every == 0 or last or STOP["flag"]:
-            ev = evaluate() if (state["step"] % a.save_every == 0 or last) and not STOP["flag"] else None
-            if ev is not None:
+        if state["step"] % a.save_every == 0 or last or stop:
+            ev = evaluate() if (state["step"] % a.save_every == 0 or last) and not stop else None
+            if ev is not None and is_main():
                 with open(a.out / "eval.jsonl", "a") as f:
                     f.write(json.dumps({"step": state["step"], "eval_loss": round(ev, 5)}) + "\n")
                 log(f"eval loss {ev:.5f}")
-            d = save_ckpt(a.out, model, opt, sched, state, a.keep)
-            log(f"saved {d.name}")
-        if STOP["flag"]:
-            loss_f.close()
+            if is_main():
+                d = save_ckpt(a.out, model, opt, sched, state, a.keep)
+                log(f"saved {d.name}")
+            barrier()
+        if stop:
+            if loss_f:
+                loss_f.close()
             return 143
         if a.max_steps is not None and state["step"] >= a.max_steps:
             break
-    loss_f.close()
-    if state["step"] >= total_steps:
+    if loss_f:
+        loss_f.close()
+    if state["step"] >= total_steps and is_main():
         final = a.out / "final"
         if final.exists():
             shutil.rmtree(final)
@@ -385,8 +526,12 @@ def main(argv=None) -> int:
                                    "final": str(final), "time": time.strftime("%Y-%m-%dT%H:%M:%S")}) + "\n")
         os.replace(tmp, a.out / "DONE")
         log(f"done: adapter in {final}")
+    barrier()
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    rc = main()
+    if DIST["world"] > 1 and torch.distributed.is_initialized():
+        torch.distributed.destroy_process_group()
+    sys.exit(rc)
