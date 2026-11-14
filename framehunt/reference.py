@@ -15,8 +15,9 @@ Plan (same for every kind):
      dashboard, shows which service tile ended up red.
   3. Binary search for the event frame over the lasting, monotonic trace, reading only
      a small crop of the trace at <= 1/8 scale per probe.
-  4. If needed, one cheap low-res look to locate the answer (the dialog card, the
-     ERROR row, the KPI row).
+  4. If needed, one cheap low-res look on the event frame to locate the answer (the
+     dialog card, the ERROR row, the KPI row, the top toast's colour, the endpoint's
+     row in the re-sorting table).
   5. One native-resolution crop of the answer text, read by deterministic template
      matching against the bundled fonts, then ``submit``.
 
@@ -229,6 +230,10 @@ def parse_question(q: str) -> dict:
         return {"kind": "dialogs", "k": int(m.group(1))}
     if m := re.search(r'metric "([^"]+)" in the "Key metrics" table.*?"([^"]+)" service tile', q):
         return {"kind": "dashboard", "kpi": m.group(1), "tile": m.group(2)}
+    if m := re.search(r"code was shown on the (\d+)(?:st|nd|rd|th) Error toast", q):
+        return {"kind": "toasts", "k": int(m.group(1))}
+    if m := re.search(r'the endpoint "([^"]+)" show in that table.*?"alerts fired" counter.*?reached (\d+)', q):
+        return {"kind": "leaderboard", "endpoint": m.group(1), "k": int(m.group(2))}
     raise ValueError(f"unrecognised question: {q!r}")
 
 
@@ -236,8 +241,13 @@ def overview_kind(ov: np.ndarray) -> str:
     """Guess the screen kind from the 1/8 overview (sanity check against the question)."""
     top = ov[:4].reshape(-1, 3).mean(0)
     body = ov[20:].reshape(-1, 3).mean(0)
-    if top[2] > top[0] + 12 and top[2] > 45:
-        return "dialogs"            # navy top bar
+    if top[2] > top[0] + 12 and top[2] > 45:   # navy top bar: the Ledgerly app
+        stripes = ov[16:90, 182:185].reshape(-1, 3)
+        colourful = (stripes.max(-1) - stripes.min(-1) > 80).mean()
+        return "toasts" if colourful > 0.2 else "dialogs"
+    counter = ov[10:20, 152:236].reshape(-1, 3)
+    if (np.abs(counter[:, 0] - counter[:, 1]) > 60).mean() > 0.6 and ov[10:20, 4:140].mean() < 60:
+        return "leaderboard"        # big alerts counter top right, dark table on the left
     tiles = ov[12:32, 2:238].reshape(-1, 3)
     if (np.abs(tiles[:, 0] - tiles[:, 1]) > 60).mean() > 0.3:
         return "dashboard"          # a row of coloured status tiles
@@ -313,12 +323,12 @@ class Dialogs:
     DLG_W, DLG_H = 700, 300
 
     @classmethod
-    def badge_templates(cls, out_width: int) -> dict:
+    def badge_templates(cls, out_width: int, n_max: int = 20) -> dict:
         _x, _y, w, h = cls.TRACE_BOX
         f = font(*cls.BADGE_FONT)
         bell = (230, 234, 242)
         out = {}
-        for n in range(21):
+        for n in range(n_max + 1):
             im = Image.new("RGB", (w, h), cls.NAVY)
             d = ImageDraw.Draw(im)
             bx, by = 6, 18
@@ -445,6 +455,123 @@ class Dash:
                      "row_match_margin": round(errs[1][0] - errs[0][0], 2), "ocr_margin": round(margin, 2)}
 
 
+# ============================================================== toasts
+class Toasts:
+    TRACE_BOX = Dialogs.TRACE_BOX             # same bell + badge as the dialogs app
+    SLOT0 = (1456, 128, 440, 108)             # newest toast (top of the stack)
+    STRIPE_W = 24
+    CODE_BOX = (1456 + 100, 128 + 68, 74, 31)
+    CODE_TEXT = (10, 6)
+    CODE_FONT = ("mono-bold", 15)
+    CODE_BOX_RGB = (241, 243, 245)
+    INK = (33, 37, 41)
+    ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ0123456789"   # the stated alphabet (no I, O)
+
+    @staticmethod
+    def is_red(px: np.ndarray) -> bool:
+        r, g, b = px.reshape(-1, 3).mean(0)
+        return r > 150 and g < 100 and b < 100
+
+    @classmethod
+    def solve(cls, s: Session, q: dict) -> tuple[str, dict]:
+        k, last = q["k"], s.n_frames - 1
+        ow = cls.TRACE_BOX[2] // 8
+        tm = Dialogs.badge_templates(ow, 99)
+
+        def badge_at(f: int) -> int:
+            return nearest(s.view(f, cls.TRACE_BOX, ow, f"read bell badge (want >= {k})"), tm)[0]
+
+        f = first_true(0, last, lambda f: badge_at(f) >= k)
+        # Error toast K arrived on frame f, so on f it is the newest toast: the top slot.
+        # Check the top toast's colour stripe at 1/8 (red = Error) before reading.
+        top = s.view(f, cls.SLOT0, cls.SLOT0[2] // 8, "check the top toast is red (Error) at 1/8")
+        stripe = top[2:-2, 0:cls.STRIPE_W // 8]
+        if not cls.is_red(stripe):
+            raise RuntimeError("top toast is not an Error toast")
+        mx, my = 4, 4
+        x, y, w, h = cls.CODE_BOX
+        box = (x - mx, y - my, w + 2 * mx, h + 2 * my)
+        crop = s.view(f, box, box[2], "read the toast code at native resolution")
+        code, margin = ocr_string(crop, (mx + cls.CODE_TEXT[0], my + cls.CODE_TEXT[1]), *cls.CODE_FONT,
+                                  cls.INK, cls.CODE_BOX_RGB, cls.ALPHABET, 6, 6)
+        return code, {"event_frame": f, "ocr_margin": round(margin, 2)}
+
+
+# ============================================================== leaderboard
+class Board:
+    COUNTER_BOX = (1184, 68, 720, 104)        # "alerts fired: N", top right
+    COUNTER_FONT = ("mono-bold", 64)
+    DIGITS_W = 200                            # right part of the counter: just the number
+    PANEL_X, ROW_Y0, ROW_H, N_ROWS = 16, 156, 46, 10
+    NAME_DX, NAME_DY, VALUE_DX, VALUE_DY = 70, 10, 820, 16
+    NAME_FONT = ("sans-bold", 22)
+    VALUE_FONT = ("mono", 13)
+    TEXT, PANEL, ALT = (204, 204, 220), (24, 27, 31), (29, 32, 37)
+    NAMES_W = 340
+
+    @classmethod
+    def digits_box(cls) -> tuple[int, int, int, int]:
+        x, y, w, h = cls.COUNTER_BOX
+        return (x + w - cls.DIGITS_W, y, cls.DIGITS_W, h)
+
+    @classmethod
+    def counter_templates(cls, out_width: int) -> dict:
+        _x, _y, w, h = cls.COUNTER_BOX
+        f = font(*cls.COUNTER_FONT)
+        out = {}
+        for n in range(31):
+            im = Image.new("RGB", (w, h), (170, 20, 20) if n else (25, 95, 45))
+            txt = f"alerts fired: {n}"
+            ImageDraw.Draw(im).text((w - 24 - f.getlength(txt), 12), txt, font=f, fill=(255, 255, 255))
+            out[n] = shrink(im.crop((w - cls.DIGITS_W, 0, w, h)), out_width)
+        return out
+
+    @classmethod
+    def find_row(cls, names: np.ndarray, endpoint: str, out_width: int) -> tuple[int, float]:
+        """Row of `endpoint` in a low-res crop of the name column (template match per row)."""
+        nb_x = cls.PANEL_X + cls.NAME_DX - 6
+        size = (cls.NAMES_W, cls.N_ROWS * cls.ROW_H)
+        f = font(*cls.NAME_FONT)
+        rh = names.shape[0] / cls.N_ROWS
+        errs = []
+        for r in range(cls.N_ROWS):
+            im = Image.new("RGB", size, cls.PANEL)
+            d = ImageDraw.Draw(im)
+            for rr in range(1, cls.N_ROWS, 2):
+                d.rectangle((0, rr * cls.ROW_H, size[0], (rr + 1) * cls.ROW_H - 1), fill=cls.ALT)
+            d.text((cls.PANEL_X + cls.NAME_DX - nb_x, r * cls.ROW_H + cls.NAME_DY), endpoint, font=f, fill=cls.TEXT)
+            t = shrink(im, out_width)
+            ry0, ry1 = int(r * rh), int((r + 1) * rh)
+            errs.append((float(np.abs(t[ry0:ry1] - names[ry0:ry1]).mean()), r))
+        errs.sort()
+        return errs[0][1], errs[1][0] - errs[0][0]
+
+    @classmethod
+    def solve(cls, s: Session, q: dict) -> tuple[str, dict]:
+        k, last = q["k"], s.n_frames - 1
+        db = cls.digits_box()
+        ow = db[2] // 8
+        tm = cls.counter_templates(ow)
+
+        def alerts_at(f: int) -> int:
+            return nearest(s.view(f, db, ow, f"read alerts counter (want >= {k})"), tm)[0]
+
+        f = first_true(0, last, lambda f: alerts_at(f) >= k)
+        # The table re-sorts every second: find the endpoint's row on this same frame,
+        # from the name column at 1/4, then read its value there at native resolution.
+        nb = (cls.PANEL_X + cls.NAME_DX - 6, cls.ROW_Y0, cls.NAMES_W, cls.N_ROWS * cls.ROW_H)
+        now = nb[2] // 4
+        names = s.view(f, nb, now, f"find the row of \"{q['endpoint']}\" at 1/4")
+        row, row_margin = cls.find_row(names, q["endpoint"], now)
+        bg = cls.ALT if row % 2 else cls.PANEL
+        vx, vy = cls.PANEL_X + cls.VALUE_DX, cls.ROW_Y0 + row * cls.ROW_H + cls.VALUE_DY
+        box = (vx - 4, vy - 4, 48, 26)
+        crop = s.view(f, box, box[2], "read the errors/min value at native resolution")
+        val, margin = ocr_string(crop, (4, 4), *cls.VALUE_FONT, cls.TEXT, bg, "0123456789", 3, 4)
+        return val, {"event_frame": f, "row": row, "row_match_margin": round(row_margin, 2),
+                     "ocr_margin": round(margin, 2)}
+
+
 # ============================================================== main
 def run(url: str, out=sys.stdout) -> dict:
     t0 = time.time()
@@ -465,6 +592,10 @@ def _run(c: MCPClient, out, t0: float) -> dict:
         answer, note = Log.solve(s, q)
     elif q["kind"] == "dialogs":
         answer, note = Dialogs.solve(s, q)
+    elif q["kind"] == "toasts":
+        answer, note = Toasts.solve(s, q)
+    elif q["kind"] == "leaderboard":
+        answer, note = Board.solve(s, q)
     else:
         answer, note = Dash.solve(s, q, ov)
     note = {"kind": q["kind"], "overview_kind": seen, **note}
