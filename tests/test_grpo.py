@@ -44,6 +44,7 @@ def test_trial_reward_counts_agent_failures_only(tmp_path):
     assert r2pg.trial_reward(trial("b", None, "AgentTimeoutError")) == (0.0, "AgentTimeoutError")
     assert r2pg.trial_reward(trial("c", None, None)) == (0.0, None)
     assert r2pg.trial_reward(trial("d", None, "EnvironmentStartTimeoutError")) == (None, "EnvironmentStartTimeoutError")
+    assert r2pg.trial_reward(trial("e", 1, "VerifierTimeoutError")) == (None, "VerifierTimeoutError")
 
 
 def test_all_rollouts_become_rows_with_advantages(tmp_path):
@@ -159,14 +160,16 @@ def test_zero_advantage_rows_contribute_nothing(tmp_path):
 
 @needs_tiny
 def test_pg_ddp_matches_single(tmp_path):
-    data = pg_data(tmp_path / "d", [1.2, -0.8, 0.5, -1.5, 0.0, 2.0])
+    # 7 rows, accum 3: steps of 3, 3 and 1 rows (--pg uses every row once)
+    data = pg_data(tmp_path / "d", [1.2, -0.8, 0.5, -1.5, 0.0, 2.0, -0.7])
     one, two = tmp_path / "one", tmp_path / "two"
     ddp.run(pg_args(data, one, 3), 1)
     ddp.run(pg_args(data, two, 3), 2)
     l1 = [json.loads(l) for l in (one / "loss.jsonl").read_text().splitlines()]
     l2 = [json.loads(l) for l in (two / "loss.jsonl").read_text().splitlines()]
-    assert len(l1) == len(l2) == 2
+    assert len(l1) == len(l2) == 3
     for x, y in zip(l1, l2):
         assert x["train_tokens"] == y["train_tokens"] and abs(x["loss"] - y["loss"]) < 1e-4
         assert abs(x["grad_norm"] - y["grad_norm"]) < 1e-3
-    ddp.close(ddp.adapter(one / "ckpt-000002"), ddp.adapter(two / "ckpt-000002"))
+    ddp.close(ddp.adapter(one / "ckpt-000003"), ddp.adapter(two / "ckpt-000003"))
+    assert json.loads((two / "ckpt-000003" / "state.json").read_text())["micro"] == 7

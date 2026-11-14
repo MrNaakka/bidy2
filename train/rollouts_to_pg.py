@@ -6,8 +6,9 @@ Inputs are Harbor run dirs (one trial dir per rollout, `-k G` attempts per item)
 infra/verda/log_relay.py are in <run>/requests/ (see train/rollouts_to_sft.py, whose checks this reuses).
 
 Reward of a trial: verifier/reward.txt. A trial without one counts as reward 0 if the agent itself failed
-(no exception, or AgentTimeoutError: the policy ran out of time), and is left out of its group if the
-harness failed (any other exception: environment/setup errors are not the policy's doing).
+(no exception, or AgentTimeoutError: the policy ran out of time). A trial with any other exception is a
+harness failure (environment/setup/verifier errors are not the policy's doing) and is left out of its
+group, even if it wrote a reward.
 
 Groups: all counted trials of one item. Advantage A = (r - mean_group) / (std_group + eps) with the
 population std over the whole group (also the trials whose conversation could not be converted, so a
@@ -50,6 +51,8 @@ def trial_reward(tdir: Path) -> tuple[float | None, str | None]:
     if (tdir / "result.json").is_file():
         res = json.loads((tdir / "result.json").read_text())
         exc = (res.get("exception_info") or {}).get("exception_type")
+    if exc not in AGENT_FAULTS:          # harness failure: not counted, even if a reward was written
+        return None, exc
     rf = tdir / "verifier" / "reward.txt"
     if rf.is_file():
         try:
@@ -77,6 +80,8 @@ def main(argv=None) -> int:
     ap.add_argument("--min-group", type=int, default=4, help="drop groups with fewer counted trials")
     ap.add_argument("--force", action="store_true", help="replace an existing --out")
     a = ap.parse_args(argv)
+    if len({p.resolve() for p in a.runs}) != len(a.runs):
+        ap.error("a run dir is given twice (its rewards would be counted twice)")
     out_final = a.out.resolve()
     for p in [*a.runs, *([a.tasks] if a.tasks else [])]:
         q = p.resolve()

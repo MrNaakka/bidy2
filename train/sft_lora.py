@@ -387,7 +387,7 @@ def epoch_order(n: int, epoch: int, seed: int) -> list[int]:
 # Arguments that fix the data order, the step count and the schedule: a checkpoint from
 # another --out (--resume-from) is only meaningful if they match.
 RESUME_MUST_MATCH = ("epochs", "lr", "warmup_frac", "grad_accum", "weight_decay", "lora_r", "lora_alpha",
-                     "lora_linear_attn", "quant", "max_len", "eval_frac", "limit", "seed")
+                     "lora_linear_attn", "quant", "max_len", "eval_frac", "limit", "seed", "pg")
 
 
 def main(argv=None) -> int:
@@ -412,7 +412,8 @@ def main(argv=None) -> int:
         src_args = a.resume_from.parent / "args.json"
         if src_args.exists():
             prev = json.loads(src_args.read_text())
-            diff = {k: (prev.get(k), args_d.get(k)) for k in RESUME_MUST_MATCH if k in prev and prev.get(k) != args_d.get(k)}
+            diff = {k: (prev.get(k), args_d.get(k)) for k in RESUME_MUST_MATCH
+                    if (k in prev or k == "pg") and prev.get(k, False if k == "pg" else None) != args_d.get(k)}
             if diff:
                 raise SystemExit(f"--resume-from {a.resume_from}: its run used different arguments {diff}")
         elif is_main():
@@ -439,7 +440,8 @@ def main(argv=None) -> int:
     opt = torch.optim.AdamW(params, lr=a.lr, weight_decay=a.weight_decay, betas=(0.9, 0.999))
     micro_per_epoch = len(train_rows)
     total_micro = math.floor(a.epochs * micro_per_epoch)
-    total_steps = max(1, total_micro // a.grad_accum)
+    # --pg: every rollout row is used once, the last step may take fewer rows (ceil); SFT drops the remainder
+    total_steps = max(1, -(-total_micro // a.grad_accum) if a.pg else total_micro // a.grad_accum)
     warm = max(1, round(a.warmup_frac * total_steps))
 
     def lr_lambda(s):
@@ -459,7 +461,8 @@ def main(argv=None) -> int:
             raise SystemExit(f"--resume-from {src}: no COMPLETE marker")
     if src is not None:
         state = load_ckpt(src, model, opt, sched)
-        assert state["micro"] == state["step"] * a.grad_accum, f"checkpoint position mismatch: {state}"
+        assert state["micro"] == min(state["step"] * a.grad_accum, total_micro if a.pg else 1 << 62), \
+            f"checkpoint position mismatch: {state}"
         if is_main():
             log(f"resumed from {src}: step {state['step']}, micro {state['micro']} (world {world})")
     elif a.init_adapter is not None:
@@ -517,9 +520,10 @@ def main(argv=None) -> int:
         # The step owns global micro indices [start, start + grad_accum); rank r takes every
         # world-th of them, so the rows and their order match a single-GPU run.
         start = state["micro"]
-        state["micro"] += a.grad_accum
+        end = min(start + a.grad_accum, total_micro) if a.pg else start + a.grad_accum
+        state["micro"] = end
         encs, skipped = [], []
-        for m in range(start + rank, start + a.grad_accum, world):
+        for m in range(start + rank, end, world):
             r = row_at(m)
             enc = fhdata.encode(r, a.data, processor, tools)
             if enc["n_tokens"] > a.max_len:

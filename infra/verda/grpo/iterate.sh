@@ -69,6 +69,7 @@ PY
   rc=0; for p in "${pids[@]}"; do wait $p || rc=1; done
   stamp "rollouts harbor done (rc $rc)"
   for g in "${gpus[@]}"; do systemctl stop fh-grpo-relay-$g fh-grpo-vllm-$g || true; done
+  [ $rc = 0 ] || { stamp "a harbor job failed; not marking the rollouts done"; exit 1; }
   for g in "${gpus[@]}"; do ln -sfn $D/requests-g$g $D/runs/fh-grpo-$NAME-g$g/requests; done
   touch $D/rollout.done
   stamp "rollouts done"
@@ -90,7 +91,7 @@ if [ ! -f $D/train.done ]; then
   done
   nrows=$(wc -l < $D/data/sft.jsonl)
   [ "$nrows" -gt 0 ] || { stamp "no training rows"; exit 1; }
-  ga=$(( nrows / STEPS )); [ $ga -ge 1 ] || ga=1
+  ga=$(( (nrows + STEPS - 1) / STEPS ))   # sft_lora --pg: ceil(nrows / ga) <= STEPS steps, every row once
   nproc=$(echo $TRAIN_GPUS | tr , '\n' | wc -l)
   stamp "update start ($nrows rows, grad_accum $ga, lr $LR, gpus $TRAIN_GPUS)"
   cd $CODE/train
