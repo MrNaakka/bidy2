@@ -19,3 +19,5 @@ infra/verda/.fh-eval.tmp
 infra/verda/.fh-eval.lock
 infra/modal/.state.json
 infra/modal/.state.tmp
+infra/modal/last_test.json
+infra/modal/__pycache__/

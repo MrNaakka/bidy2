@@ -289,7 +289,7 @@ def run_one(i: int, tag: str, job: str, defn: dict, tasks: Path, keyenv: Path, a
         cfg_path = Path(tempfile.mkdtemp(prefix=f"fh-modal-{job}-")) / "cfg.json"
         cfg_path.write_text(json.dumps(cfg, indent=1) + "\n")
         shutil.rmtree(RUNS_DIR / job, ignore_errors=True)
-        cmd = ["harbor", "run", "-p", str(tasks), "--job-name", job, "-o", str(RUNS_DIR), "-n", str(args.n),
+        cmd = [args.harbor, "run", "-p", str(tasks), "--job-name", job, "-o", str(RUNS_DIR), "-n", str(args.n),
                "-r", "2", "--retry-include", "AgentSetupTimeoutError", "-y", "-e", "modal",
                "-c", str(cfg_path), "--env-file", str(keyenv)]
         meta["harbor_cmd"] = cmd
@@ -311,14 +311,37 @@ def run_one(i: int, tag: str, job: str, defn: dict, tasks: Path, keyenv: Path, a
         log(f"{job}: FAILED {e!r}")
     finally:
         stop_endpoint(tag)
-        time.sleep(15)
-        info = endpoint_info(tag)
+        for _ in range(12):   # the endpoint polls its stop flag every 10 s, then gives vLLM up to 60 s
+            time.sleep(10)
+            info = endpoint_info(tag)
+            if info.get("phase") in ("ended", "failed"):
+                break
         meta["endpoint_end"] = {k: info.get(k) for k in ("phase", "reason", "ended_at", "started_at", "healthy_at")}
         (RUNS_DIR / job).mkdir(parents=True, exist_ok=True)
         if info.get("log_tail"):
             (RUNS_DIR / job / "vllm-tail.log").write_text("\n".join(info["log_tail"]) + "\n")
         (RUNS_DIR / job / "fh-eval-meta.json").write_text(json.dumps(meta, indent=1, default=str) + "\n")
     return rc
+
+
+def harbor_bin() -> str:
+    """The Harbor CLI for `-e modal`: $FH_HARBOR, else the first `harbor` on PATH whose Python has the modal
+    extra (modal + dockerfile_parse, used for the separate verifier sandbox). The repo .venv's harbor lacks it
+    and `uv run` puts that one first on PATH; with it every trial fails at the verifier."""
+    def ok(h: str) -> bool:
+        first = Path(h).resolve().read_bytes()[:300].split(b"\n")[0]
+        py = first[2:].decode().strip() if first.startswith(b"#!") else sys.executable
+        return subprocess.run([py, "-c", "import modal, dockerfile_parse"], capture_output=True).returncode == 0
+
+    if os.environ.get("FH_HARBOR"):
+        cands = [os.environ["FH_HARBOR"]]
+    else:
+        cands = [str(Path(d) / "harbor") for d in os.environ.get("PATH", "").split(os.pathsep)
+                 if d and os.access(Path(d) / "harbor", os.X_OK)]
+    for h in cands:
+        if ok(h):
+            return h
+    raise SystemExit(f"no harbor with harbor[modal] (modal, dockerfile_parse) among {cands}; set FH_HARBOR")
 
 
 def cmd_eval(args) -> None:
@@ -343,7 +366,8 @@ def cmd_eval(args) -> None:
             "harbor_version": HARBOR_VERSION, "opencode_version": OPENCODE_VERSION,
             "app_py_sha": hashlib.sha256(app_src).hexdigest()[:16], "git_commit": git_commit(),
             "started": datetime.now(UTC).isoformat()}
-    hv = subprocess.run(["harbor", "--version"], capture_output=True, text=True).stdout.strip().splitlines()
+    args.harbor = harbor_bin()
+    hv = subprocess.run([args.harbor, "--version"], capture_output=True, text=True).stdout.strip().splitlines()
     if not hv or hv[-1] != HARBOR_VERSION:
         log(f"WARNING: local harbor is {hv[-1] if hv else '?'}, the fleet uses {HARBOR_VERSION}")
     runs = [int(x) for x in args.only.split(",")] if args.only else list(range(1, args.runs + 1))
