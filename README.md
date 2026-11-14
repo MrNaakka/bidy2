@@ -90,8 +90,8 @@ DEV pilot on Modal (8 items `scandoc-3601..3608`, one run each):
 Opus's 5 failures: read the facing comparative-year table (1); right table, wrong row,
 amount read at 1/2 scale (1); misread digits read at 1/3 scale after the budget ran low (1);
 budget gone before reaching the table, placeholder guess (2: one first assumed printed =
-PDF page and searched the wrong pages, one spent 46k on an unreadable full view of the
-contents page and then skimmed headers with contact sheets). Every trial used 90 % or more
+PDF page and searched the wrong pages, one spent 46k on an unreadable full-page view of a
+front page, never found the contents and skimmed headers with contact sheets). Every trial used 90 % or more
 of the budget; the reference needs under half of it. API cost: $1.33.
 
 ## Why it's hard
