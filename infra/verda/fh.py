@@ -771,7 +771,8 @@ def eval_definition(a) -> dict:
     }
 
 
-COMPARABLE_KEYS = ("tasks_sha", "lora_sha", "served_name", "instance_type", "disk_size", "n_concurrent",
+COMPARABLE_KEYS = ("tasks_sha", "lora_sha", "served_name", "instance_type", "use_spot", "disk_size", "n_concurrent",
+                   "max_run_hours",
                    "model_repo", "model_rev", "vllm_version", "harbor_version", "opencode_version", "eval_yaml_sha")
 
 

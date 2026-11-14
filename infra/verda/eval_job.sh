@@ -10,7 +10,18 @@ rm -f "$ST/timings.txt" "$ST/done.json"
 mark() { echo "$1 $(date +%s)" >> "$ST/timings.txt"; }
 mark job_start
 vllm_pid=; socat_pid=
-cleanup() { kill $vllm_pid $socat_pid 2>/dev/null; true; }   # nothing may outlive the job (SkyPilot waits)
+# Nothing may outlive the job: SkyPilot waits for the job's output to close, and `timeout` (our parent, whose
+# process group this is) stops watching once this shell exits. So on every exit, stop the whole group but
+# `timeout` and this shell. Nested timeouts use --foreground to stay in the group.
+cleanup() {
+  local pg p sig
+  pg=$(ps -o pgid= -p $$ | tr -d ' ')
+  for sig in TERM KILL; do
+    for p in $(pgrep -g "$pg"); do [ "$p" = $$ ] || [ "$p" = "$PPID" ] || kill "-$sig" "$p" 2>/dev/null || true; done
+    [ "$sig" = KILL ] || sleep 5
+  done
+  true
+}
 trap cleanup EXIT
 # The key goes to curl in a private header file, never on a command line.
 ( umask 077; printf 'Authorization: Bearer %s\n' "$QWEN_API_KEY" > "$FH/auth.hdr" )
@@ -27,7 +38,7 @@ model=$FH/models/${MODEL_REPO#*/}
 (
   if [ "$(cat "$model.REVISION" 2>/dev/null)" != "$MODEL_REPO $MODEL_REV" ]; then
     rm -f "$model.REVISION"
-    HF_HUB_ENABLE_HF_TRANSFER=1 timeout 90m uvx -q --python 3.12 --from 'huggingface_hub[cli,hf_transfer]' \
+    HF_HUB_ENABLE_HF_TRANSFER=1 timeout --foreground 90m uvx -q --python 3.12 --from 'huggingface_hub[cli,hf_transfer]' \
       hf download "$MODEL_REPO" --revision "$MODEL_REV" --local-dir "$model" --max-workers 16 >/dev/null
     uv run -q --no-project --python 3.12 python "$IN/verify_weights.py" "$MODEL_REPO" "$MODEL_REV" "$model"
     echo "$MODEL_REPO $MODEL_REV" > "$model.REVISION"
@@ -38,7 +49,7 @@ VENV=$FH/vllm-$VLLM_VERSION
 if [ ! -x "$VENV/bin/vllm" ]; then
   rm -rf "$VENV"
   uv venv -q --managed-python --python 3.12 "$VENV"   # system python lacks Python.h, which Triton compiles against
-  VIRTUAL_ENV="$VENV" timeout 30m uv pip install -q "vllm==$VLLM_VERSION"
+  VIRTUAL_ENV="$VENV" timeout --foreground 30m uv pip install -q "vllm==$VLLM_VERSION"
 fi
 mark venv_ready
 wait "$dl"
@@ -83,7 +94,7 @@ until served; do
 done
 mark vllm_healthy
 # the relay as a trial container sees it (root in the container, to read the 0600 header file)
-timeout 300 docker run --rm --user 0:0 -v "$FH/auth.hdr:/auth.hdr:ro" curlimages/curl:8.10.1 -sf -m 10 -o /dev/null \
+timeout --foreground 300 docker run --rm --user 0:0 -v "$FH/auth.hdr:/auth.hdr:ro" curlimages/curl:8.10.1 -sf -m 10 -o /dev/null \
   -H @/auth.hdr http://172.17.0.1:18000/v1/models
 
 # --- Harbor ---
@@ -94,7 +105,7 @@ left=$(( deadline - $(date +%s) ))
 [ "$left" -gt 600 ] || { echo "MAX_RUN_HOURS used up before Harbor started" >&2; exit 1; }
 mark harbor_start
 rc=0
-timeout --signal=INT --kill-after=240 "$left" harbor run -p "$IN/tasks" --job-name "$JOB" -o runs \
+timeout --foreground --signal=INT --kill-after=240 "$left" harbor run -p "$IN/tasks" --job-name "$JOB" -o runs \
   -n "$N_CONCURRENT" -r 2 --retry-include AgentSetupTimeoutError -y -c "$IN/cfg.json" --env-file "$FH/key.env" || rc=$?
 mark harbor_end
 curl -s -m 30 http://127.0.0.1:8000/metrics > "$ST/metrics.txt" || true
