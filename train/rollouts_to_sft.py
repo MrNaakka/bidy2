@@ -387,7 +387,10 @@ def convert_trial(t: dict, run: Path, meta: dict, tasks: Path | None, require_su
         inst = tasks / t["item_id"] / "instruction.md"
         if not inst.is_file():
             raise Reject(f"{inst} not found")
-        if msgs[1] != fhdata.user_turn(inst.read_text()):
+        md = inst.read_text()
+        # Harbor hands the instruction to OpenCode inside a shell-quoted string: double quotes in it arrive
+        # backslash-escaped (scandoc questions quote note titles); both forms are the task's instruction
+        if msgs[1] not in (fhdata.user_turn(md), {"role": "user", "content": '"' + md.replace('"', '\\"') + '"'}):
             raise Reject("instruction differs from the task's instruction.md")
         if 'split = "train"' not in (tasks / t["item_id"] / "task.toml").read_text():
             raise Reject("task.toml is not a train-split task")
