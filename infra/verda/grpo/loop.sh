@@ -17,6 +17,7 @@ ITER_MIN=${ITER_MIN:-45}; EVAL_MIN=${EVAL_MIN:-35}
 mkdir -p $OUT; TIMES=$OUT/times.txt
 stamp() { echo "$(date -u +%FT%TZ) loop $*" | tee -a $TIMES; }
 
+while systemctl is-active -q fh-grpo-dev; do sleep 30; done
 while [ -n "$(systemctl list-units 'fh-h-*' --state=active --no-legend --plain | grep -v '^$')" ]; do sleep 30; done
 stamp "no eval unit active; freeing GPUs"
 for u in $(systemctl list-units 'fh-vllm-*' 'fh-relay-*' --state=active --no-legend --plain | awk '{print $1}'); do

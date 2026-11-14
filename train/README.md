@@ -342,3 +342,41 @@ format rejections; merge; `--split train` task building; `--log-requests` stayin
 `FH_CAPTURE_REQUESTS=train/capture/requests` a captured OpenCode request round-trips too (also checked with
 the Qwen processor: identical template text, and the same 35k-character system+tools prefix as a
 `make_sft.py` row).
+
+## GRPO (on-policy RL from the SFT adapter)
+
+A small GRPO-style stage on top of the v3 SFT adapter, run on the 8xH100 Verda box
+(`infra/verda/grpo/`). Each iteration:
+
+1. **Rollouts.** `serve.sh` serves the current adapter (vLLM 0.33, the eval fleet's flags, LoRA served
+   as `qwen3.8-27b-fh`) on every GPU behind `log_relay.py` (172.17.0.1:18100+g). 40 fresh TRAIN items
+   (10 per kind: logstream, dialogs, toasts, scandoc; iteration k uses items 301+10(k-1)..310+10(k-1),
+   `build_tasks.py --split train --per-kind 10 --offset 300+10(k-1)`; make_sft used 1-300) are dealt to
+   the GPUs; one Harbor job per GPU, `-k 8` attempts per item, the evals' agent config (OpenCode 1.19.5,
+   `cfg-ft-g*.json` with the relay's URL). Reward = `verifier/reward.txt`.
+2. **Advantages.** `rollouts_to_pg.py` turns EVERY rollout (not only the successes, and also runs that
+   never submit) into a row holding the exact logged conversation (the checks of `rollouts_to_sft.py`),
+   with `advantage = (r - mean_group) / (std_group + 1e-6)` over the item's G attempts (population std).
+   Groups with zero std are dropped; harness failures (setup/verifier errors) are left out of their
+   group, agent timeouts count as reward 0. `pg_stats.json` holds the mean reward per kind (the
+   training-reward curve) and the number of groups with signal.
+3. **Update.** `sft_lora.py --pg --init-adapter <current>`: loss = sum over rows of A * sum_t CE_t over
+   the assistant tokens, divided by the step's trained tokens (the SFT normalization with a signed row
+   weight), i.e. the REINFORCE/GRPO gradient with token-level averaging. One pass over the rows
+   (<= `STEPS` optimizer steps, every row once), constant LR, grad clip 1.0, LoRA dropout 0, torchrun
+   data parallel on 8 GPUs. No KL penalty, no importance ratio (each row is used once; later steps of
+   an iteration are slightly off-policy).
+
+```bash
+# on the box (code rsynced to /root/fh/grpo-code, tasks/grpo-it{1..4} built locally and copied)
+systemd-run --unit=fh-grpo-loop --setenv=ITERS=4 --setenv=DEADLINE=2026-11-15T01:30Z \
+    bash -c "/root/fh/grpo-code/infra/verda/grpo/loop.sh >> /root/fhdata/grpo/loop.log 2>&1"
+# one iteration by hand:
+ITER=1 INIT=/root/fhdata/runs/sft-v3/final TASKS=/root/fh/tasks/grpo-it1 infra/verda/grpo/iterate.sh
+```
+
+`loop.sh` evaluates the last adapter like every fine-tuned eval (`eval.sh`: GPUs 0-2, socat relays, 40
+EVAL items, 3 runs `fh-eval-qwen-grpo-run{1,2,3}`, `-n 15`). Per-iteration logs: `/root/fhdata/grpo/`
+(`times.txt`, `curve.jsonl`, `it<k>/{runs,data/pg_stats.json,train/loss.jsonl,train/final}`).
+Tests: `tests/test_grpo.py` (advantages, conversion of all rollouts, and on the tiny model: A>0 lowers
+the row's NLL, A<0 raises it, zero-advantage rows change nothing, 2-rank DDP equals one process).

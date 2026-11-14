@@ -203,14 +203,27 @@ def conversation(records: list[dict], rdir: Path) -> tuple[list[dict], list[dict
                                "model": final["_req"].get("model"), "n_requests": len(recs)}
 
 
-def check_format(msgs: list[dict], tools: list[dict], require_submit: bool = True) -> str:
+CAPTURED_MODEL_LINE = "You are powered by the model named qwen3.8-27b. The exact model ID is verda-qwen/qwen3.8-27b\n"
+
+
+def expected_system_prompt(date: str, model: str | None) -> str:
+    """The captured system prompt with this row's date; OpenCode names the served model in it, so a run
+    against another served name (the LoRA's qwen3.8-27b-fh) differs from the capture in that line only."""
+    s = fhdata.system_prompt(date)
+    if model and model != "qwen3.8-27b":
+        assert s.count(CAPTURED_MODEL_LINE) == 1
+        s = s.replace(CAPTURED_MODEL_LINE, CAPTURED_MODEL_LINE.replace("qwen3.8-27b", model))
+    return s
+
+
+def check_format(msgs: list[dict], tools: list[dict], require_submit: bool = True, model: str | None = None) -> str:
     """Raise Reject unless msgs/tools have make_sft's exact shape; return the row's date."""
     if tools != fhdata.tools():
         raise Reject("tool list differs from the capture (OpenCode version or MCP server changed?)")
     if len(msgs) < 3 or msgs[0].get("role") != "system" or not isinstance(msgs[0].get("content"), str):
         raise Reject("no system prompt")
     m = DATE_RE.search(msgs[0]["content"])
-    if not m or msgs[0]["content"] != fhdata.system_prompt(m.group(1)):
+    if not m or msgs[0]["content"] not in (fhdata.system_prompt(m.group(1)), expected_system_prompt(m.group(1), model)):
         raise Reject("system prompt differs from the capture")
     u = msgs[1]
     if u.get("role") != "user" or not isinstance(u.get("content"), str) or len(u["content"]) < 2 \
@@ -363,7 +376,7 @@ def convert_trial(t: dict, run: Path, meta: dict, tasks: Path | None, require_su
         raise Reject(f"no request log ({rdir.relative_to(run)})")
     records = [json.loads(l) for l in (rdir / "log.jsonl").read_text().splitlines() if l.strip()]
     msgs, tools, final, info = conversation(records, rdir)
-    date = check_format(msgs, tools, require_submit)
+    date = check_format(msgs, tools, require_submit, info["model"])
     if tasks is not None:
         inst = tasks / t["item_id"] / "instruction.md"
         if not inst.is_file():

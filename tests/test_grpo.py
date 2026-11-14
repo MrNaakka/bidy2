@@ -173,3 +173,13 @@ def test_pg_ddp_matches_single(tmp_path):
         assert abs(x["grad_norm"] - y["grad_norm"]) < 1e-3
     ddp.close(ddp.adapter(one / "ckpt-000003"), ddp.adapter(two / "ckpt-000003"))
     assert json.loads((two / "ckpt-000003" / "state.json").read_text())["micro"] == 7
+
+
+def test_system_prompt_may_name_the_served_model():
+    import rollouts_to_sft as r2s
+    import fhdata
+    d = "Sat Nov 14 2026"
+    s = r2s.expected_system_prompt(d, "qwen3.8-27b-fh")
+    assert "named qwen3.8-27b-fh. The exact model ID is verda-qwen/qwen3.8-27b-fh\n" in s
+    assert s.replace("qwen3.8-27b-fh", "qwen3.8-27b") == fhdata.system_prompt(d)
+    assert r2s.expected_system_prompt(d, "qwen3.8-27b") == fhdata.system_prompt(d)
