@@ -1799,3 +1799,48 @@ def test_r12_3_train_publish_verifies_unverified_run(sandbox, monkeypatch):
     monkeypatch.setattr(vc, "_train_box_ip", lambda c: ("6.6.6.6", "g1"))
     vc.cmd_train_publish(SimpleNamespace(run=None))
     assert vc.load_state()["train_run"]["done"] is True
+
+
+# ---- r13 ---------------------------------------------------------------------------------------
+def test_r13_1_missing_marker_during_setup_waits_then_bounded(sandbox, monkeypatch):
+    c, calls = _tick_env(monkeypatch, "run=\nready=0\nservice=inactive\ndone=0\nfatal=0\n")
+    assert [vc.train_tick(c) for _ in range(3)] == ["setup"] * 3  # pip still installing: just wait
+    assert calls["deleted"] == [] and not vc.load_state()["train_run"].get("failures")
+    vc.update_state(lambda s: s["train"].update(created=vc.time.time() - vc.TRAIN_GRACE_S - 1))
+    assert vc.train_tick(c) == "retry"  # past the grace period: counted, box replaced
+    assert calls["deleted"] == ["t1"] and vc.load_state()["train_run"]["failures"] == 1
+
+
+def test_r13_1_ready_box_without_marker_is_not_started(sandbox, monkeypatch):
+    c, calls = _tick_env(monkeypatch, "run=\n" + READY_IDLE)
+    assert vc.train_tick(c) == "setup"
+    assert not any("systemctl start" in x for x in calls["ssh"]) and calls["deleted"] == []
+
+
+def test_r13_1_done_needs_matching_marker(sandbox, monkeypatch):
+    c, calls = _tick_env(monkeypatch, "run=\nready=1\nservice=inactive\ndone=1\nfatal=0\n",
+                         box_extra={"started": True})
+    assert vc.train_tick(c) == "setup" and not vc.load_state()["train_run"].get("done")
+
+
+def test_r13_2_publish_exception_still_records_completion(sandbox, monkeypatch):
+    import subprocess as sp
+    c, calls = _tick_env(monkeypatch, "ready=1\nservice=inactive\ndone=1\nfatal=0\n", box_extra={"started": True})
+    real = vc.ssh
+
+    def copy_times_out(ip, cmd, **k):
+        if "cp -r" in cmd:
+            raise sp.TimeoutExpired(cmd, 600)
+        return real(ip, cmd, **k)
+
+    monkeypatch.setattr(vc, "ssh", copy_times_out)
+    assert vc.train_tick(c) == "done"
+    st = vc.load_state()
+    run = st["train_run"]
+    assert calls["deleted"] == ["t1"] and "train" not in st
+    assert run["done"] is True and run["desired"] is False and run["final"] == "/mnt/fh/runs/r1/final"
+    assert "TimeoutExpired" in run["publish_error"] and run["adapter"] is None
+    prov = mock.Mock()
+    monkeypatch.setattr(vc, "_train_provision", prov)
+    assert vc.train_tick(c) == "idle"  # never re-provisioned
+    prov.assert_not_called()

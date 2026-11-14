@@ -1873,18 +1873,19 @@ def train_tick(c) -> str:
     if rs["total_steps"]:
         _train_mark(progress=round(rs["step"] / rs["total_steps"], 4), step=rs["step"],
                     total_steps=rs["total_steps"], loss=rs["loss"])
-    if rs["run"] != run["run"]:  # the unit on the box runs something else
+    if rs["run"] is not None and rs["run"] != run["run"]:  # the unit on the box is another run's
         log(f"training box {inst.id} runs {rs['run']!r}, not {run['run']!r}; deleting it")
         return _train_cleanup(c, box)
-    if rs["done"]:
-        return _train_finish(c, inst, run)
     if rs["fatal"]:
         return _train_count_failure(c, inst, run, "box setup failed (FATAL in startup log)", replace=True)
-    if not rs["ready"]:
+    if not rs["ready"] or rs["run"] is None:  # setup unfinished (the marker is written at its end): wait
         if age > TRAIN_GRACE_S:
-            return _train_count_failure(c, inst, run, f"box not ready after {TRAIN_GRACE_S // 60} min",
+            return _train_count_failure(c, inst, run, f"box setup not finished after {TRAIN_GRACE_S // 60} min",
                                         replace=True)
         return "setup"
+    # from here on the box is set up for exactly this run
+    if rs["done"]:
+        return _train_finish(c, inst, run)
     if rs["service"] in ("active", "activating", "deactivating"):
         if run.get("failures"):
             _train_mark(failures=0)
@@ -2012,10 +2013,15 @@ def train_verify_and_publish(ip: str, alias: str, run: dict) -> str:
         log(f"training {name}: could not verify DONE ({e}); kept as unverified, retried via any box "
             "(next train-ensure / train-publish)")
         return "unverified"
-    res = _publish_copy_fetch(ip, alias, name)
-    _train_mark(done=True, unverified=False, desired=False, progress=1.0, adapter=res["adapter"],
-                fetched=res["fetched"], final=f"{MNT}/runs/{name}/final", publish_error=res["error"],
-                finished=now_iso())
+    # Verified: persist completion first, so no later tick can re-provision this run,
+    # whatever happens while publishing.
+    _train_mark(done=True, unverified=False, desired=False, progress=1.0, final=f"{MNT}/runs/{name}/final",
+                publish_error="publication not attempted yet", finished=now_iso())
+    try:
+        res = _publish_copy_fetch(ip, alias, name)
+    except Exception as e:  # e.g. ssh TimeoutExpired during the copy
+        res = {"adapter": None, "fetched": None, "error": f"publish failed: {type(e).__name__}: {str(e)[:160]}"}
+    _train_mark(adapter=res["adapter"], fetched=res["fetched"], publish_error=res["error"])
     if res["error"]:
         log(f"training {name} done (verified); {res['error']}. The adapter is at {MNT}/runs/{name}/final; "
             "run `train-publish` while any box has the volume")
