@@ -756,7 +756,11 @@ def eval_definition(a) -> dict:
         if not re.fullmatch(EVAL_NAME_RE, v):
             raise SystemExit(f"{name} {v!r}: use lowercase letters, digits and '-' (max 16)")
     res, envs = eval_yaml_resources(), eval_yaml_envs()
+    served = LORA_NAME if lora else SERVED_NAME
+    agent_cfg = {"agents": [harbor_agent_entry(EVAL_RELAY_URL, served, OPENCODE_VERSION)]}
     return {
+        "agent_cfg": agent_cfg,
+        "agent_cfg_sha": hashlib.sha256(json.dumps(agent_cfg, sort_keys=True).encode()).hexdigest()[:16],
         "fleet": f"{split}-{label}", "split": split, "label": label,
         "tasks_dir": str(tasks), "tasks_sha": data_sha(tasks), "n_tasks": sum(p.is_dir() for p in tasks.iterdir()),
         "lora_dir": str(lora) if lora else None,
@@ -771,7 +775,7 @@ def eval_definition(a) -> dict:
     }
 
 
-COMPARABLE_KEYS = ("tasks_sha", "lora_sha", "served_name", "instance_type", "use_spot", "disk_size", "n_concurrent",
+COMPARABLE_KEYS = ("tasks_sha", "lora_sha", "served_name", "agent_cfg_sha", "instance_type", "use_spot", "disk_size", "n_concurrent",
                    "max_run_hours",
                    "model_repo", "model_rev", "vllm_version", "harbor_version", "opencode_version", "eval_yaml_sha")
 
@@ -800,7 +804,7 @@ def stage_eval(defn: dict) -> Path:
             shutil.copy2(Path(defn["lora_dir"]) / f, dest / "lora" / f)
         if sha_files([dest / "lora" / f for f in LORA_FILES]) != defn["lora_sha"]:
             raise SystemExit(f"{defn['lora_dir']} changed while staging; try again")
-    cfg = {"agents": [harbor_agent_entry(EVAL_RELAY_URL, defn["served_name"], defn["opencode_version"])]}
+    cfg = defn["agent_cfg"]
     (dest / "cfg.json").write_text(json.dumps(cfg, indent=1) + "\n")
     shutil.copy2(HERE / "verify_weights.py", dest / "verify_weights.py")
     shutil.copy2(EVAL_JOB, dest / "eval_job.sh")
@@ -885,18 +889,26 @@ def cmd_eval_up(args) -> None:
         evals[defn["fleet"]] = fleet
         save_evals(evals)
         stage = stage_eval(defn)
+        attempt = secrets.token_hex(6)
         for i in runs:
             cluster, job = eval_names(defn["split"], defn["label"], i)
-            fleet["boxes"][str(i)] = {"cluster": cluster, "job": job, "state": "launching",
+            fleet["boxes"][str(i)] = {"cluster": cluster, "job": job, "state": "launching", "attempt": attempt,
                                       "launched_at": time.time(),
                                       "launches": fleet["boxes"].get(str(i), {}).get("launches", 0) + 1}
         save_evals(evals)
     rcs = launch_eval_boxes(defn, stage, runs)
     with _eval_lock():
         evals = load_evals()
-        fleet = evals[defn["fleet"]]
+        fleet = evals.get(defn["fleet"], {"boxes": {}})
         for i, rc in rcs.items():
-            box = fleet["boxes"][str(i)]
+            box = fleet["boxes"].get(str(i))
+            if not box or box.get("attempt") != attempt or box["state"] != "launching":
+                # eval-down (or --new) took this box over while we launched: do not bring it back
+                cluster = eval_names(defn["split"], defn["label"], i)[0]
+                if cluster_status(cluster) is not None:
+                    down(cluster)
+                log(f"eval: run {i} was stopped while launching; deleted {cluster}")
+                continue
             if rc == 0:
                 box["state"] = "running"
             else:
@@ -905,7 +917,7 @@ def cmd_eval_up(args) -> None:
                 if cluster_status(box["cluster"]) is not None:
                     down(box["cluster"])
         save_evals(evals)
-    failed = [fleet["boxes"][str(i)]["cluster"] for i, rc in rcs.items() if rc != 0]
+    failed = [eval_names(defn["split"], defn["label"], i)[0] for i, rc in rcs.items() if rc != 0]
     # A timed-out create shows up on Verda within a minute or two (smoke test); sweep for a while here, so a
     # leak does not depend on eval-wait running (which keeps sweeping for LEAK_WINDOW_S).
     for k in range(EVAL_UP_SWEEPS if failed else 0):
@@ -915,7 +927,7 @@ def cmd_eval_up(args) -> None:
         if k + 1 < EVAL_UP_SWEEPS:
             time.sleep(30)
     for i in runs:
-        b = fleet["boxes"][str(i)]
+        b = fleet["boxes"].get(str(i)) or {"cluster": eval_names(defn["split"], defn["label"], i)[0], "state": "-"}
         log(f"eval {defn['fleet']} run {i}: {b['cluster']} {b['state']}")
     if any(rc != 0 for rc in rcs.values()):
         log(f"eval: some launches failed (no capacity?); see the launch logs in {STAGE_DIR}; "

@@ -291,6 +291,28 @@ def test_tick_leaves_a_box_alone_while_eval_up_is_launching_on_it(evalbox, sandb
     assert fleet["boxes"]["1"]["state"] == "launching" and sandbox.down == []
 
 
+def test_eval_down_during_a_launch_wins(evalbox, sandbox, monkeypatch):
+    status = {}
+    monkeypatch.setattr(fh, "cluster_status", lambda n: status.get(n))
+
+    def launch_while_someone_runs_eval_down(defn, stage, runs):
+        fh.cmd_eval_down(SimpleNamespace(fleet="dev-qwen", only=None, no_fetch=True))
+        status["fh-ev-dev-qwen-1"] = "UP"     # the launch finishes after eval-down looked
+        return {i: 0 for i in runs}
+
+    monkeypatch.setattr(fh, "launch_eval_boxes", launch_while_someone_runs_eval_down)
+    fh.cmd_eval_up(eval_args(evalbox, runs=1))
+    assert fh.load_evals()["dev-qwen"]["boxes"]["1"]["state"] == "stopped"
+    assert sandbox.down == ["fh-ev-dev-qwen-1"]
+
+
+def test_agent_config_is_part_of_comparability(evalbox, monkeypatch):
+    a = fh.eval_definition(eval_args(evalbox))
+    monkeypatch.setattr(fh, "OPENCODE_VERSION", "9.9.9")
+    b = fh.eval_definition(eval_args(evalbox))
+    assert "agent_cfg_sha" in fh.COMPARABLE_KEYS and a["agent_cfg_sha"] != b["agent_cfg_sha"]
+
+
 def test_probe_parsing():
     p = fh.parse_probe("trials=3\ndone=2\nphase=harbor_start\nvllm:num_requests_running=7\n"
                        "vllm:kv_cache_usage_perc=0.41\n")
