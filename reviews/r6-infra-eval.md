@@ -1,0 +1,15 @@
+1. **High — Fallback attempts can erase tracking for an accepted creation.** [infra/verda/verda_cli.py:886](/home/user/bidy2/infra/verda/verda_cli.py:886), [infra/verda/verda_cli.py:487](/home/user/bidy2/infra/verda/verda_cli.py:487)  
+   Hostnames have only second-level uniqueness, and intents are keyed by hostname. If one download create returns an ambiguous `server_error` and the next fallback returns `invalid_request` within the same second, the second attempt overwrites and then clears the first intent. A late CPU instance then bills indefinitely: reconcile only warns that it is unknown. Reproduced with mocks. **Fix:** Generate a unique hostname for every create request and retain each unresolved intent independently.
+
+2. **High — SDK polling errors are mistaken for definitive creation rejection.** [infra/verda/verda_cli.py:501](/home/user/bidy2/infra/verda/verda_cli.py:501)  
+   Verda’s `instances.create()` performs the creation POST and then polls with GET requests. The exception handler clears the intent for “rejected” error codes regardless of which request failed. For example, the POST succeeds, then polling returns `unauthorized_request` after credentials are revoked; tracking disappears although the instance was accepted. Reproduced using the real SDK with mocked HTTP responses. **Fix:** Persist the accepted instance ID before polling; clear intents only for a confirmed rejection of the creation POST.
+
+3. **Medium — `serve-ensure` deletes instances still being provisioned by a live creator.** [infra/verda/verda_cli.py:1376](/home/user/bidy2/infra/verda/verda_cli.py:1376)  
+   Reconcile correctly skips intents owned by a running process, but the subsequent ensure loop ignores them. While concurrent `serve-up` waits inside SDK creation, its visible `ordered` instance has no `state["serve"]` record, so ensure assigns age `1e9` and deletes it immediately. Reproduced with a live-owner intent. **Fix:** Serialize serving lifecycle commands under one lock and exclude active pending creates from replacement.
+
+4. **Medium — The retry allowlist still permits fresh attempts after pixel use.** [scripts/eval.sh:59](/home/user/bidy2/scripts/eval.sh:59)  
+   Harbor also raises `EnvironmentStartTimeoutError` when starting FrameHunt’s **separate verifier**, after agent execution and evidence collection. A verifier startup timeout therefore deletes the completed attempt’s directory and reruns the agent with a fresh pixel budget. The replacement has no previous context, but discarding the original attempt still invalidates the claimed retry policy. Confirmed in Harbor’s source and mocked queue. **Fix:** Remove this exception from whole-trial retries, or enforce retries only when agent execution never started; retry verifier startup against existing evidence.
+
+Validation: `bash -n` passed; 11 file-free test functions passed. The requested pytest command was blocked by the read-only filesystem. No files were edited.
+
+Verdict: Changes required before unattended operation or scored evaluation.

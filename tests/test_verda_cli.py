@@ -32,7 +32,7 @@ def ledger(tmp_path) -> list[dict]:
     return [json.loads(l) for l in p.read_text().splitlines()] if p.exists() else []
 
 
-def inst(id="i1", status="running", hostname="fh-qwen-serve-1", ip="1.2.3.4"):
+def inst(id="i1", status="running", hostname="fh-serve-1", ip="1.2.3.4"):
     return SimpleNamespace(id=id, status=status, hostname=hostname, ip=ip, os_volume_id=None,
                            instance_type="1A6000.10V", is_spot=True, price_per_hour=0.4, location="FIN-01")
 
@@ -126,8 +126,10 @@ def test_serve_down_keeps_state_when_delete_fails(sandbox, monkeypatch):
 def test_serve_down_success_clears_state(sandbox, monkeypatch):
     vc.save_state({"serve": {"id": "i1"}})
     c = mock.Mock()
-    c.instances.get.side_effect = [[inst()], []]  # listed, then gone after the delete
-    c.instances.get_by_id.side_effect = [inst(), NOT_FOUND]
+    gone = []
+    c.instances.get.side_effect = lambda: [] if gone else [inst()]
+    c.instances.action.side_effect = lambda *a, **k: gone.append(1)
+    c.instances.get_by_id.side_effect = lambda i: (_ for _ in ()).throw(NOT_FOUND) if gone else inst()
     c.startup_scripts.get.return_value = []
     monkeypatch.setattr(vc, "client", lambda: c)
     monkeypatch.setattr(vc, "stop_tunnel", mock.Mock())
@@ -315,7 +317,7 @@ def test_serve_ensure_after_preemption_reprovisions_and_keeps_base_url(sandbox, 
     st["serve"] = {"id": "old", "created": 0}
     vc.save_state(st)
     up = mock.Mock()
-    monkeypatch.setattr(vc, "cmd_serve_up", up)
+    monkeypatch.setattr(vc, "_serve_up", up)
     vc.cmd_serve_ensure(_serve_args(wait=False))  # instance list is empty: preempted
     up.assert_called_once()
     assert "serve" not in vc.load_state()
@@ -432,7 +434,7 @@ def test_download_accepts_own_done(sandbox, cloud, monkeypatch):
 
 def test_download_replaces_box_without_recorded_attempt(sandbox, cloud, monkeypatch):
     vc.save_state(_vol_state())
-    cloud.instances.get.return_value = [inst("stray", hostname="fh-qwen-dl-1")]
+    cloud.instances.get.return_value = [inst("stray", hostname="fh-dl-1")]
     monkeypatch.setattr(vc, "create_instance", fake_create("dl1"))
     monkeypatch.setattr(vc, "wait_running", mock.Mock(side_effect=TimeoutError))
     with pytest.raises(TimeoutError):
@@ -451,59 +453,6 @@ def _real_create_cloud(monkeypatch):
     return c
 
 
-def test_create_intent_is_persisted_before_the_api_call(sandbox, monkeypatch):
-    c = _real_create_cloud(monkeypatch)
-    snapshot = {}
-
-    def create(**kw):
-        snapshot.update(vc.load_state())  # what is on disk at the moment the order goes out
-        raise ConnectionError("response lost")
-
-    c.instances.create.side_effect = create
-    c.instances.get.side_effect = ConnectionError("still down")  # cleanup lookup fails too
-    st = _vol_state()
-    with pytest.raises(ConnectionError):
-        vc.create_instance(c, st, role="download", itype="CPU.8V.32G", hostname="fh-qwen-dl-9",
-                           script_name="x", script="s", spot=False)
-    rec = snapshot["pending_creates"]["fh-qwen-dl-9"]
-    assert rec["role"] == "download" and rec["type"] == "CPU.8V.32G" and rec["pid"] == vc.os.getpid()
-    assert "fh-qwen-dl-9" in vc.load_state()["pending_creates"]  # survives the failure
-    # the in-process cleanup can't reach the API either: intent must stay recorded
-    vc.delete_by_hostnames(c, ["fh-qwen-dl-9"], reason="t")
-    assert "fh-qwen-dl-9" in vc.load_state()["pending_creates"]
-
-
-def test_create_definitive_rejection_forgets_intent(sandbox, monkeypatch):
-    c = _real_create_cloud(monkeypatch)
-    c.instances.create.side_effect = APIException("invalid_request", "Not enough resources")
-    with pytest.raises(APIException):
-        vc.create_instance(c, _vol_state(), role="serve", itype="1A6000.10V", hostname="h1",
-                           script_name="x", script="s", spot=True)
-    assert "h1" not in vc.load_state().get("pending_creates", {})
-
-
-def test_create_ambiguous_api_error_keeps_intent_marked(sandbox, monkeypatch):
-    c = _real_create_cloud(monkeypatch)
-    c.instances.create.side_effect = APIException("server_error", "upstream timeout")
-    c.instances.get.return_value = []  # an empty listing proves nothing
-    with pytest.raises(APIException):
-        vc.create_instance(c, _vol_state(), role="serve", itype="1A6000.10V", hostname="h1",
-                           script_name="x", script="s", spot=True)
-    rec = vc.load_state()["pending_creates"]["h1"]
-    assert rec["create_error"].startswith("server_error") and rec["error_ts"] > 0
-
-
-def test_create_success_tracks_role_and_clears_intent(sandbox, monkeypatch):
-    c = _real_create_cloud(monkeypatch)
-    c.instances.create.return_value = inst("new1", hostname="h1")
-    st = _vol_state()
-    vc.create_instance(c, st, role="serve", itype="1A6000.10V", hostname="h1",
-                       script_name="x", script="s", spot=True)
-    disk = vc.load_state()
-    assert disk["serve"]["id"] == "new1" and not disk["pending_creates"]
-    assert ledger(sandbox)[0]["id"] == "new1"
-
-
 def _dead_owner():
     return {"pid": 999999999, "pid_start": "1"}
 
@@ -518,8 +467,8 @@ def recon(monkeypatch):
 
 
 def test_reconcile_deletes_orphaned_download_create(sandbox, recon):
-    vc.save_state({"pending_creates": {"fh-qwen-dl-9": {"role": "download", "ts": 0, **_dead_owner()}}})
-    recon.instances.get.return_value = [inst("cpu1", hostname="fh-qwen-dl-9")]
+    vc.save_state({"pending_creates": {"fh-dl-9": {"role": "download", "ts": 0, **_dead_owner()}}})
+    recon.instances.get.return_value = [inst("cpu1", hostname="fh-dl-9")]
     out = vc.reconcile(recon)
     assert recon.deleted == ["cpu1"] and out["deleted"] == ["cpu1"]
     assert "pending_creates" not in vc.load_state()
@@ -527,8 +476,8 @@ def test_reconcile_deletes_orphaned_download_create(sandbox, recon):
 
 
 def test_reconcile_adopts_orphaned_serve_create_when_none_tracked(sandbox, recon):
-    vc.save_state({"pending_creates": {"fh-qwen-serve-9": {"role": "serve", "ts": 5, **_dead_owner()}}})
-    recon.instances.get.return_value = [inst("g9", hostname="fh-qwen-serve-9")]
+    vc.save_state({"pending_creates": {"fh-serve-9": {"role": "serve", "ts": 5, **_dead_owner()}}})
+    recon.instances.get.return_value = [inst("g9", hostname="fh-serve-9")]
     out = vc.reconcile(recon)
     assert out["adopted"] == ["g9"] and recon.deleted == []
     assert vc.load_state()["serve"]["id"] == "g9"
@@ -536,36 +485,23 @@ def test_reconcile_adopts_orphaned_serve_create_when_none_tracked(sandbox, recon
 
 def test_reconcile_deletes_second_serve_box(sandbox, recon):
     vc.save_state({"serve": {"id": "g1"},
-                   "pending_creates": {"fh-qwen-serve-9": {"role": "serve", "ts": 5, **_dead_owner()}}})
-    recon.instances.get.return_value = [inst("g1"), inst("g9", hostname="fh-qwen-serve-9")]
+                   "pending_creates": {"fh-serve-9": {"role": "serve", "ts": 5, **_dead_owner()}}})
+    recon.instances.get.return_value = [inst("g1"), inst("g9", hostname="fh-serve-9")]
     vc.reconcile(recon)
     assert recon.deleted == ["g9"] and vc.load_state()["serve"]["id"] == "g1"
 
 
 def test_reconcile_leaves_in_flight_creates_alone(sandbox, recon):
-    vc.save_state({"pending_creates": {"h": {"role": "download", "ts": 0, **vc.proc_identity()}}})
-    recon.instances.get.return_value = [inst("x", hostname="h")]
+    vc.save_state({"pending_creates": {"fh-dl-h": {"role": "download", "ts": 0, **vc.proc_identity()}}})
+    recon.instances.get.return_value = [inst("x", hostname="fh-dl-h")]
     out = vc.reconcile(recon)
     assert recon.deleted == [] and out["unknown"] == []
-    assert "h" in vc.load_state()["pending_creates"]
-
-
-def test_reconcile_expires_only_failed_intents(sandbox, recon):
-    now = vc.time.time()
-    vc.save_state({"pending_creates": {
-        "failed-old": {"role": "serve", "ts": 0, "error_ts": now - 2 * vc.PENDING_TTL_S, **_dead_owner()},
-        "failed-new": {"role": "serve", "ts": 0, "error_ts": now - 60, **_dead_owner()},
-        "unknown-old": {"role": "serve", "ts": 0, **_dead_owner()}}})  # outcome unknown: never expires
-    recon.instances.get.return_value = []
-    out = vc.reconcile(recon)
-    assert out["dropped"] == ["failed-old"]
-    assert sorted(vc.load_state()["pending_creates"]) == ["failed-new", "unknown-old"]
-    assert sorted(out["unresolved"]) == ["failed-new", "unknown-old"]
+    assert "fh-dl-h" in vc.load_state()["pending_creates"]
 
 
 def test_reconcile_deletes_orphaned_download_box_but_not_kept_one(sandbox, recon):
     vc.save_state({"download": {"id": "d1", "attempt": "a", **_dead_owner()}})
-    recon.instances.get.return_value = [inst("d1", hostname="fh-qwen-dl-1")]
+    recon.instances.get.return_value = [inst("d1", hostname="fh-dl-1")]
     vc.reconcile(recon)
     assert recon.deleted == ["d1"] and "download" not in vc.load_state()
     recon.deleted.clear()
@@ -579,7 +515,7 @@ def test_reconcile_flags_unknown_instances_without_deleting(sandbox, recon, caps
     recon.instances.get.return_value = [inst("g1"), inst("zz", hostname="someone-elses-box")]
     out = vc.reconcile(recon)
     assert out["unknown"] == ["zz"] and recon.deleted == []
-    assert "not tracked by state.json" in capsys.readouterr().out
+    assert "not ours" in capsys.readouterr().out
 
 
 def test_reconcile_survives_api_outage(sandbox, recon):
@@ -604,7 +540,7 @@ def test_serve_ensure_reconciles_under_its_lock(sandbox, cloud, monkeypatch):
     vc.save_state(_vol_state())
     calls = []
     monkeypatch.setattr(vc, "reconcile", lambda c: calls.append(vc.LOCK_PATH.read_text()))
-    monkeypatch.setattr(vc, "cmd_serve_up", lambda a: None)
+    monkeypatch.setattr(vc, "_serve_up", lambda c, a: None)
     vc.cmd_serve_ensure(_serve_args(wait=False))
     assert calls and json.loads(calls[0])["pid"] == vc.os.getpid()
 
@@ -685,7 +621,7 @@ def test_deadline_interrupts_a_stuck_call():
 
 
 def test_reconcile_clears_serve_record_of_vanished_instance(sandbox, recon):
-    vc.save_state({"serve": {"id": "gone1", "hostname": "fh-qwen-serve-1"}, "pending_creates": {}})
+    vc.save_state({"serve": {"id": "gone1", "hostname": "fh-serve-1"}, "pending_creates": {}})
     recon.instances.get.return_value = []
     out = vc.reconcile(recon)
     st = vc.load_state()
@@ -769,20 +705,12 @@ def test_serve_up_lora_is_rendered_and_remembered(serve_cloud, monkeypatch):
 def test_serve_ensure_reprovisions_with_remembered_lora(sandbox, cloud, monkeypatch):
     vc.save_state(_vol_state() | {"serve_lora": "/mnt/fh/lora/fh-v1"})
     up = mock.Mock()
-    monkeypatch.setattr(vc, "cmd_serve_up", up)
+    monkeypatch.setattr(vc, "_serve_up", up)
     vc.cmd_serve_ensure(_serve_args(wait=False))
-    assert up.call_args[0][0].lora == "/mnt/fh/lora/fh-v1"
+    assert up.call_args[0][1].lora == "/mnt/fh/lora/fh-v1"
 
 
 # ---- r5 (1): unmatched intents are never cleared by an empty listing -----------------
-def test_cleanup_keeps_intent_when_listing_finds_nothing(sandbox):
-    vc.save_state({"pending_creates": {"h": {"role": "download", "ts": 0}}})
-    c = mock.Mock()
-    c.instances.get.return_value = []  # order may still be processing
-    vc.delete_by_hostnames(c, ["h"], reason="t")
-    assert "h" in vc.load_state()["pending_creates"]
-
-
 def test_cleanup_clears_intent_only_after_confirmed_delete(sandbox, monkeypatch):
     vc.save_state({"pending_creates": {"h": {"role": "download", "ts": 0}}})
     c = mock.Mock()
@@ -797,20 +725,12 @@ def test_cleanup_clears_intent_only_after_confirmed_delete(sandbox, monkeypatch)
 
 
 def test_late_instance_for_kept_intent_is_cleaned_by_reconcile(sandbox, recon):
-    vc.save_state({"pending_creates": {"h": {"role": "download", "ts": 0, **_dead_owner()}}})
+    vc.save_state({"pending_creates": {"fh-dl-h": {"role": "download", "ts": vc.time.time(), **_dead_owner()}}})
     recon.instances.get.return_value = []
     vc.reconcile(recon)  # nothing yet: kept
-    recon.instances.get.return_value = [inst("late", hostname="h")]  # the order went through after all
+    recon.instances.get.return_value = [inst("late", hostname="fh-dl-h")]  # the order went through after all
     out = vc.reconcile(recon)
     assert recon.deleted == ["late"] and out["unknown"] == [] and "pending_creates" not in vc.load_state()
-
-
-def test_forget_intent_command(sandbox):
-    vc.save_state({"pending_creates": {"h": {"role": "serve", "ts": 0}}})
-    vc.cmd_forget_intent(SimpleNamespace(hostname="h"))
-    assert "pending_creates" not in vc.load_state()
-    with pytest.raises(SystemExit):
-        vc.cmd_forget_intent(SimpleNamespace(hostname="h"))
 
 
 # ---- r5 (2): serialized state transactions, no stale snapshots -------------------------
@@ -819,12 +739,12 @@ def test_reconcile_does_not_erase_intent_written_during_its_listing(sandbox, rec
 
     def listing():  # another command records an intent while reconcile waits on the API
         vc.update_state(lambda st: st.setdefault("pending_creates", {}).__setitem__(
-            "fh-qwen-dl-7", {"role": "download", "ts": vc.time.time(), **vc.proc_identity()}))
+            "fh-dl-7", {"role": "download", "ts": vc.time.time(), **vc.proc_identity()}))
         return [inst("g1")]
 
     recon.instances.get.side_effect = listing
     vc.reconcile(recon)
-    assert "fh-qwen-dl-7" in vc.load_state()["pending_creates"]
+    assert "fh-dl-7" in vc.load_state()["pending_creates"]
 
 
 def test_reconcile_keeps_record_created_after_its_listing(sandbox, recon):
@@ -881,7 +801,7 @@ def test_parse_verified_only_matching_request():
 def test_kept_box_for_other_request_is_refused_not_reused(sandbox, cloud, monkeypatch):
     vc.save_state(_vol_state() | {"download": {"id": "dlk", "attempt": "OLD", "keep": True,
                                                "request": {FP8: vc.MODELS[FP8]}, **_dead_owner()}})
-    cloud.instances.get.return_value = [inst("dlk", hostname="fh-qwen-dl-1")]
+    cloud.instances.get.return_value = [inst("dlk", hostname="fh-dl-1")]
     create = mock.Mock()
     monkeypatch.setattr(vc, "create_instance", create)
     with pytest.raises(SystemExit, match="different request"):
@@ -895,7 +815,7 @@ def test_matching_kept_box_is_reused(sandbox, cloud, monkeypatch):
     req = {FP8: vc.MODELS[FP8]}
     vc.save_state(_vol_state() | {"weights": {}, "download": {"id": "dlk", "attempt": "OLD", "keep": True,
                                                               "request": req, **_dead_owner()}})
-    cloud.instances.get.return_value = [inst("dlk", hostname="fh-qwen-dl-1")]
+    cloud.instances.get.return_value = [inst("dlk", hostname="fh-dl-1")]
     monkeypatch.setattr(vc, "create_instance", mock.Mock(side_effect=AssertionError("must reuse")))
     monkeypatch.setattr(vc, "wait_running", lambda c, i: inst("dlk"))
     monkeypatch.setattr(vc, "ssh", lambda ip, cmd, **k: SimpleNamespace(
@@ -944,22 +864,6 @@ def test_download_script_records_only_verified_checkpoints():
 
 
 # ---- r5 (6): serving config persisted before create, carried into adoption ----------
-def test_intent_has_serving_config_before_create(sandbox, monkeypatch):
-    c = _real_create_cloud(monkeypatch)
-    at_call = {}
-
-    def create(**kw):
-        at_call.update(vc.load_state())
-        raise ConnectionError("lost")
-
-    c.instances.create.side_effect = create
-    cfg = {"variant": "bf16", "vllm_args": ["--enable-lora"], "lora": "/mnt/fh/lora/fh-v1", "model_dir": "/m"}
-    with pytest.raises(ConnectionError):
-        vc.create_instance(c, _vol_state(), role="serve", itype="1A100.22V", hostname="h", script_name="x",
-                           script="s", spot=True, record=cfg)
-    assert at_call["pending_creates"]["h"]["record"] == cfg
-
-
 def test_serve_up_remembers_lora_before_create(serve_cloud, monkeypatch):
     at_call = {}
 
@@ -977,15 +881,144 @@ def test_serve_up_remembers_lora_before_create(serve_cloud, monkeypatch):
 def test_adopted_orphan_keeps_lora_for_recovery(sandbox, recon, cloud, monkeypatch):
     cfg = {"variant": "bf16", "lora": "/mnt/fh/lora/fh-v1", "vllm_args": ["--enable-lora"]}
     vc.save_state(_vol_state() | {"pending_creates": {
-        "fh-qwen-serve-9": {"role": "serve", "ts": 5, "record": cfg, **_dead_owner()}}})
-    recon.instances.get.return_value = [inst("g9", hostname="fh-qwen-serve-9")]
+        "fh-serve-9": {"role": "serve", "ts": 5, "record": cfg, **_dead_owner()}}})
+    recon.instances.get.return_value = [inst("g9", hostname="fh-serve-9")]
     vc.reconcile(recon)
     st = vc.load_state()
     assert st["serve"]["lora"] == cfg["lora"] and st["serve"]["vllm_args"] == cfg["vllm_args"]
     assert st["serve_lora"] == cfg["lora"]
     # the adopted box is then preempted: serve-ensure re-provisions with the adapter
     up = mock.Mock()
-    monkeypatch.setattr(vc, "cmd_serve_up", up)
+    monkeypatch.setattr(vc, "_serve_up", up)
     monkeypatch.setattr(vc, "reconcile", lambda c: None)
     vc.cmd_serve_ensure(_serve_args(wait=False))
-    assert up.call_args[0][0].lora == cfg["lora"]
+    assert up.call_args[0][1].lora == cfg["lora"]
+
+
+# ---- r6: unique hostnames, direct create POST, fh- sweep, one lifecycle lock -------------
+def _post_cloud(monkeypatch, post):
+    c = _real_create_cloud(monkeypatch)
+    c._http_client.post.side_effect = post
+    c.instances.create.side_effect = AssertionError("must not use the SDK's polling create")
+    return c
+
+
+def test_hostnames_are_unique_and_prefixed():
+    names = {vc.new_hostname("download") for _ in range(1000)}
+    assert len(names) == 1000 and all(n.startswith("fh-dl-") for n in names)
+    assert vc.new_hostname("serve").startswith("fh-serve-")
+
+
+def test_r6_1_fallback_attempts_keep_independent_intents(sandbox, monkeypatch):
+    # attempt 1: response lost (ambiguous); attempt 2 in the same second: rejected by the API
+    calls = []
+
+    def post(url, json):
+        calls.append(json["hostname"])
+        if len(calls) == 1:
+            raise ConnectionError("response lost")
+        raise APIException("invalid_request", "Not enough resources")
+
+    c = _post_cloud(monkeypatch, post)
+    h1, h2 = vc.new_hostname("download"), vc.new_hostname("download")
+    with pytest.raises(ConnectionError):
+        vc.create_instance(c, _vol_state(), role="download", itype="CPU.8V.32G", hostname=h1,
+                           script_name="x", script="s", spot=True)
+    with pytest.raises(APIException):
+        vc.create_instance(c, _vol_state(), role="download", itype="CPU.8V.32G", hostname=h2,
+                           script_name="x", script="s", spot=False)
+    assert list(vc.load_state()["pending_creates"]) == [h1]  # only the rejected one is gone
+
+
+def test_r6_1_late_instance_without_any_intent_is_swept(sandbox, recon):
+    vc.save_state({})  # tracking was lost entirely
+    recon.instances.get.return_value = [inst("late", hostname="fh-dl-0123456789ab")]
+    out = vc.reconcile(recon)
+    assert recon.deleted == ["late"] and out["unknown"] == []
+
+
+def test_r6_2_id_is_persisted_from_the_post_before_any_polling(sandbox, monkeypatch):
+    c = _post_cloud(monkeypatch, lambda url, json: SimpleNamespace(text="inst-123"))
+    c.instances.get_by_id.side_effect = APIException("unauthorized_request", "credentials revoked")
+    cfg = {"variant": "bf16", "lora": "/mnt/fh/lora/a"}
+    got = vc.create_instance(c, _vol_state(), role="serve", itype="1A100.22V", hostname="fh-serve-abc",
+                             script_name="x", script="s", spot=True, record=cfg)
+    st = vc.load_state()
+    assert got.id == "inst-123" and st["serve"]["id"] == "inst-123" and st["serve"]["lora"] == "/mnt/fh/lora/a"
+    assert "pending_creates" not in st and ledger(sandbox)[0]["id"] == "inst-123"
+    c.instances.get_by_id.assert_not_called()
+    with pytest.raises(APIException):  # a later polling error ...
+        vc.wait_running(c, got.id)
+    assert vc.load_state()["serve"]["id"] == "inst-123"  # ... does not untrack the accepted instance
+
+
+def test_r6_2_intent_with_config_is_saved_before_the_post(sandbox, monkeypatch):
+    seen = {}
+
+    def post(url, json):
+        seen.update(vc.load_state())
+        raise ConnectionError("lost")
+
+    c = _post_cloud(monkeypatch, post)
+    cfg = {"variant": "bf16", "vllm_args": ["--enable-lora"], "lora": "/mnt/fh/lora/a"}
+    with pytest.raises(ConnectionError):
+        vc.create_instance(c, _vol_state(), role="serve", itype="1A100.22V", hostname="fh-serve-abc",
+                           script_name="x", script="s", spot=True, record=cfg)
+    rec = seen["pending_creates"]["fh-serve-abc"]
+    assert rec["record"] == cfg and rec["pid"] == vc.os.getpid()
+    assert "fh-serve-abc" in vc.load_state()["pending_creates"]  # unknown outcome: kept
+
+
+def test_r6_2_post_rejection_drops_intent(sandbox, monkeypatch):
+    c = _post_cloud(monkeypatch, mock.Mock(side_effect=APIException("server_error", "boom")))
+    with pytest.raises(APIException):
+        vc.create_instance(c, _vol_state(), role="serve", itype="1A100.22V", hostname="fh-serve-abc",
+                           script_name="x", script="s", spot=True)
+    assert "pending_creates" not in vc.load_state()
+
+
+def test_r6_3_serve_ensure_leaves_box_of_live_creator_alone(sandbox, cloud, monkeypatch):
+    vc.save_state(_vol_state() | {"pending_creates": {
+        "fh-serve-live": {"role": "serve", "ts": vc.time.time(), "record": {}, **vc.proc_identity()}}})
+    cloud.instances.get.return_value = [inst("ordered1", status="ordered", hostname="fh-serve-live", ip=None)]
+    up = mock.Mock()
+    monkeypatch.setattr(vc, "_serve_up", up)
+    vc.cmd_serve_ensure(_serve_args(wait=False))
+    assert cloud.deleted == [] and up.call_count == 0
+
+
+def test_r6_3_lifecycle_commands_are_mutually_exclusive(sandbox, monkeypatch):
+    holder = _spawn_lock_holder(vc.LOCK_PATH, deadline=vc.time.time() + 3600)
+    monkeypatch.setattr(vc, "client", mock.Mock(side_effect=AssertionError("must not run")))
+    try:
+        for fn, args, code in ((vc.cmd_serve_up, _serve_args(), 1),
+                               (vc.cmd_serve_down, SimpleNamespace(), 1),
+                               (vc.cmd_serve_ensure, _serve_args(wait=False), 0)):
+            with pytest.raises(SystemExit) as ei:
+                fn(args)
+            assert ei.value.code == code
+    finally:
+        holder.kill()
+
+
+def test_intent_lifecycle_rules(sandbox, recon):
+    now = vc.time.time()
+    vc.save_state({"serve": {"id": "g1", "hostname": "fh-serve-tracked", "created": 0},
+                   "pending_creates": {
+                       "fh-serve-tracked": {"role": "serve", "ts": now, **_dead_owner()},   # tracked -> drop
+                       "fh-dl-old": {"role": "download", "ts": now - 2 * vc.PENDING_TTL_S, **_dead_owner()},  # never appeared -> drop
+                       "fh-dl-recent": {"role": "download", "ts": now - 60, **_dead_owner()},  # may still appear -> keep
+                       "fh-dl-alive": {"role": "download", "ts": 0, **vc.proc_identity()}}})  # creator alive -> keep
+    recon.instances.get.return_value = [inst("g1", hostname="fh-serve-tracked")]
+    vc.reconcile(recon)
+    assert sorted(vc.load_state()["pending_creates"]) == ["fh-dl-alive", "fh-dl-recent"]
+    assert recon.deleted == []
+
+
+def test_sweep_deletes_untracked_fh_but_never_foreign(sandbox, recon):
+    vc.save_state({"serve": {"id": "g1", "created": 0}})
+    recon.instances.get.return_value = [inst("g1"), inst("stray", hostname="fh-serve-zzz"),
+                                        inst("legacy", hostname="fh-qwen-serve-1"),
+                                        inst("foreign", hostname="teammate-box")]
+    out = vc.reconcile(recon)
+    assert sorted(recon.deleted) == ["legacy", "stray"] and out["unknown"] == ["foreign"]

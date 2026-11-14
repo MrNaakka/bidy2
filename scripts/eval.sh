@@ -12,7 +12,7 @@
 #          --model M (default anthropic/claude-opus-5-5; "qwen" = Qwen3.8-27B via infra/verda,
 #          "qwen-fh" = the same with our LoRA adapter), --split S (default eval).
 # OpenCode is pinned to $OPENCODE_VERSION (the version the training data was captured with).
-# Only pre-agent infrastructure failures (setup/start/build timeouts) are retried, up to 2 times.
+# Only agent-install timeouts (before the agent sees anything) are retried, up to 2 times.
 # Jobs have fixed names and go to runs/<job>; an existing runs/<job> is replaced.
 set -euo pipefail
 
@@ -53,11 +53,12 @@ job() {  # job name, then harbor run args
   rm -rf "$OUT/$name"
   local t0=$SECONDS
   echo "=== $name: harbor run $*"
-  # Retry only failures that happen before the agent sees anything (setup/start/build).
-  # Failures after the agent started count as failures: a retry would hand it a fresh budget.
+  # Retry only agent-install timeouts (OpenCode's npm install), which happen before the agent
+  # sees anything. Other start/build/healthcheck errors are not retried: with the separate
+  # verifier, Harbor can raise them after the agent has run, and a retry would hand the agent
+  # a fresh pixel budget. Failures after the agent started count as failures.
   harbor run -p "$TASKS" --job-name "$name" -o "$OUT" -n "$N" -r 2 \
-    --retry-include AgentSetupTimeoutError --retry-include EnvironmentStartTimeoutError \
-    --retry-include HealthcheckError --retry-include SandboxBuildFailedError -y "$@"
+    --retry-include AgentSetupTimeoutError -y "$@"
   stage_time "$name" $((SECONDS - t0))
 }
 

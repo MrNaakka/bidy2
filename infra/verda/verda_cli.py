@@ -22,8 +22,10 @@ import socket
 import subprocess
 import sys
 import time
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 from verda.exceptions import APIException
@@ -59,8 +61,12 @@ SERVED_NAME = "qwen3.8-27b"
 LORA_NAME = "qwen3.8-27b-fh"  # LoRA adapter served next to the base model (serve-up --lora PATH)
 LORA_MAX_RANK = 16
 PORT = 8000
-SERVE_PREFIX = "fh-qwen-serve"
-DL_PREFIX = "fh-qwen-dl"
+# Every instance this CLI creates is named OWN_PREFIX + role + random id. The account is
+# ours alone, so reconcile treats any untracked "fh-" instance as an orphan of ours.
+OWN_PREFIX = "fh-"
+SERVE_PREFIX = "fh-serve-"
+DL_PREFIX = "fh-dl-"
+ROLE_PREFIX = {"serve": SERVE_PREFIX, "download": DL_PREFIX}
 DOWNLOAD_FALLBACK = ["CPU.8V.32G", "CPU.16V.64G", "CPU.4V.16G", "CPU.32V.128G"]
 STARTUP_GRACE_S = 40 * 60  # a serving box that is not healthy after this is replaced
 GONE_STATUSES = ("deleted", "discontinued")  # get_by_id status of an instance that no longer exists/bills
@@ -440,39 +446,30 @@ def render(body_file: str, subs: dict[str, str], vol: dict) -> str:
     return text
 
 
-# API error codes that mean "request refused, nothing created" (as opposed to
-# server_error / service_unavailable, where the outcome is unknown).
-REJECTED_CODES = {"invalid_request", "unauthorized_request", "insufficient_funds", "forbidden_action", "not_found"}
+def new_hostname(role: str) -> str:
+    """Globally unique hostname for one create request (intents are keyed by it)."""
+    return f"{ROLE_PREFIX[role]}{uuid.uuid4().hex[:12]}"
 
 
-def _set_intent(hostname: str, patch: dict | None) -> None:
-    """patch=None removes the intent; otherwise merges patch into it (if still present)."""
+def _drop_intent(hostname: str) -> None:
     def f(st):
-        pend = st.get("pending_creates", {})
-        if patch is None:
-            pend.pop(hostname, None)
-        elif hostname in pend:
-            pend[hostname].update(patch)
-        if not pend:
+        st.get("pending_creates", {}).pop(hostname, None)
+        if not st.get("pending_creates"):
             st.pop("pending_creates", None)
     update_state(f)
-
-
-def _find_by_hostname(c, hostname: str):
-    return next((i for i in c.instances.get() if i.hostname == hostname and i.status not in GONE_STATUSES), None)
 
 
 def create_instance(c, state, *, role, itype, hostname, script_name, script, spot, os_gb=80, record=None):
     """Create an instance and track it in state[role] ("serve" or "download").
 
-    The creation intent (hostname, type, time, owner pid, and the desired config in
-    `record`, e.g. variant/vLLM args/LoRA path) is written to state["pending_creates"]
-    *before* the API call. It is cleared only when the outcome is certain: the create
-    returned the instance, or the API definitively rejected the request. If the
-    response is lost or the process dies, `reconcile` later finds the box by hostname
-    and adopts it (with that config) or deletes it.
+    Before the request, an intent {creator pid, hostname, desired config} is saved, so
+    `reconcile` leaves the box alone while this process lives and can adopt it with
+    that config if it dies. The create POST is made directly (no SDK polling): its
+    response carries the instance id, which is persisted at once. Only an error from
+    the POST itself counts as a rejection; polling happens later (wait_running).
     """
     from verda.instances import OSVolume
+    from verda.instances._instances import INSTANCES_ENDPOINT
 
     vol = state["volume"]
     key_id = ensure_ssh_key(c, state)
@@ -482,46 +479,36 @@ def create_instance(c, state, *, role, itype, hostname, script_name, script, spo
             c.startup_scripts.delete_by_id(s.id)
     sc = c.startup_scripts.create(script_name, script)
     prices = eur_prices(c)
-    intent = {"role": role, "type": itype, "spot": spot, "ts": time.time(), "at": now_iso(),
-              "record": record or {}, **proc_identity()}
+    intent = {"role": role, "type": itype, "ts": time.time(), "record": record or {}, **proc_identity()}
     update_state(lambda st: st.setdefault("pending_creates", {}).__setitem__(hostname, intent))
+    payload = {
+        "instance_type": itype, "image": IMAGE, "ssh_key_ids": [key_id], "startup_script_id": sc.id,
+        "hostname": hostname, "description": hostname, "location_code": vol["location"],
+        "os_volume": OSVolume(name=f"{hostname}-os", size=os_gb,
+                              on_spot_discontinue="delete_permanently" if spot else None).to_dict(),
+        "volumes": [], "existing_volumes": [vol["id"]], "is_spot": spot, "coupon": None,
+    }
     try:
-        inst = c.instances.create(
-            instance_type=itype, image=IMAGE, hostname=hostname, description=hostname,
-            ssh_key_ids=[key_id], location=vol["location"], startup_script_id=sc.id,
-            existing_volumes=[vol["id"]], is_spot=spot,
-            os_volume=OSVolume(name=f"{hostname}-os", size=os_gb,
-                               on_spot_discontinue="delete_permanently" if spot else None),
-            max_wait_time=600,
-        )
-    except TimeoutError:  # order accepted but still queued: it exists and bills once running
-        inst = _find_by_hostname(c, hostname)
-        if inst is None:
-            raise  # unknown outcome: the pending record stays for reconcile
-    except APIException as e:
-        if e.code in REJECTED_CODES:  # the API refused the request: nothing was created
-            _set_intent(hostname, None)
-            raise
-        # server_error / service_unavailable / unparsable: the order may or may not exist.
-        # Keep the intent, marked as failed, so reconcile can match a late instance or
-        # expire it after PENDING_TTL_S.
-        _set_intent(hostname, {"create_error": f"{e.code}: {str(e.message)[:120]}", "error_ts": time.time()})
+        inst_id = c._http_client.post(INSTANCES_ENDPOINT, json=payload).text.strip().strip('"')
+    except APIException:
+        _drop_intent(hostname)  # the POST was answered with an error: nothing was created
         raise
-    p = prices.get(itype, {})
-    eur_h = float(p.get("spot_price" if spot else "price_per_hour", inst.price_per_hour))
-    ledger_append(event="create", kind="instance", id=inst.id, type=itype, hostname=hostname,
-                  location=vol["location"], spot=spot, price_per_hour=eur_h, currency="eur",
-                  api_price_per_hour=inst.price_per_hour)
-    tracked = {"id": inst.id, "hostname": hostname, "type": itype, "spot": spot, "created": time.time(),
+    # (any other failure, e.g. a lost response, leaves the intent for reconcile's sweep)
+    eur_h = float(prices.get(itype, {}).get("spot_price" if spot else "price_per_hour", 0) or 0)
+    tracked = {"id": inst_id, "hostname": hostname, "type": itype, "spot": spot, "created": time.time(),
                **(record or {})}
 
     def track(st):
         st[role] = tracked
         st.get("pending_creates", {}).pop(hostname, None)
+        if not st.get("pending_creates"):
+            st.pop("pending_creates", None)
     update_state(track)
     state[role] = tracked
-    log(f"created {itype} {'spot' if spot else 'on-demand'} {inst.id} ({hostname}) €{eur_h}/h")
-    return inst
+    ledger_append(event="create", kind="instance", id=inst_id, type=itype, hostname=hostname,
+                  location=vol["location"], spot=spot, price_per_hour=eur_h, currency="eur")
+    log(f"created {itype} {'spot' if spot else 'on-demand'} {inst_id} ({hostname}) €{eur_h}/h")
+    return SimpleNamespace(id=inst_id, hostname=hostname, instance_type=itype, is_spot=spot)
 
 
 class DeleteFailed(RuntimeError):
@@ -598,29 +585,22 @@ def no_interrupt():
 
 
 def delete_by_hostnames(c, hostnames: list[str], reason: str, skip: set[str] = frozenset()) -> None:
-    """Clean up instances whose create call was interrupted before we learned their id.
-
-    An intent is cleared only when a matching instance was found and confirmed deleted.
-    Finding nothing proves nothing (the order may still be processing), so unmatched
-    intents stay in state for `reconcile`."""
+    """Best-effort immediate cleanup after an interrupted create. Anything missed (lookup
+    failed, order still processing) is caught later by reconcile's fh- sweep."""
     if not hostnames:
         return
     try:
         insts = c.instances.get()
     except Exception as e:
-        log(f"cleanup lookup failed ({type(e).__name__}); pending creates {hostnames} stay in state "
-            "and are reconciled by the next command")
+        log(f"cleanup lookup failed ({type(e).__name__}); the next command's reconcile sweeps it")
         return
-    for hn in hostnames:
-        matches = [i for i in insts if i.hostname == hn and i.status not in GONE_STATUSES]
-        for i in matches:
-            if i.id not in skip:
-                delete_instance(c, i.id, reason=reason)  # raises DeleteFailed: intent kept
-        if matches:
-            _set_intent(hn, None)
+    for i in insts:
+        if i.hostname in hostnames and i.id not in skip and i.status not in GONE_STATUSES:
+            delete_instance(c, i.id, reason=reason)
+            _drop_intent(i.hostname)
 
 
-PENDING_TTL_S = 3600  # forget an intent whose create call returned an ambiguous error after this long
+PENDING_TTL_S = 3600  # an intent whose creator died and whose instance never appeared is dropped after this
 
 
 def _ledger_has(event: str, inst_id: str) -> bool:
@@ -630,32 +610,34 @@ def _ledger_has(event: str, inst_id: str) -> bool:
     return any(r.get("event") == event and r.get("id") == inst_id for r in recs)
 
 
-def _ledger_create_once(i, note: str) -> None:
-    if not _ledger_has("create", i.id):
-        ledger_append(event="create", kind="instance", id=i.id, type=i.instance_type, hostname=i.hostname,
-                      location=i.location, spot=i.is_spot, price_per_hour=float(i.price_per_hour or 0),
-                      currency="eur", note=note)
+def _role_of(hostname: str) -> str | None:
+    return next((r for r, pfx in ROLE_PREFIX.items() if hostname.startswith(pfx)), None)
+
+
+def live_creating_hostnames(st: dict) -> set[str]:
+    """Hostnames of creates whose creator process is still running."""
+    return {hn for hn, rec in (st.get("pending_creates") or {}).items() if owner_alive(rec)}
 
 
 def reconcile(c) -> dict:
     """Bring state in line with the account. Runs at the start of every cloud command.
 
-    - creation intents whose owner process is gone and whose instance exists: adopt
-      it as the serving instance with the intent's serving config (variant, vLLM args,
-      LoRA path) if none is tracked, otherwise delete it.
-    - intents with no matching instance are kept (the order may still appear), except
-      those whose create call got an ambiguous API error more than PENDING_TTL_S ago.
-      An intent with an unknown outcome is only cleared by hand (`forget-intent`).
-    - a tracked download box whose owner process is gone (and not --keep): delete it.
-    - a tracked serve/download record whose instance no longer exists (preempted, or
-      deleted outside the CLI): drop it, closing its ledger entry if still open.
-    - any instance on the account that state does not know about: flag it (never
-      deleted automatically; it may belong to someone else).
+    Ownership rule: this Verda account is ours alone, so every instance whose hostname
+    starts with OWN_PREFIX ("fh-") is ours. Such an instance that is neither the tracked
+    serve/download box nor being created by a live process is an orphan: it is adopted
+    as the serving box (with the config from its intent, if any) when it is a serve box
+    and none is tracked, and deleted otherwise. Instances without the prefix are only
+    reported, never touched.
 
-    The instance listing and all deletes happen outside the state lock; state changes
-    are short transactions that re-read the file, so concurrent commands are safe.
+    Also: tracked records whose instance is gone are dropped (closing the ledger row);
+    a tracked download box whose owner died (and not --keep) is deleted; an intent is
+    dropped once its creator is dead and its instance is tracked, deleted, or has not
+    appeared within PENDING_TTL_S.
+
+    The listing and the deletes happen outside the state lock; state changes are short
+    transactions that re-read the file.
     """
-    out = {"adopted": [], "deleted": [], "dropped": [], "unknown": [], "unresolved": []}
+    out = {"adopted": [], "deleted": [], "dropped": [], "unknown": []}
     t_list = time.time()  # records created after this may legitimately be missing from the listing
     try:
         insts = c.instances.get()
@@ -663,8 +645,7 @@ def reconcile(c) -> dict:
         log(f"reconcile: cannot list instances ({type(e).__name__}: {str(e)[:120]}); skipped")
         return out
     live = {i.id: i for i in insts if i.status not in GONE_STATUSES}
-    by_host = {i.hostname: i for i in live.values()}
-    to_delete: list[tuple[str, str, object]] = []  # (kind, key, instance)
+    to_delete: list = []
     gone_serve: list[str] = []
 
     def decide(st):
@@ -672,31 +653,9 @@ def reconcile(c) -> dict:
         gone_serve.clear()
         for k in out:
             out[k].clear()
-        pend = st.get("pending_creates", {})
-        for hn, rec in list(pend.items()):
-            if owner_alive(rec):
-                continue  # a running command is still creating it
-            i = by_host.get(hn)
-            if i is None:
-                if rec.get("error_ts") and t_list - rec["error_ts"] > PENDING_TTL_S:
-                    pend.pop(hn)
-                    out["dropped"].append(hn)
-                else:
-                    out["unresolved"].append(hn)
-                continue
-            _ledger_create_once(i, "found by reconcile")
-            serve = st.get("serve") or {}
-            if rec.get("role") == "serve" and serve.get("id") not in live:
-                cfg = rec.get("record") or {}
-                st["serve"] = {"id": i.id, "hostname": hn, "type": i.instance_type, "spot": i.is_spot,
-                               "created": rec.get("ts", t_list), "adopted": True, **cfg}
-                if "lora" in cfg:
-                    st["serve_lora"] = cfg["lora"]
-                pend.pop(hn)
-                out["adopted"].append(i.id)
-            else:
-                to_delete.append(("intent", hn, i))
-        for role in ("serve", "download"):
+        pend = st.get("pending_creates") or {}
+        creating = live_creating_hostnames(st)
+        for role in ("serve", "download"):  # tracked records whose box is gone
             rec = st.get(role) or {}
             if rec.get("id") and rec["id"] not in live and rec.get("created", 0) < t_list:
                 if not _ledger_has("delete", rec["id"]):
@@ -707,50 +666,64 @@ def reconcile(c) -> dict:
                     gone_serve.append(rec["id"])
         dl = st.get("download") or {}
         if dl.get("id") in live and not dl.get("keep") and not owner_alive(dl):
-            to_delete.append(("download", dl["id"], live[dl["id"]]))
+            to_delete.append(live[dl["id"]])
+        tracked = {(st.get("serve") or {}).get("id"), dl.get("id")}
+        for i in live.values():  # the fh- sweep
+            if not i.hostname.startswith(OWN_PREFIX):
+                out["unknown"].append(i.id)
+                continue
+            if i.id in tracked or i.hostname in creating:
+                continue
+            if not _ledger_has("create", i.id):
+                ledger_append(event="create", kind="instance", id=i.id, type=i.instance_type, hostname=i.hostname,
+                              location=i.location, spot=i.is_spot, price_per_hour=float(i.price_per_hour or 0),
+                              currency="eur", note="found by reconcile")
+            if _role_of(i.hostname) == "serve" and not (st.get("serve") or {}).get("id"):
+                cfg = (pend.get(i.hostname) or {}).get("record") or {}
+                st["serve"] = {"id": i.id, "hostname": i.hostname, "type": i.instance_type, "spot": i.is_spot,
+                               "created": (pend.get(i.hostname) or {}).get("ts", t_list), "adopted": True, **cfg}
+                if "lora" in cfg:
+                    st["serve_lora"] = cfg["lora"]
+                tracked.add(i.id)
+                out["adopted"].append(i.id)
+            else:
+                to_delete.append(i)
+        live_hosts = {i.hostname for i in live.values()}
+        tracked_hosts = {(st.get(r) or {}).get("hostname") for r in ("serve", "download")}
+        for hn, rec in list(pend.items()):
+            if hn in creating:
+                continue
+            if hn in tracked_hosts or (hn not in live_hosts and t_list - rec.get("ts", 0) > PENDING_TTL_S):
+                pend.pop(hn)
         if not pend:
             st.pop("pending_creates", None)
-        known = {(st.get("serve") or {}).get("id"), dl.get("id")} | {t[2].id for t in to_delete}
-        out["unknown"] = [i.id for i in live.values() if i.id not in known and i.hostname not in pend]
 
     update_state(decide)
     for iid in out["adopted"]:
         log(f"reconcile: adopted orphaned serving instance {iid} with its requested config")
-    for hn in out["unresolved"]:
-        log(f"reconcile: creation intent {hn} has no instance yet; kept (the order may still appear). "
-            f"If you are sure it never existed: `verda_cli.py forget-intent {hn}`")
-    for iid in out["dropped"]:
-        log(f"reconcile: dropped {iid} (instance gone or intent expired)")
     info = tunnel_info()
     if info and info.get("inst_id") in gone_serve:
         stop_tunnel()
-    for kind, key, i in to_delete:
+    for i in to_delete:
         try:
-            delete_instance(c, i.id, reason=f"reconcile: orphaned {kind}")
+            delete_instance(c, i.id, reason="reconcile: orphaned fh- instance")
         except DeleteFailed as e:
-            log(f"reconcile: {e}")  # record kept; retried by the next command
+            log(f"reconcile: {e}")  # retried by the next command
             continue
         out["deleted"].append(i.id)
-        if kind == "intent":
-            _set_intent(key, None)
-        else:
-            update_state(lambda st: st.pop("download", None)
-                         if (st.get("download") or {}).get("id") == key else None)
+
+        def forget(st, i=i):
+            if (st.get("download") or {}).get("id") == i.id:
+                st.pop("download")
+            st.get("pending_creates", {}).pop(i.hostname, None)
+            if not st.get("pending_creates"):
+                st.pop("pending_creates", None)
+        update_state(forget)
     for iid in out["unknown"]:
         i = live[iid]
-        log(f"WARNING: instance {i.id} ({i.hostname}, {i.instance_type}, {i.status}, "
-            f"{i.price_per_hour}/h) is not tracked by state.json; delete it with `delete {i.id}` if unused")
+        log(f"WARNING: instance {i.id} ({i.hostname}, {i.instance_type}, {i.status}) is not ours "
+            f"(no '{OWN_PREFIX}' prefix); left alone")
     return out
-
-
-def cmd_forget_intent(args) -> None:
-    """Manually drop a creation intent after checking (e.g. in the Verda console) that no
-    instance with that hostname exists or ever will."""
-    st = load_state()
-    if args.hostname not in st.get("pending_creates", {}):
-        sys.exit(f"no pending creation intent {args.hostname}")
-    _set_intent(args.hostname, None)
-    log(f"forgot creation intent {args.hostname}")
 
 
 def wait_volume_free(c, vol_id: str, timeout_s: int = 300) -> None:
@@ -883,7 +856,7 @@ def cmd_download(args) -> None:
             if args.on_demand:
                 options = [(t, False) for t in types]
             for itype, spot in options:
-                hostname = f"{DL_PREFIX}-{int(time.time())}"
+                hostname = new_hostname("download")
                 hostnames.append(hostname)
                 try:
                     inst = create_instance(c, state, role="download", itype=itype, hostname=hostname,
@@ -1130,7 +1103,13 @@ def _write_base_url() -> str:
 
 
 def cmd_serve_up(args) -> None:
-    c = client()
+    with lifecycle_lock(args, busy_code=1):
+        c = client()
+        reconcile(c)
+        _serve_up(c, args)
+
+
+def _serve_up(c, args) -> None:
     state = load_state()
     if not get_volume(c, state) or "weights" not in state:
         sys.exit("volume/weights missing; run volume-create and download first")
@@ -1161,7 +1140,7 @@ def cmd_serve_up(args) -> None:
                 "__VLLM_VERSION__": VLLM_VERSION, "__MODEL_DIR__": model_dir,
                 "__SERVED_NAME__": SERVED_NAME, "__PORT__": str(PORT),
                 "__VLLM_ARGS__": " ".join(va), "__API_KEY__": key}, state["volume"])
-            hostname = f"{SERVE_PREFIX}-{int(time.time())}"
+            hostname = new_hostname("serve")
             hostnames.append(hostname)
             try:
                 inst = create_instance(c, state, role="serve", itype=itype, hostname=hostname,
@@ -1231,7 +1210,13 @@ def wait_healthy(c, inst_id: str, timeout_min: float) -> None:
 
 
 def cmd_serve_down(args) -> None:
-    c = client()
+    with lifecycle_lock(args, busy_code=1):
+        c = client()
+        reconcile(c)
+        _serve_down(c)
+
+
+def _serve_down(c) -> None:
     failed = []
     for inst in our_instances(c, SERVE_PREFIX):
         try:
@@ -1272,8 +1257,8 @@ def cmd_serve_status(args) -> None:
 
 
 @contextlib.contextmanager
-def file_lock(path: Path, ttl_s: float):
-    """Exclusive non-blocking lock for serve-ensure that survives a hung holder.
+def file_lock(path: Path, ttl_s: float, busy_code: int = 0):
+    """Exclusive non-blocking lifecycle lock that survives a hung holder.
 
     flock is released by the kernel when the holder dies, so a dead holder never
     blocks. The holder records its pid, start time and deadline (now + ttl_s) in the
@@ -1291,8 +1276,8 @@ def file_lock(path: Path, ttl_s: float):
                 holder = {}
             overdue = time.time() > holder.get("deadline", float("inf")) + LOCK_GRACE_S
             if not (overdue and owner_alive(holder)):
-                log(f"another serve-ensure is running (pid {holder.get('pid')}); exiting")
-                sys.exit(0)
+                log(f"another serve-up/serve-ensure/serve-down is running (pid {holder.get('pid')}); exiting")
+                sys.exit(busy_code)
             log(f"serve-ensure pid {holder['pid']} is past its deadline; terminating it")
             terminate_process(holder["pid"])
             for _ in range(60):
@@ -1346,22 +1331,35 @@ def deadline(seconds: float):
         signal.signal(signal.SIGALRM, old)
 
 
-def ensure_ttl_s(args) -> float:
-    return 45 * 60 + (args.timeout_min * 60 if getattr(args, "wait", False) else 0)
+def lifecycle_ttl_s(args) -> float:
+    waits = getattr(args, "wait", False) or (hasattr(args, "no_wait") and not args.no_wait)
+    return 45 * 60 + (args.timeout_min * 60 if waits else 0)
+
+
+@contextlib.contextmanager
+def lifecycle_lock(args, busy_code: int):
+    """One lock for serve-up, serve-ensure and serve-down: they never run concurrently.
+    The holder stops itself at its deadline; a later caller kills it past that (file_lock)."""
+    ttl = lifecycle_ttl_s(args)
+    with file_lock(LOCK_PATH, ttl, busy_code=busy_code), deadline(ttl):
+        yield
 
 
 def cmd_serve_ensure(args) -> None:
     """Idempotent: healthy -> no-op; booting -> wait (or return); gone/broken -> replace.
     Also keeps the SSH tunnel alive and pointed at the current box. QWEN_BASE_URL never
     changes across re-provisioning, so running jobs pick up the new box transparently."""
-    ttl = ensure_ttl_s(args)
-    with file_lock(LOCK_PATH, ttl), deadline(ttl):
+    with lifecycle_lock(args, busy_code=0):
         c = client()
-        reconcile(c)
+        reconcile(c)  # also drops the record of a preempted box and sweeps orphans
         state = load_state()
         key = load_env().get("QWEN_API_KEY", "")
-        insts = our_instances(c, SERVE_PREFIX)
+        creating = live_creating_hostnames(state)
+        insts = [i for i in our_instances(c, SERVE_PREFIX) if i.status not in GONE_STATUSES]
         for i in insts:
+            if i.hostname in creating:  # a live create owns it (never ours to replace)
+                log(f"{i.id} is being created by another process; leaving it alone")
+                return
             if i.ip and i.status == "running":
                 was_up = tunnel_info() is not None
                 up = ensure_tunnel(i.id, i.ip)
@@ -1382,17 +1380,10 @@ def cmd_serve_ensure(args) -> None:
                 if args.wait:
                     wait_healthy(c, i.id, args.timeout_min)
                 return
-        if state.get("serve", {}).get("id") and not any(i.id == state["serve"]["id"] for i in insts):
-            if not _ledger_has("delete", state["serve"]["id"]):
-                ledger_append(event="delete", kind="instance", id=state["serve"]["id"], reason="gone (spot preempted?)")
-            gone_id = state["serve"]["id"]
-            log(f"instance {gone_id} is gone (preempted?)")
-            update_state(lambda st: st.pop("serve", None) if (st.get("serve") or {}).get("id") == gone_id else None)
-            state = load_state()
         args.no_wait = not args.wait
         if args.lora is None:  # keep serving the adapter the last serve-up asked for
             args.lora = state.get("serve_lora")
-        cmd_serve_up(args)
+        _serve_up(c, args)
 
 
 # ---- smoke test -----------------------------------------------------------------
@@ -1557,6 +1548,7 @@ def cmd_ledger(args) -> None:
 
 
 LOCAL_CMDS = ("ledger", "harbor-agent", "test")  # never touch the cloud API
+LIFECYCLE_CMDS = ("serve-up", "serve-ensure", "serve-down")
 
 
 # ---- main -----------------------------------------------------------------------
@@ -1604,9 +1596,6 @@ def main() -> None:
     s = sub.add_parser("delete", help="delete one instance by id")
     s.add_argument("id")
     s.set_defaults(fn=cmd_delete)
-    s = sub.add_parser("forget-intent", help="drop a creation intent you verified never became an instance")
-    s.add_argument("hostname")
-    s.set_defaults(fn=cmd_forget_intent)
     s = sub.add_parser("ledger", help="print spend from ledger.jsonl")
     s.add_argument("--balance", action="store_true")
     s.set_defaults(fn=cmd_ledger)
@@ -1615,7 +1604,7 @@ def main() -> None:
         b = client().balance.get()
         val = f"{b.amount:.3f} {b.currency} @ {now_iso()}"
         update_state(lambda st: st.setdefault("initial_balance", val))
-    if args.cmd not in LOCAL_CMDS and args.cmd != "serve-ensure":  # serve-ensure reconciles under its lock
+    if args.cmd not in LOCAL_CMDS and args.cmd not in LIFECYCLE_CMDS:  # those reconcile under their lock
         reconcile(client())
     try:
         args.fn(args)
