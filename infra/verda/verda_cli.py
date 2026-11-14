@@ -1450,6 +1450,11 @@ TRAIN_SETUP_H = 0.5        # boot, venv (first time only), upload, loading 55 GB
 TRAIN_SPOT_OVERHEAD = 1.15  # rework after spot preemptions (checkpoint every --save-every steps)
 TRAIN_GRACE_S = 60 * 60    # a training box not ready/started after this is replaced
 TRAIN_MAX_RESTARTS = 3     # trainer process crashes tolerated per run before giving up
+TRAIN_MAX_FAILURES = 4     # failed setup/upload/start/status attempts (persisted) before giving up
+
+
+class NoCapacity(RuntimeError):
+    """No GPU could be created right now (transient; the next tick tries again)."""
 
 
 def _sha_files(paths: list[Path]) -> str:
@@ -1513,15 +1518,88 @@ def _availability(c, loc: str) -> tuple[set, set]:
     return spot_ok, od_ok
 
 
-def trainer_args(run: str, model_dir: str, data_name: str, a) -> list[str]:
-    args = ["--model", model_dir, "--data", f"{MNT}/data/{data_name}", "--out", f"{MNT}/runs/{run}",
+# Extra sft_lora.py flags allowed through --trainer-arg (exact names; the trainer's argparse
+# accepts abbreviations, so anything else could silently override e.g. --model or --out).
+TRAINER_EXTRA_FLAGS = {"--warmup-frac", "--max-grad-norm", "--weight-decay", "--lora-alpha", "--lora-dropout",
+                       "--quant", "--attn", "--max-len", "--loss-chunk", "--eval-frac", "--keep", "--seed",
+                       "--max-steps", "--limit", "--no-grad-ckpt", "--lora-r"}
+
+
+class TrainFatal(RuntimeError):
+    """A training problem retrying cannot fix (identity mismatch, changed inputs, budget)."""
+
+
+def trainer_args(run: str, model_dir: str, data_remote: str, a) -> list[str]:
+    args = ["--model", model_dir, "--data", data_remote, "--out", f"{MNT}/runs/{run}",
             "--epochs", str(a.epochs), "--lr", str(a.lr), "--grad-accum", str(a.grad_accum),
             "--lora-r", str(a.lora_r), "--save-every", str(a.save_every)]
     for extra in a.trainer_arg or []:
         if not re.fullmatch(r"[A-Za-z0-9_.=/:+-]+", extra):
             raise SystemExit(f"--trainer-arg {extra!r}: only plain flags/values are allowed")
+        if extra.startswith("-") and extra.split("=", 1)[0] not in TRAINER_EXTRA_FLAGS:
+            raise SystemExit(f"--trainer-arg {extra!r}: flag not allowed (allowed: {sorted(TRAINER_EXTRA_FLAGS)})")
         args.append(extra)
+    validate_trainer_args(args)
     return args
+
+
+def validate_trainer_args(args: list[str]) -> None:
+    """Reject effective trainer arguments whose adapter vLLM (serve-up --lora) cannot load."""
+    p = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+    p.add_argument("--lora-r", type=int, default=16)
+    p.add_argument("--lora-linear-attn", action="store_true")
+    ns, _ = p.parse_known_args(args)  # last occurrence wins, as in the trainer
+    if not 1 <= ns.lora_r <= LORA_MAX_RANK:
+        raise SystemExit(f"--lora-r {ns.lora_r}: serving uses --max-lora-rank {LORA_MAX_RANK}, "
+                         f"so the rank must be 1..{LORA_MAX_RANK}")
+    if ns.lora_linear_attn:
+        raise SystemExit("--lora-linear-attn adapters are not loadable by vLLM's packed in_proj_qkvz; not allowed")
+    for flag in ("--model", "--data", "--out"):
+        n = sum(1 for x in args if x == flag or x.startswith(flag + "="))
+        if n != 1:
+            raise SystemExit(f"{flag} must appear exactly once in the trainer arguments")
+
+
+def run_manifest(run: dict) -> dict:
+    """The immutable identity of a run, stored once at /mnt/fh/runs/<run>/manifest.json."""
+    return {k: run[k] for k in ("run", "data_sha", "code_sha", "req_hash", "trainer_args")}
+
+
+REMOTE_HASHES_CMD = ("printf 'data=%s\\ncode=%s\\nmanifest=%s\\n' \"$(cat {data}/.fh_sha 2>/dev/null)\" "
+                     "\"$(cat {out}/code/.fh_sha 2>/dev/null)\" \"$(base64 -w0 {out}/manifest.json 2>/dev/null)\"")
+
+
+def parse_labelled(text: str) -> dict[str, str]:
+    out = {}
+    for line in text.splitlines():
+        k, sep, v = line.partition("=")
+        if sep:
+            out[k.strip()] = v.strip()
+    return out
+
+
+def remote_run_identity(ip: str, alias: str, run: dict) -> dict:
+    """{'data': sha|'', 'code': sha|'', 'manifest': dict|None} as found on the volume."""
+    r = ssh(ip, REMOTE_HASHES_CMD.format(data=run["data_remote"], out=f"{MNT}/runs/{run['run']}"),
+            alias=alias, timeout=60)
+    if r.returncode != 0:
+        raise RuntimeError(f"reading run identity failed: {r.stderr.strip()[:200]}")
+    kv = parse_labelled(r.stdout)
+    if "data" not in kv or "code" not in kv:
+        raise RuntimeError(f"unexpected identity output: {r.stdout[:200]!r}")
+    m = None
+    if kv.get("manifest"):
+        try:
+            m = json.loads(base64.b64decode(kv["manifest"]))
+        except ValueError as e:
+            raise TrainFatal(f"unreadable manifest.json on the volume: {e}") from e
+    return {"data": kv["data"], "code": kv["code"], "manifest": m}
+
+
+def check_manifest(found: dict | None, run: dict) -> None:
+    if found is not None and found != run_manifest(run):
+        diff = sorted(k for k in set(found) | set(run_manifest(run)) if found.get(k) != run_manifest(run).get(k))
+        raise TrainFatal(f"/mnt/fh/runs/{run['run']} belongs to a run with different {diff}; use a new --run")
 
 
 def _ssh_pipe(ip: str, alias: str, remote_cmd: str, local_cmd: list[str], timeout: int = 1800,
@@ -1550,25 +1628,37 @@ def _upload_dir(ip: str, alias: str, src: Path, members: list[str], dest: str, s
     _ssh_pipe(ip, alias, remote, ["tar", "-C", str(src), "-cf", "-", *members])
 
 
-def train_upload(ip: str, alias: str, run: dict) -> None:
-    """Dataset to /mnt/fh/data/<name>, code to /mnt/fh/runs/<run>/code, each only if the copy
-    on the volume differs from the one the run was started with. A resumed run must use the
-    same data and code, so a changed local copy is refused instead of uploaded."""
-    data_dir, out = f"{MNT}/data/{run['data_name']}", f"{MNT}/runs/{run['run']}"
-    r = ssh(ip, f"cat {data_dir}/.fh_sha 2>/dev/null; echo; cat {out}/code/.fh_sha 2>/dev/null",
-            alias=alias, timeout=60)
-    remote_data, remote_code = (r.stdout.split("\n") + ["", ""])[:2]
-    if remote_data.strip() != run["data_sha"]:
+def train_prepare(ip: str, alias: str, run: dict) -> None:
+    """Make the volume hold exactly this run's data and code, and its manifest.
+
+    The manifest is written once (first start) and checked on every later start: a
+    resume always uses the data, code and arguments the run began with. A copy on the
+    volume that already matches is used even if the local files changed since; a missing
+    or different copy is uploaded only if the local files still match the run."""
+    ident = remote_run_identity(ip, alias, run)
+    check_manifest(ident["manifest"], run)
+    if ident["data"] != run["data_sha"]:
         local = Path(run["data_dir"])
         if data_sha(local) != run["data_sha"]:
-            raise SystemExit(f"{local} changed since train-up (sha {run['data_sha']}); start a new --run")
-        log(f"uploading {local} -> {data_dir}")
-        _upload_dir(ip, alias, local, ["."], data_dir, run["data_sha"])
-    if remote_code.strip() != run["code_sha"]:
+            raise TrainFatal(f"{local} changed since the run started (sha {run['data_sha']}) and the volume has "
+                             "no matching copy; start a new --run")
+        log(f"uploading {local} -> {run['data_remote']}")
+        _upload_dir(ip, alias, local, ["."], run["data_remote"], run["data_sha"])
+    out = f"{MNT}/runs/{run['run']}"
+    if ident["code"] != run["code_sha"]:
         if train_code_sha() != run["code_sha"]:
-            raise SystemExit(f"train/ code changed since train-up (sha {run['code_sha']}); start a new --run")
+            raise TrainFatal(f"train/ code changed since the run started (sha {run['code_sha']}) and the volume "
+                             "has no matching copy; start a new --run")
         log(f"uploading trainer code -> {out}/code")
         _upload_dir(ip, alias, TRAIN_DIR, list(TRAIN_CODE_FILES), f"{out}/code", run["code_sha"])
+    if ident["manifest"] is None:
+        b64 = base64.b64encode(json.dumps(run_manifest(run), sort_keys=True).encode()).decode()
+        r = ssh(ip, f"mkdir -p {out} && test -f {out}/manifest.json || "
+                    f"{{ echo {b64} | base64 -d > {out}/.manifest.tmp && mv -n {out}/.manifest.tmp {out}/manifest.json; }}",
+                alias=alias, timeout=60)
+        if r.returncode != 0:
+            raise RuntimeError(f"writing manifest failed: {r.stderr.strip()[:200]}")
+        check_manifest(remote_run_identity(ip, alias, run)["manifest"], run)
 
 
 TRAIN_STATUS_CMD = """OUT={out}
@@ -1668,7 +1758,7 @@ def _train_provision(c, run: dict, *, on_demand_only=False, only_type=None) -> s
     remaining = run["tokens"] * (1 - float(run.get("progress", 0)))
     opts = train_plan(prices, spot_ok, od_ok, remaining, only_type=only_type, on_demand_only=on_demand_only)
     if not opts:
-        raise SystemExit("no 80 GB GPU available for training in the volume's location")
+        raise NoCapacity("no 80 GB GPU available for training in the volume's location")
     spent = ledger_total_eur()
     script = render("train.sh", {"__RUN__": run["run"], "__REQ_HASH__": run["req_hash"],
                                  "__REQS__": "\n".join((TRAIN_DIR / f).read_text() for f in TRAIN_REQ_FILES),
@@ -1687,20 +1777,41 @@ def _train_provision(c, run: dict, *, on_demand_only=False, only_type=None) -> s
             return inst.id
         except APIException as e:
             log(f"{o['type']} unavailable: {str(e).splitlines()[-1][:120]}")
-    raise SystemExit(f"no training option fits the budget (--max-eur {run['max_eur']}, ledger €{spent:.2f}) "
-                     "or all creates failed")
+    if all(spent + o["expected_eur"] > run["max_eur"] for o in opts):
+        raise TrainFatal(f"no training option fits the budget (--max-eur {run['max_eur']}, ledger €{spent:.2f})")
+    raise NoCapacity("all training creates failed (no capacity right now)")
+
+
+def _drop_train_box(box_id: str) -> None:
+    update_state(lambda s: s.pop("train", None) if (s.get("train") or {}).get("id") == box_id else None)
 
 
 def train_tick(c) -> str:
-    """One idempotent step of the training state machine. Returns the phase:
-    idle | provisioned | booting | setup | running | restarted | done | failed."""
+    """One idempotent step of the training state machine. Every outcome is bounded:
+    the budget is checked first on every tick; failed attempts are counted in state and
+    the run is given up (box deleted, data and checkpoints kept on the volume) after
+    TRAIN_MAX_FAILURES; after DONE the box is always deleted.
+
+    Returns: idle | provisioned | no-capacity | booting | setup | running | restarted |
+    retry | done | failed | budget."""
     st = load_state()
     run = st.get("train_run") or {}
     if not run.get("desired") or run.get("done"):
         return "idle"
     box = st.get("train") or {}
+    spent = ledger_total_eur()
+    if spent >= run["max_eur"]:
+        return _train_stop_budget(c, box, run, spent)
     if not box.get("id"):
-        _train_provision(c, run)
+        try:
+            _train_provision(c, run)
+        except NoCapacity as e:
+            log(str(e))
+            return "no-capacity"
+        except TrainFatal as e:
+            _train_mark(desired=False, failed=str(e))
+            log(f"training {run['run']} disabled: {e}")
+            return "failed"
         return "provisioned"
     age = time.time() - box.get("created", 0)
     try:
@@ -1712,8 +1823,8 @@ def train_tick(c) -> str:
     if inst.status in ("error", "offline", *GONE_STATUSES) or (inst.status != "running" and age > TRAIN_GRACE_S):
         log(f"training box {inst.id} is {inst.status} (age {age:.0f}s); replacing it")
         delete_instance(c, inst.id, reason=f"train: box {inst.status}")
-        update_state(lambda s: s.pop("train", None) if (s.get("train") or {}).get("id") == inst.id else None)
-        return "booting"
+        _drop_train_box(inst.id)
+        return _train_count_failure(c, None, run, f"box {inst.status}")
     if inst.status != "running" or not inst.ip:
         return "booting"
     try:
@@ -1721,8 +1832,7 @@ def train_tick(c) -> str:
     except Exception as e:
         log(f"training box {inst.id}: {e}")
         if age > TRAIN_GRACE_S:
-            delete_instance(c, inst.id, reason="train: unreachable")
-            update_state(lambda s: s.pop("train", None) if (s.get("train") or {}).get("id") == inst.id else None)
+            return _train_count_failure(c, inst, run, f"unreachable: {e}", replace=True)
         return "booting"
     if rs["total_steps"]:
         _train_mark(progress=round(rs["step"] / rs["total_steps"], 4), step=rs["step"],
@@ -1731,60 +1841,130 @@ def train_tick(c) -> str:
         _train_finish(c, inst, run)
         return "done"
     if rs["fatal"]:
-        return _train_fail(c, inst, run, "box setup failed (FATAL in startup log)")
+        return _train_count_failure(c, inst, run, "box setup failed (FATAL in startup log)", replace=True)
     if not rs["ready"]:
         if age > TRAIN_GRACE_S:
-            return _train_fail(c, inst, run, f"box not ready after {TRAIN_GRACE_S // 60} min")
+            return _train_count_failure(c, inst, run, f"box not ready after {TRAIN_GRACE_S // 60} min",
+                                        replace=True)
         return "setup"
     if rs["service"] in ("active", "activating", "deactivating"):
+        if run.get("failures"):
+            _train_mark(failures=0)
         log(f"training {run['run']}: step {rs['step']}/{rs['total_steps'] or '?'} loss {rs['loss']} "
             f"ETA {rs['eta_h']} h")
         return "running"
-    if box.get("started"):  # the trainer exited without DONE: crash, OOM, or SIGTERM (143)
+    restarted = bool(box.get("started"))
+    if restarted:  # the trainer exited without DONE: crash, OOM, or SIGTERM (143)
         n = int(run.get("restarts", 0))
         if n >= TRAIN_MAX_RESTARTS:
             return _train_fail(c, inst, run, f"trainer exited (status {rs['exit']}) {n + 1} times")
         log(f"trainer exited with status {rs['exit']}; restart {n + 1}/{TRAIN_MAX_RESTARTS} (resumes)")
         _train_mark(restarts=n + 1)
-    train_upload(inst.ip, inst.id, run)
-    r = ssh(inst.ip, "systemctl reset-failed fh-train 2>/dev/null; systemctl start fh-train && "
-                     "systemctl is-active fh-train", alias=inst.id, timeout=120)
-    if r.returncode != 0:
-        raise RuntimeError(f"could not start fh-train: {r.stdout.strip()} {r.stderr.strip()[:200]}")
+    try:
+        train_prepare(inst.ip, inst.id, run)
+        r = ssh(inst.ip, "systemctl reset-failed fh-train 2>/dev/null; systemctl start fh-train && "
+                         "systemctl is-active fh-train", alias=inst.id, timeout=120)
+        if r.returncode != 0:
+            raise RuntimeError(f"could not start fh-train: {r.stdout.strip()} {r.stderr.strip()[:200]}")
+    except TrainFatal as e:
+        return _train_fail(c, inst, run, str(e))
+    except Exception as e:
+        return _train_count_failure(c, inst, run, f"upload/start: {e}")
     _train_box_mark(inst.id, started=True)
     log(f"started fh-train for {run['run']} on {inst.id}")
-    return "restarted" if box.get("started") else "running"
+    return "restarted" if restarted else "running"
+
+
+def _train_count_failure(c, inst, run: dict, why: str, replace: bool = False) -> str:
+    """Persist one more failed attempt; give up after TRAIN_MAX_FAILURES. With replace, the
+    box is deleted now (the next tick provisions a fresh one)."""
+    n = int(load_state().get("train_run", {}).get("failures", 0)) + 1
+    _train_mark(failures=n, last_failure=why)
+    log(f"training {run['run']}: {why} (failure {n}/{TRAIN_MAX_FAILURES})")
+    if n >= TRAIN_MAX_FAILURES:
+        if inst is not None:
+            return _train_fail(c, inst, run, f"{n} failures, last: {why}")
+        _train_mark(desired=False, failed=f"{n} failures, last: {why}")
+        return "failed"
+    if replace and inst is not None:
+        delete_instance(c, inst.id, reason=f"train: {why[:80]}")
+        _drop_train_box(inst.id)
+    return "retry"
 
 
 def _train_fail(c, inst, run: dict, why: str) -> str:
-    log(f"training {run['run']} failed: {why}; deleting the box (logs stay on the volume)")
-    delete_instance(c, inst.id, reason=f"train failed: {why}")
-    update_state(lambda s: s.pop("train", None) if (s.get("train") or {}).get("id") == inst.id else None)
-    _train_mark(desired=False, failed=why)
+    log(f"training {run['run']} failed: {why}; deleting the box (data, code and checkpoints stay on the volume)")
+    delete_instance(c, inst.id, reason=f"train failed: {why[:80]}")
+    _drop_train_box(inst.id)
+    _train_mark(desired=False, failed=why, checkpoints=f"{MNT}/runs/{run['run']}")
     return "failed"
 
 
-def _train_finish(c, inst, run: dict) -> None:
-    """DONE: publish the adapter on the volume, fetch it here, delete the box. serve_desired
-    is left as it is."""
+def _train_stop_budget(c, box: dict, run: dict, spent: float) -> str:
+    """Budget exhausted: ask the trainer to checkpoint (bounded wait), delete the box and
+    disable the run. Checkpoints stay on the volume; train-up with a higher --max-eur resumes."""
+    why = f"budget: ledger €{spent:.2f} >= --max-eur {run['max_eur']}"
+    log(f"training {run['run']} stopped: {why}")
+    if box.get("id"):
+        with contextlib.suppress(Exception):
+            inst = c.instances.get_by_id(box["id"])
+            if inst.status == "running" and inst.ip:
+                ssh(inst.ip, "timeout 300 systemctl stop fh-train", alias=inst.id, timeout=330)
+        delete_instance(c, box["id"], reason="train: budget exhausted")
+        _drop_train_box(box["id"])
+    _train_mark(desired=False, disabled=why, checkpoints=f"{MNT}/runs/{run['run']}")
+    return "budget"
+
+
+def train_publish_via(ip: str, alias: str, run: dict) -> dict:
+    """Check the manifest, copy runs/<run>/final to adapters/<run> on the volume, fetch it here.
+    Returns {"adapter": path|None, "fetched": path|None, "error": str|None}."""
     name = run["run"]
-    r = ssh(inst.ip, f"set -e; mkdir -p {MNT}/adapters; rm -rf {MNT}/adapters/{name}.tmp; "
-                     f"cp -r {MNT}/runs/{name}/final {MNT}/adapters/{name}.tmp; "
-                     f"rm -rf {MNT}/adapters/{name}; mv {MNT}/adapters/{name}.tmp {MNT}/adapters/{name}; sync",
-            alias=inst.id, timeout=600)
+    res = {"adapter": None, "fetched": None, "error": None}
+    check_manifest(remote_run_identity(ip, alias, run)["manifest"], run)
+    r = ssh(ip, f"set -e; test -f {MNT}/runs/{name}/final/adapter_model.safetensors; mkdir -p {MNT}/adapters; "
+                f"rm -rf {MNT}/adapters/{name}.tmp; cp -r {MNT}/runs/{name}/final {MNT}/adapters/{name}.tmp; "
+                f"rm -rf {MNT}/adapters/{name}; mv {MNT}/adapters/{name}.tmp {MNT}/adapters/{name}; sync",
+            alias=alias, timeout=600)
     if r.returncode != 0:
-        raise RuntimeError(f"could not publish the adapter on the volume: {r.stderr.strip()[:200]}")
-    fetched = None
+        res["error"] = f"publish failed: {r.stderr.strip()[:200] or r.returncode}"
+    else:
+        res["adapter"] = f"{MNT}/adapters/{name}"
     try:
-        fetched = str(train_fetch_from(inst.ip, inst.id, name).relative_to(ROOT))
-    except Exception as e:  # the adapter is safe on the volume; train-fetch can retry via any box
-        log(f"fetch failed ({e}); adapter stays at {MNT}/adapters/{name}")
+        res["fetched"] = str(train_fetch_from(ip, alias, name).relative_to(ROOT))
+    except Exception as e:
+        res["error"] = (res["error"] + "; " if res["error"] else "") + f"fetch failed: {e}"
+    return res
+
+
+def _train_finish(c, inst, run: dict) -> None:
+    """DONE: publish + fetch once (best effort), then ALWAYS delete the box. A failed
+    publication is recorded with the surviving runs/<run>/final location; `train-publish`
+    retries later through any box with the volume. serve_desired is left as it is."""
+    name = run["run"]
+    res = {"adapter": None, "fetched": None, "error": None}
+    manifest_ok = True
+    try:
+        res = train_publish_via(inst.ip, inst.id, run)
+    except TrainFatal as e:
+        manifest_ok = False
+        res["error"] = str(e)
+    except Exception as e:
+        res["error"] = f"publish failed: {e}"
     delete_instance(c, inst.id, reason=f"train {name} done")
-    update_state(lambda s: s.pop("train", None) if (s.get("train") or {}).get("id") == inst.id else None)
-    _train_mark(done=True, desired=False, progress=1.0, adapter=f"{MNT}/adapters/{name}", fetched=fetched,
-                finished=now_iso())
-    log(f"training {name} done; adapter {MNT}/adapters/{name} (serve-up --lora {MNT}/adapters/{name}); "
-        f"local copy: {fetched}")
+    _drop_train_box(inst.id)
+    if not manifest_ok:
+        _train_mark(desired=False, failed=f"DONE rejected: {res['error']}", finished=now_iso())
+        log(f"training {name}: DONE not accepted ({res['error']})")
+        return
+    _train_mark(done=True, desired=False, progress=1.0, adapter=res["adapter"], fetched=res["fetched"],
+                final=f"{MNT}/runs/{name}/final", publish_error=res["error"], finished=now_iso())
+    if res["error"]:
+        log(f"training {name} done; {res['error']}. The adapter is at {MNT}/runs/{name}/final on the volume; "
+            "run `train-publish` while any box has the volume")
+    else:
+        log(f"training {name} done; adapter {res['adapter']} (serve-up --lora {res['adapter']}); "
+            f"local copy: {res['fetched']}")
 
 
 def _serving_blocks_training(st: dict) -> str | None:
@@ -1814,11 +1994,16 @@ def cmd_train_up(args) -> None:
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", args.run):
             sys.exit("--run must be [A-Za-z0-9_.-]{1,64}")
         data_dir = Path(args.data_dir).resolve()
-        targs = trainer_args(args.run, model_dir, data_dir.name, args)
+        dsha = data_sha(data_dir)
+        data_remote = f"{MNT}/data/{data_dir.name}-{dsha}"  # per content: runs never overwrite each other's data
+        targs = trainer_args(args.run, model_dir, data_remote, args)  # validated for vLLM loading
         run = {"run": args.run, "trainer_args": targs, "data_dir": str(data_dir), "data_name": data_dir.name,
-               "data_sha": data_sha(data_dir), "code_sha": train_code_sha(), "req_hash": train_req_hash(),
-               "tokens": epoch_tokens(data_dir) * float(args.epochs), "max_eur": float(args.max_eur),
-               "desired": True, "restarts": 0, "created": now_iso()}
+               "data_remote": data_remote, "data_sha": dsha, "code_sha": train_code_sha(),
+               "req_hash": train_req_hash(), "tokens": epoch_tokens(data_dir) * float(args.epochs),
+               "max_eur": float(args.max_eur), "desired": True, "restarts": 0, "failures": 0, "created": now_iso()}
+        spent = ledger_total_eur()
+        if spent >= float(args.max_eur):
+            sys.exit(f"train-up refused: ledger €{spent:.2f} already >= --max-eur {args.max_eur}")
         prev = st.get("train_run") or {}
         if prev.get("run") == args.run:
             same = {k: prev.get(k) == run[k] for k in ("trainer_args", "data_sha", "code_sha", "req_hash")}
@@ -1827,7 +2012,8 @@ def cmd_train_up(args) -> None:
                          "use a new --run name")
             if prev.get("done"):
                 sys.exit(f"run {args.run} is already done (adapter {prev.get('adapter')})")
-            run = {**prev, "desired": True, "max_eur": float(args.max_eur), "failed": None}
+            run = {**prev, "desired": True, "max_eur": float(args.max_eur), "failed": None, "disabled": None,
+                   "failures": 0, "restarts": 0}
             log(f"resuming run {args.run} (progress {prev.get('progress', 0):.0%})")
         elif training_active(st):
             sys.exit(f"run {prev.get('run')} is active; train-down it first")
@@ -1835,8 +2021,12 @@ def cmd_train_up(args) -> None:
         created = None
         try:
             if not (load_state().get("train") or {}).get("id"):
-                created = _train_provision(c, load_state()["train_run"], on_demand_only=args.on_demand,
-                                           only_type=args.type)
+                try:
+                    created = _train_provision(c, load_state()["train_run"], on_demand_only=args.on_demand,
+                                               only_type=args.type)
+                except (NoCapacity, TrainFatal) as e:
+                    _train_mark(desired=False)
+                    sys.exit(f"train-up: {e}")
             if args.no_wait:
                 return
             t0 = time.time()
@@ -1845,8 +2035,8 @@ def cmd_train_up(args) -> None:
                 if phase in ("running", "restarted", "done"):
                     log(f"train-up: {phase}; keep `train-ensure` running in a loop (watchdog)")
                     return
-                if phase in ("failed", "idle"):
-                    sys.exit(f"train-up: {phase}")
+                if phase in ("failed", "idle", "budget"):
+                    sys.exit(f"train-up: {phase} ({load_state()['train_run'].get('failed') or ''})")
                 time.sleep(30)
             sys.exit(f"training did not start within {args.timeout_min} min")
         except BaseException as e:
@@ -1922,6 +2112,29 @@ def cmd_train_status(args) -> None:
                 info.update({k: rs[k] for k in ("ready", "service", "done", "step", "total_steps", "loss",
                                                 "sec_per_step", "eta_h", "eval")})
     print(json.dumps(info, indent=1))
+
+
+def cmd_train_publish(args) -> None:
+    """Retry publication of a finished run's adapter (copy to /mnt/fh/adapters/<run> and fetch
+    it here) through whichever tracked box has the volume (training or serving)."""
+    with lifecycle_lock(args, busy_code=1):
+        c = client()
+        reconcile(c)
+        run = load_state().get("train_run") or {}
+        if not run or (args.run and args.run != run.get("run")):
+            sys.exit("only the current train_run can be published (its manifest is checked)")
+        if not run.get("done"):
+            sys.exit(f"run {run['run']} has not finished")
+        box = _train_box_ip(c)
+        if not box:
+            sys.exit(f"no running box has the volume attached; the adapter is at {run.get('final')}. "
+                     "Run this again while the serving box is up (serve-up) or during another training run.")
+        res = train_publish_via(box[0], box[1], run)
+        _train_mark(adapter=res["adapter"] or run.get("adapter"), fetched=res["fetched"] or run.get("fetched"),
+                    publish_error=res["error"])
+        if res["error"]:
+            sys.exit(f"train-publish: {res['error']}")
+        log(f"published {res['adapter']}; local copy {res['fetched']}")
 
 
 def cmd_train_fetch(args) -> None:
@@ -2113,7 +2326,8 @@ def cmd_ledger(args) -> None:
 
 
 LOCAL_CMDS = ("ledger", "harbor-agent", "test")  # never touch the cloud API
-LIFECYCLE_CMDS = ("serve-up", "serve-ensure", "serve-down", "train-up", "train-ensure", "train-down")
+LIFECYCLE_CMDS = ("serve-up", "serve-ensure", "serve-down", "train-up", "train-ensure", "train-down",
+                  "train-publish")
 
 
 # ---- main -----------------------------------------------------------------------
@@ -2181,6 +2395,9 @@ def main() -> None:
     sub.add_parser("train-ensure", help="watchdog step for the training run").set_defaults(fn=cmd_train_ensure)
     sub.add_parser("train-down", help="stop training (resumable) and delete the box").set_defaults(fn=cmd_train_down)
     sub.add_parser("train-status", help="run state, step/loss, ETA").set_defaults(fn=cmd_train_status)
+    s = sub.add_parser("train-publish", help="retry copying a finished adapter to /mnt/fh/adapters/<run> + fetch")
+    s.add_argument("--run")
+    s.set_defaults(fn=cmd_train_publish)
     s = sub.add_parser("train-fetch", help="copy the final adapter + logs to train/out/<run>/")
     s.add_argument("--run")
     s.set_defaults(fn=cmd_train_fetch)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import sys
 from pathlib import Path
@@ -1130,8 +1131,10 @@ def _train_state(**extra):
 
 
 def _run(**kw):
-    r = {"run": "r1", "trainer_args": ["--model", "/m", "--out", "/mnt/fh/runs/r1", "--epochs", "1.0"],
-         "data_dir": "/d", "data_name": "sft-v1", "data_sha": "D", "code_sha": "C", "req_hash": "R",
+    r = {"run": "r1", "trainer_args": ["--model", "/m", "--data", "/mnt/fh/data/sft-v1-D", "--out", "/mnt/fh/runs/r1",
+                                        "--epochs", "1.0"],
+         "data_dir": "/d", "data_name": "sft-v1", "data_remote": "/mnt/fh/data/sft-v1-D",
+         "data_sha": "D", "code_sha": "C", "req_hash": "R",
          "tokens": 12.9e6, "max_eur": 40.0, "desired": True, "restarts": 0}
     r.update(kw)
     return r
@@ -1169,11 +1172,11 @@ def test_train_script_renders_run_and_venv():
 
 def test_trainer_args_rejects_shell_metacharacters():
     a = SimpleNamespace(epochs=1.0, lr=1e-4, grad_accum=8, lora_r=16, save_every=10, trainer_arg=["--keep=3"])
-    args = vc.trainer_args("r1", "/m", "sft-v1", a)
-    assert args[args.index("--data") + 1] == "/mnt/fh/data/sft-v1" and args[-1] == "--keep=3"
+    args = vc.trainer_args("r1", "/m", "/mnt/fh/data/sft-v1-D", a)
+    assert args[args.index("--data") + 1] == "/mnt/fh/data/sft-v1-D" and args[-1] == "--keep=3"
     a.trainer_arg = ["--x;rm -rf /"]
     with pytest.raises(SystemExit):
-        vc.trainer_args("r1", "/m", "sft-v1", a)
+        vc.trainer_args("r1", "/m", "/mnt/fh/data/sft-v1-D", a)
 
 
 def test_parse_train_status_and_eta():
@@ -1255,7 +1258,7 @@ def test_train_budget_guard(sandbox, monkeypatch):
     monkeypatch.setattr(vc, "ledger_total_eur", lambda: 35.0)
     create = mock.Mock()
     monkeypatch.setattr(vc, "create_instance", create)
-    with pytest.raises(SystemExit, match="budget"):
+    with pytest.raises(vc.TrainFatal, match="budget"):
         vc._train_provision(c, _run(max_eur=40.0))  # 35 + ~7.8 > 40
     create.assert_not_called()
     monkeypatch.setattr(vc, "ledger_total_eur", lambda: 5.0)
@@ -1276,14 +1279,18 @@ def _tick_env(monkeypatch, status_text, *, box_extra=None, run_extra=None):
     c.instances.get_by_id.return_value = inst("t1", hostname="fhbot-train-0123456789ab", ip="5.5.5.5")
     calls = {"ssh": [], "deleted": [], "upload": 0, "fetch": 0}
 
+    manifest = base64.b64encode(json.dumps(vc.run_manifest(_run(**(run_extra or {})))).encode()).decode()
+
     def fake_ssh(ip, cmd, **k):
         calls["ssh"].append(cmd)
         if "ready=" in cmd:
             return SimpleNamespace(stdout=status_text, stderr="", returncode=0)
+        if "printf 'data=" in cmd:  # identity: what is on the volume
+            return SimpleNamespace(stdout=f"data=D\ncode=C\nmanifest={manifest}\n", stderr="", returncode=0)
         return SimpleNamespace(stdout="active", stderr="", returncode=0)
 
     monkeypatch.setattr(vc, "ssh", fake_ssh)
-    monkeypatch.setattr(vc, "train_upload", lambda ip, alias, run: calls.__setitem__("upload", calls["upload"] + 1))
+    monkeypatch.setattr(vc, "_upload_dir", lambda *a: calls.__setitem__("upload", calls["upload"] + 1))
     monkeypatch.setattr(vc, "train_fetch_from", lambda ip, alias, run: calls.__setitem__("fetch", 1) or vc.ROOT / "train/out/r1")
     monkeypatch.setattr(vc, "delete_instance", lambda c, i, reason="": calls["deleted"].append(i))
     return c, calls
@@ -1300,7 +1307,7 @@ def test_tick_waits_for_box_setup(sandbox, monkeypatch):
 def test_tick_uploads_and_starts_on_fresh_box(sandbox, monkeypatch):
     c, calls = _tick_env(monkeypatch, READY_IDLE)
     assert vc.train_tick(c) == "running"
-    assert calls["upload"] == 1 and any("systemctl start fh-train" in x for x in calls["ssh"])
+    assert calls["upload"] == 0 and any("systemctl start fh-train" in x for x in calls["ssh"])  # volume matched
     assert vc.load_state()["train"]["started"] is True and vc.load_state()["train_run"]["restarts"] == 0
 
 
@@ -1397,18 +1404,201 @@ def test_serving_refused_while_training(sandbox, cloud, monkeypatch):
     vc._serve_up.assert_not_called()
 
 
-def test_train_upload_only_when_needed_and_refuses_changed_local(sandbox, monkeypatch):
-    run = _run()
+
+
+# ---- r10: bounded training ticks ---------------------------------------------------------------
+def test_r10_1_budget_enforced_on_running_tick(sandbox, monkeypatch):
+    status = "ready=1\nservice=active\ndone=0\nfatal=0\ntotal_steps=100\n"
+    c, calls = _tick_env(monkeypatch, status, box_extra={"started": True})
+    monkeypatch.setattr(vc, "ledger_total_eur", lambda: 100.0)  # cap is 40
+    assert vc.train_tick(c) == "budget"
+    st = vc.load_state()
+    assert calls["deleted"] == ["t1"] and "train" not in st
+    assert any("systemctl stop fh-train" in x for x in calls["ssh"])
+    run = st["train_run"]
+    assert run["desired"] is False and run["disabled"].startswith("budget") and run["checkpoints"] == "/mnt/fh/runs/r1"
+    assert vc.train_tick(c) == "idle"
+
+
+def test_r10_1_budget_blocks_provisioning_without_box(sandbox, monkeypatch):
+    vc.save_state(_train_state(train_run=_run()))
+    monkeypatch.setattr(vc, "ledger_total_eur", lambda: 41.0)
+    prov = mock.Mock()
+    monkeypatch.setattr(vc, "_train_provision", prov)
+    assert vc.train_tick(mock.Mock()) == "budget"
+    prov.assert_not_called()
+    assert vc.load_state()["train_run"]["desired"] is False
+
+
+def test_r10_2_failed_starts_are_counted_and_bounded(sandbox, monkeypatch):
+    c, calls = _tick_env(monkeypatch, READY_IDLE)
+    real = vc.ssh
+
+    def failing_start(ip, cmd, **k):
+        if "systemctl start" in cmd:
+            calls["ssh"].append(cmd)
+            return SimpleNamespace(stdout="failed", stderr="Unit fh-train.service failed", returncode=1)
+        return real(ip, cmd, **k)
+
+    monkeypatch.setattr(vc, "ssh", failing_start)
+    phases = [vc.train_tick(c) for _ in range(vc.TRAIN_MAX_FAILURES - 1)]
+    assert phases == ["retry"] * (vc.TRAIN_MAX_FAILURES - 1) and calls["deleted"] == []
+    assert vc.load_state()["train_run"]["failures"] == vc.TRAIN_MAX_FAILURES - 1
+    assert vc.train_tick(c) == "failed"
+    st = vc.load_state()
+    assert calls["deleted"] == ["t1"] and st["train_run"]["desired"] is False and "train" not in st
+
+
+def test_r10_2_upload_exception_is_counted(sandbox, monkeypatch):
+    c, calls = _tick_env(monkeypatch, READY_IDLE)
+    monkeypatch.setattr(vc, "train_prepare", mock.Mock(side_effect=RuntimeError("tar: broken pipe")))
+    assert vc.train_tick(c) == "retry"
+    assert vc.load_state()["train_run"]["failures"] == 1
+
+
+def test_r10_2_running_resets_failure_counter(sandbox, monkeypatch):
+    c, _ = _tick_env(monkeypatch, "ready=1\nservice=active\ndone=0\nfatal=0\n", box_extra={"started": True},
+                     run_extra={"failures": 2})
+    assert vc.train_tick(c) == "running" and vc.load_state()["train_run"]["failures"] == 0
+
+
+def _local_ssh(monkeypatch):
+    """Run the remote command with the local bash: real printf/cat/base64 output."""
+    import subprocess as sp
+    monkeypatch.setattr(vc, "ssh", lambda ip, cmd, **k: sp.run(["bash", "-c", cmd], capture_output=True, text=True))
+
+
+def test_r10_3_identity_parsing_on_real_remote_output(sandbox, tmp_path, monkeypatch):
+    run = _run(data_remote=str(tmp_path / "data"))
+    out = tmp_path / "runs" / "r1"
+    monkeypatch.setattr(vc, "MNT", str(tmp_path))
+    (tmp_path / "data").mkdir()
+    (out / "code").mkdir(parents=True)
+    (tmp_path / "data" / ".fh_sha").write_text("D\n")  # stamped with a trailing newline, like `echo`
+    (out / "code" / ".fh_sha").write_text("C\n")
+    _local_ssh(monkeypatch)
+    ident = vc.remote_run_identity("ip", "a", run)
+    assert ident == {"data": "D", "code": "C", "manifest": None}
+    (out / "manifest.json").write_text(json.dumps(vc.run_manifest(run)))
+    assert vc.remote_run_identity("ip", "a", run)["manifest"] == vc.run_manifest(run)
+    (out / "code" / ".fh_sha").unlink()
+    assert vc.remote_run_identity("ip", "a", run)["code"] == ""
+
+
+def test_r10_3_changed_local_code_with_matching_volume_copy_is_fine(sandbox, tmp_path, monkeypatch):
+    run = _run(data_remote=str(tmp_path / "data"))
+    monkeypatch.setattr(vc, "MNT", str(tmp_path))
+    out = tmp_path / "runs" / "r1"
+    (tmp_path / "data").mkdir()
+    (out / "code").mkdir(parents=True)
+    (tmp_path / "data" / ".fh_sha").write_text("D\n")
+    (out / "code" / ".fh_sha").write_text("C\n")
+    (out / "manifest.json").write_text(json.dumps(vc.run_manifest(run)))
+    _local_ssh(monkeypatch)
+    monkeypatch.setattr(vc, "train_code_sha", lambda: "EDITED-LOCALLY")
+    monkeypatch.setattr(vc, "data_sha", lambda d: "EDITED-TOO")
     uploads = []
-    monkeypatch.setattr(vc, "_upload_dir", lambda ip, a, src, members, dest, sha: uploads.append(dest))
-    monkeypatch.setattr(vc, "ssh", lambda ip, cmd, **k: SimpleNamespace(stdout="D\nC\n", returncode=0))
-    vc.train_upload("ip", "t1", run)
+    monkeypatch.setattr(vc, "_upload_dir", lambda *a: uploads.append(a))
+    vc.train_prepare("ip", "a", run)  # the volume copies match the run: no refusal, no upload
     assert uploads == []
-    monkeypatch.setattr(vc, "ssh", lambda ip, cmd, **k: SimpleNamespace(stdout="\n\n", returncode=0))
-    monkeypatch.setattr(vc, "data_sha", lambda d: "D")
-    monkeypatch.setattr(vc, "train_code_sha", lambda: "C")
-    vc.train_upload("ip", "t1", run)
-    assert uploads == ["/mnt/fh/data/sft-v1", "/mnt/fh/runs/r1/code"]
-    monkeypatch.setattr(vc, "data_sha", lambda d: "CHANGED")
-    with pytest.raises(SystemExit, match="changed since train-up"):
-        vc.train_upload("ip", "t1", run)
+
+
+def test_r10_3_missing_volume_copy_and_changed_local_is_fatal(sandbox, tmp_path, monkeypatch):
+    run = _run(data_remote=str(tmp_path / "data"))
+    monkeypatch.setattr(vc, "MNT", str(tmp_path))
+    _local_ssh(monkeypatch)
+    monkeypatch.setattr(vc, "data_sha", lambda d: "EDITED")
+    with pytest.raises(vc.TrainFatal, match="changed since the run started"):
+        vc.train_prepare("ip", "a", run)
+
+
+def test_r10_4_publish_failure_still_deletes_box_and_records_location(sandbox, monkeypatch):
+    c, calls = _tick_env(monkeypatch, "ready=1\nservice=inactive\ndone=1\nfatal=0\n", box_extra={"started": True})
+    real = vc.ssh
+
+    def enospc(ip, cmd, **k):
+        if "cp -r" in cmd:
+            calls["ssh"].append(cmd)
+            return SimpleNamespace(stdout="", stderr="cp: No space left on device", returncode=1)
+        return real(ip, cmd, **k)
+
+    monkeypatch.setattr(vc, "ssh", enospc)
+    monkeypatch.setattr(vc, "train_fetch_from", mock.Mock(side_effect=RuntimeError("no adapter")))
+    assert vc.train_tick(c) == "done"
+    st = vc.load_state()
+    run = st["train_run"]
+    assert calls["deleted"] == ["t1"] and "train" not in st
+    assert run["done"] and run["adapter"] is None and run["final"] == "/mnt/fh/runs/r1/final"
+    assert "No space left" in run["publish_error"]
+    # later: publish through the serving box
+    monkeypatch.setattr(vc, "ssh", real)
+    monkeypatch.setattr(vc, "train_fetch_from", lambda ip, a, r: vc.ROOT / "train/out/r1")
+    monkeypatch.setattr(vc, "client", lambda: c)
+    monkeypatch.setattr(vc, "reconcile", lambda c: None)
+    monkeypatch.setattr(vc, "_train_box_ip", lambda c: ("6.6.6.6", "g1"))
+    vc.cmd_train_publish(SimpleNamespace(run=None))
+    run = vc.load_state()["train_run"]
+    assert run["adapter"] == "/mnt/fh/adapters/r1" and run["publish_error"] is None
+
+
+def test_r10_5_manifest_written_at_first_start(sandbox, tmp_path, monkeypatch):
+    run = _run(data_remote=str(tmp_path / "data"))
+    monkeypatch.setattr(vc, "MNT", str(tmp_path))
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / ".fh_sha").write_text("D\n")
+    (tmp_path / "runs" / "r1" / "code").mkdir(parents=True)
+    (tmp_path / "runs" / "r1" / "code" / ".fh_sha").write_text("C\n")
+    _local_ssh(monkeypatch)
+    vc.train_prepare("ip", "a", run)
+    m = json.loads((tmp_path / "runs" / "r1" / "manifest.json").read_text())
+    assert m == vc.run_manifest(run)
+    other = _run(data_remote=str(tmp_path / "data"), data_sha="OTHER")  # same run name, different data
+    (tmp_path / "data" / ".fh_sha").write_text("OTHER\n")
+    with pytest.raises(vc.TrainFatal, match="different"):
+        vc.train_prepare("ip", "a", other)
+    assert json.loads((tmp_path / "runs" / "r1" / "manifest.json").read_text()) == m  # immutable
+
+
+def test_r10_5_resume_with_different_identity_is_refused_on_tick(sandbox, monkeypatch):
+    c, calls = _tick_env(monkeypatch, READY_IDLE, run_extra={})
+    vc.update_state(lambda s: s["train_run"].update(data_sha="NEW-DATA"))  # volume manifest says "D"
+    assert vc.train_tick(c) == "failed"
+    assert calls["deleted"] == ["t1"] and "different" in vc.load_state()["train_run"]["failed"]
+
+
+def test_r10_5_done_with_foreign_manifest_not_accepted(sandbox, monkeypatch):
+    c, calls = _tick_env(monkeypatch, "ready=1\nservice=inactive\ndone=1\nfatal=0\n", box_extra={"started": True})
+    vc.update_state(lambda s: s["train_run"].update(code_sha="OTHER-CODE"))
+    assert vc.train_tick(c) == "done"
+    run = vc.load_state()["train_run"]
+    assert calls["deleted"] == ["t1"] and not run.get("done") and run["failed"].startswith("DONE rejected")
+    assert not any("cp -r" in x for x in calls["ssh"])
+
+
+def test_r10_5_data_path_is_content_addressed(train_cloud, monkeypatch):
+    vc.save_state(_train_state())
+    monkeypatch.setattr(vc, "_train_provision", lambda c, run, **k: "t1")
+    vc.cmd_train_up(_up_args())
+    run = vc.load_state()["train_run"]
+    assert run["data_remote"] == "/mnt/fh/data/sft-v1-D"
+    assert run["trainer_args"][run["trainer_args"].index("--data") + 1] == "/mnt/fh/data/sft-v1-D"
+
+
+@pytest.mark.parametrize("override", [["--lora-r=32"], ["--lora-r", "17"], ["--lora-linear-attn"], ["--mod", "/x"],
+                                      ["--out=/mnt/fh/runs/other"], ["--data", "/x"], ["--lora-r=0"]])
+def test_r10_6_unservable_or_identity_overrides_rejected(override):
+    a = SimpleNamespace(epochs=1.0, lr=1e-4, grad_accum=8, lora_r=16, save_every=10, trainer_arg=override)
+    with pytest.raises(SystemExit):
+        vc.trainer_args("r1", "/m", "/mnt/fh/data/x", a)
+
+
+def test_r10_6_rank_above_serving_limit_rejected_before_provisioning(train_cloud, monkeypatch):
+    vc.save_state(_train_state())
+    prov = mock.Mock()
+    monkeypatch.setattr(vc, "_train_provision", prov)
+    with pytest.raises(SystemExit, match="lora-r 32"):
+        vc.cmd_train_up(_up_args(lora_r=32))
+    prov.assert_not_called()
+    assert "train_run" not in vc.load_state()
+    vc.cmd_train_up(_up_args(lora_r=16, trainer_arg=["--lora-alpha=32"]))  # within limits
+    prov.assert_called_once()
