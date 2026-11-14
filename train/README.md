@@ -408,3 +408,14 @@ The same objective without the synchronous rollout -> update barrier:
   boundary and runs the final evals. Pipeline test without a real policy: `make_tiny_model.py --vllm`
   (133M random model with the real head dims, servable by vLLM) and `scheduler.py --synthetic` (coin
   rewards).
+
+Operational notes from the first run (2026-11-14):
+* Trial startup, not the GPUs, limits rollouts. Every pool task has identical build contexts, so
+  `prebuilt_pool.py` points them at three images built once (task.toml `docker_image` for the agent and
+  verifier environments, `image:` for the fh-mcp sidecar); environment setup dropped from minutes to
+  ~15 s. With ~150 trial containers the box is CPU-bound (dockerd ~24 cores, OpenCode's npm install
+  step), so more in-flight trials do not help.
+* `scheduler.py --adopt` takes over a frozen (SIGSTOP) scheduler's Harbor jobs, so the scheduler can be
+  changed without killing trials (`rebalance.sh` used it to move from 4+4 to 6 inference + 2 trainer
+  GPUs). Never move a group out of `queue/` by hand while the trainer may be using it.
+* Rows over 18432 tokens are skipped (OOM on the 27B at ~24k with the reference Gated DeltaNet kernels).
