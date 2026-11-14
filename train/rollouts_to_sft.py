@@ -203,7 +203,7 @@ def conversation(records: list[dict], rdir: Path) -> tuple[list[dict], list[dict
                                "model": final["_req"].get("model"), "n_requests": len(recs)}
 
 
-def check_format(msgs: list[dict], tools: list[dict]) -> str:
+def check_format(msgs: list[dict], tools: list[dict], require_submit: bool = True) -> str:
     """Raise Reject unless msgs/tools have make_sft's exact shape; return the row's date."""
     if tools != fhdata.tools():
         raise Reject("tool list differs from the capture (OpenCode version or MCP server changed?)")
@@ -254,7 +254,7 @@ def check_format(msgs: list[dict], tools: list[dict]) -> str:
             raise Reject(f"message {i}: unexpected role {role!r}")
     if pending and msgs[-1] is not msgs[last_asst]:   # only the last turn's call may lack a result
         raise Reject("a tool call has no result")
-    if not submitted:
+    if require_submit and not submitted:
         raise Reject("no framehunt_submit call")
     return m.group(1)
 
@@ -357,13 +357,13 @@ def assert_renders(row: dict, wire: list[dict], tools: list[dict], out: Path, pr
                                  f"messages, {enc['n_images']} images for {len(im_row)}")
 
 
-def convert_trial(t: dict, run: Path, meta: dict, tasks: Path | None) -> dict:
+def convert_trial(t: dict, run: Path, meta: dict, tasks: Path | None, require_submit: bool = True) -> dict:
     rdir = run / "requests" / trial_key(harbor_project(t["trial"]))
     if not (rdir / "log.jsonl").is_file():
         raise Reject(f"no request log ({rdir.relative_to(run)})")
     records = [json.loads(l) for l in (rdir / "log.jsonl").read_text().splitlines() if l.strip()]
     msgs, tools, final, info = conversation(records, rdir)
-    date = check_format(msgs, tools)
+    date = check_format(msgs, tools, require_submit)
     if tasks is not None:
         inst = tasks / t["item_id"] / "instruction.md"
         if not inst.is_file():

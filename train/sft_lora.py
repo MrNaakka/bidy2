@@ -49,6 +49,17 @@ SFT run's final/) instead of a fresh LoRA. Its rank and alpha must match this ru
 the same modules (every LoRA tensor is loaded, none left over). Optimizer and LR schedule start fresh.
 A resumed run loads its own checkpoint instead.
 
+Policy gradient (GRPO stage, train/rollouts_to_pg.py): --pg trains on rollout rows that carry an
+`advantage` A (group-normalized reward, any sign). Each row's trained tokens get weight A, so the step
+loss is sum_rows A * sum_t CE_t / (trained tokens of the step), the SFT normalization with a signed row
+weight: its gradient is -sum A * grad log pi(token) / tokens, the on-policy REINFORCE/GRPO gradient
+(DAPO-style token-level averaging). A > 0 raises the sampled tokens' log-probs, A < 0 lowers them, A = 0
+contributes nothing (the row is not run and its tokens are not in the normalization). One pass over the batch (--epochs 1) with the rows
+sampled from the --init-adapter policy keeps it on-policy, so no importance ratio or clipping is used.
+--pg implies a constant LR after warmup and no held-out eval (--eval-frac 0). The logged `loss` is the
+advantage-weighted loss; `nll_pos`/`nll_neg` are the token-mean NLL of the A>0 / A<0 rows (they
+separate as the policy moves), `adv_abs` the token-weighted mean |A|.
+
 Logs: <out>/loss.jsonl (one line per optimizer step: step, epoch, loss, lr, tokens,
 grad_norm, seconds), <out>/eval.jsonl (held-out loss at each checkpoint),
 <out>/args.json. Final adapter: <out>/final (PEFT format, loadable by vLLM --lora-modules).
@@ -157,6 +168,8 @@ def parse_args(argv=None):
     ap.add_argument("--init-adapter", type=Path, default=None,
                     help="start from this PEFT adapter dir (adapter_config.json + adapter_model.safetensors), "
                          "e.g. the SFT run's final/; same --lora-r/--lora-alpha/targets required")
+    ap.add_argument("--pg", action="store_true",
+                    help="policy-gradient mode: rows carry `advantage`; loss = sum A * CE / tokens (see docstring)")
     ap.add_argument("--dtype", choices=["bf16", "fp32"], default="bf16")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--no-grad-ckpt", action="store_true")
@@ -250,6 +263,16 @@ def init_from_adapter(model, d: Path, a) -> None:
 
 
 # ---------------------------------------------------------------------- loss
+def row_weight(row: dict, pg: bool) -> float:
+    """Per-row loss weight: 1 for SFT, the row's advantage for --pg (must be a finite number)."""
+    if not pg:
+        return 1.0
+    w = row.get("advantage")
+    if not isinstance(w, (int, float)) or isinstance(w, bool) or not math.isfinite(w):
+        raise SystemExit(f"--pg: row {row.get('id')} has no finite `advantage` ({w!r})")
+    return float(w)
+
+
 def lm_loss(core, batch: dict, chunk: int) -> tuple[torch.Tensor, int]:
     """Mean CE over trained positions. Logits only at those positions, in checkpointed chunks."""
     labels = batch.pop("labels")
@@ -369,6 +392,8 @@ RESUME_MUST_MATCH = ("epochs", "lr", "warmup_frac", "grad_accum", "weight_decay"
 
 def main(argv=None) -> int:
     a = parse_args(argv)
+    if a.pg and a.eval_frac:
+        raise SystemExit("--pg needs --eval-frac 0 (rollout rows are not a held-out set)")
     init_dist(a)
     rank, world = DIST["rank"], DIST["world"]
     if is_main():
@@ -401,6 +426,8 @@ def main(argv=None) -> int:
     random.seed(a.seed)
     torch.manual_seed(a.seed)
     rows = fhdata.read_jsonl(a.data / "sft.jsonl")[: a.limit]
+    for r in rows:
+        row_weight(r, a.pg)
     tools = json.loads((a.data / "tools.json").read_text())
     train_rows, eval_rows = split_rows(rows, a.eval_frac, a.seed)
     if is_main():
@@ -418,6 +445,8 @@ def main(argv=None) -> int:
     def lr_lambda(s):
         if s < warm:
             return (s + 1) / warm
+        if a.pg:
+            return 1.0
         return 0.5 * (1 + math.cos(math.pi * min(1.0, (s - warm) / max(1, total_steps - warm))))
 
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_lambda)
@@ -481,6 +510,8 @@ def main(argv=None) -> int:
             # LoRA dropout: distinct per rank, reproducible across resumes.
             torch.manual_seed((a.seed * 1_000_003 + state["step"]) * 1024 + rank)
         acc_loss, acc_tok, acc_seq = 0.0, 0, 0
+        # --pg diagnostics: NLL sums / tokens of A>0 and A<0 rows, sum |A| * tokens
+        nll_pos, tok_pos, nll_neg, tok_neg, adv_abs = 0.0, 0, 0.0, 0, 0.0
         # Each micro-batch's loss is a mean over its trained tokens; weight by tokens so the
         # step's gradient is the mean over all trained tokens of the step (over all ranks).
         # The step owns global micro indices [start, start + grad_accum); rank r takes every
@@ -494,9 +525,9 @@ def main(argv=None) -> int:
             if enc["n_tokens"] > a.max_len:
                 skipped.append((m, r["id"]))
                 continue
-            encs.append(enc)
-        tok_local = sum(e["n_train_tokens"] for e in encs)
-        tok_total, n_encs, n_skipped = all_sum([tok_local, len(encs), len(skipped)], a.device)
+            encs.append((enc, row_weight(r, a.pg)))
+        tok_local = sum(e["n_train_tokens"] for e, w in encs if w != 0.0)
+        tok_total, n_encs, n_skipped = all_sum([tok_local, sum(w != 0.0 for _, w in encs), len(skipped)], a.device)
         tok_total = int(tok_total) or 1
         if n_skipped:
             if world > 1:
@@ -504,17 +535,25 @@ def main(argv=None) -> int:
                 torch.distributed.all_gather_object(gathered, skipped)
                 skipped = sorted(x for g in gathered for x in g)
             state["skipped"].extend(i for _, i in skipped)
-        for enc in encs:
+        for enc, w in encs:
+            if w == 0.0:        # zero advantage: no gradient and not in the token normalization
+                continue
             loss, k = lm_loss(core, to_device(enc, a.device, dtype), a.loss_chunk)
-            (loss * (k / tok_total)).backward()
-            acc_loss += loss.item() * k
+            (loss * (w * k / tok_total)).backward()
+            acc_loss += w * loss.item() * k
             acc_tok += k
             acc_seq += enc["n_tokens"]
+            if w > 0:
+                nll_pos, tok_pos = nll_pos + loss.item() * k, tok_pos + k
+            else:
+                nll_neg, tok_neg = nll_neg + loss.item() * k, tok_neg + k
+            adv_abs += abs(w) * k
         if world > 1:
             if n_encs:          # as on one GPU: a step with no trained rows leaves grads None (no update)
                 all_reduce_grads(params)
             # Signals reach ranks at different times: every rank acts on the reduced flag.
-            acc_loss, acc_tok, acc_seq, sig = all_sum([acc_loss, acc_tok, acc_seq, float(STOP["flag"])], a.device)
+            acc_loss, acc_tok, acc_seq, sig, nll_pos, tok_pos, nll_neg, tok_neg, adv_abs = all_sum(
+                [acc_loss, acc_tok, acc_seq, float(STOP["flag"]), nll_pos, tok_pos, nll_neg, tok_neg, adv_abs], a.device)
             acc_tok, acc_seq = int(acc_tok), int(acc_seq)
             stop_synced = sig > 0
         gn = torch.nn.utils.clip_grad_norm_(params, a.max_grad_norm)
@@ -525,6 +564,10 @@ def main(argv=None) -> int:
                "loss": round(acc_loss / max(acc_tok, 1), 5), "lr": sched.get_last_lr()[0],
                "grad_norm": round(float(gn), 4), "train_tokens": acc_tok, "seq_tokens": acc_seq,
                "seconds": round(time.time() - t_step, 2)}
+        if a.pg:
+            rec.update(nll_pos=round(nll_pos / tok_pos, 5) if tok_pos else None,
+                       nll_neg=round(nll_neg / tok_neg, 5) if tok_neg else None,
+                       tok_pos=int(tok_pos), tok_neg=int(tok_neg), adv_abs=round(adv_abs / max(acc_tok, 1), 4))
         t_step = time.time()
         if is_main():
             loss_f.write(json.dumps(rec) + "\n")
