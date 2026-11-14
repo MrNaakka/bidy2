@@ -80,7 +80,7 @@ run: |
   VENV=$FH/vllm-$VLLM_VERSION
   if [ ! -x "$VENV/bin/vllm" ]; then
     rm -rf "$VENV"
-    uv venv -q --python 3.12 "$VENV"
+    uv venv -q --managed-python --python 3.12 "$VENV"   # system python lacks Python.h, which Triton compiles against
     VIRTUAL_ENV="$VENV" timeout 30m uv pip install -q "vllm==$VLLM_VERSION"
   fi
   mark venv_ready
@@ -116,7 +116,7 @@ run: |
   PY
   served() {  # every name in $names is listed by /v1/models
     curl -sf -m 10 -H @"$FH/auth.hdr" http://127.0.0.1:8000/v1/models | python3 -c \
-      'import json, sys; ids = {m["id"] for m in json.load(sys.stdin)["data"]}; sys.exit(not set(sys.argv[1:]) <= ids)' $names
+      'import json, sys; ids = {m["id"] for m in json.load(sys.stdin)["data"]}; sys.exit(not set(sys.argv[1:]) <= ids)' $names 2>/dev/null
   }
   health_deadline=$(( $(date +%s) + HEALTH_TIMEOUT_MIN * 60 ))
   until served; do
