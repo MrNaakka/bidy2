@@ -278,7 +278,10 @@ def ensure_ssh_key(c, state) -> str:
 def ssh_opts(alias: str) -> list[str]:
     """Trust-on-first-use per instance: the host key is pinned under the instance id
     (HostKeyAlias) in KNOWN_HOSTS, so a later box that reuses the IP gets its own entry."""
-    return ["-i", str(SSH_KEY), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
+    # ControlMaster/ControlPath off: a user-level "ControlMaster auto" + ControlPersist would
+    # daemonize the tunnel into a mux master that we can neither track nor stop.
+    return ["-F", "none", "-i", str(SSH_KEY), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
+            "-o", "ControlMaster=no", "-o", "ControlPath=none",
             "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={KNOWN_HOSTS}",
             "-o", f"HostKeyAlias={alias}", "-o", "LogLevel=ERROR", "-o", "ConnectTimeout=10"]
 
@@ -426,6 +429,20 @@ def delete_instance(c, inst_id: str, reason: str = "", *, attempts: int = 5, bac
     log(f"deleted instance {inst_id} {reason}")
 
 
+@contextlib.contextmanager
+def no_interrupt():
+    """Let a cleanup finish even if Ctrl-C is pressed again (it would leak a paid box)."""
+    try:
+        old = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    except ValueError:  # not in the main thread
+        yield
+        return
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, old)
+
+
 def delete_by_hostnames(c, hostnames: list[str], reason: str, skip: set[str] = frozenset()) -> None:
     """Clean up instances whose create call was interrupted before we learned their id."""
     if not hostnames:
@@ -550,12 +567,13 @@ def cmd_download(args) -> None:
     finally:
         if not args.keep:
             reason = f"download {status or 'incomplete'}"
-            if inst is not None:
-                delete_instance(c, inst.id, reason=reason)
-            delete_by_hostnames(c, hostnames, reason=reason, skip={inst.id} if inst is not None else set())
-            for sc in c.startup_scripts.get():
-                if sc.name == DL_PREFIX:
-                    c.startup_scripts.delete_by_id(sc.id)
+            with no_interrupt():
+                if inst is not None:
+                    delete_instance(c, inst.id, reason=reason)
+                delete_by_hostnames(c, hostnames, reason=reason, skip={inst.id} if inst is not None else set())
+                for sc in c.startup_scripts.get():
+                    if sc.name == DL_PREFIX:
+                        c.startup_scripts.delete_by_id(sc.id)
     if not status.startswith("done"):
         sys.exit(f"download job status: {status or 'timeout'}")
     state["weights"] = {r: {"revision": MODELS[r], "path": f"{MNT}/models/{r.split('/')[1]}"}
@@ -789,17 +807,18 @@ def cmd_serve_up(args) -> None:
             raise
         log(f"serve startup failed ({type(e).__name__}: {str(e)[:160]}); deleting the new instance "
             "(use --keep to keep it)")
-        if inst is not None:
-            delete_instance(c, inst.id, reason="serve-up startup failed")
-        delete_by_hostnames(c, hostnames, reason="serve-up startup failed",
-                            skip={inst.id} if inst is not None else set())
-        st = load_state()
-        if inst is not None and st.get("serve", {}).get("id") == inst.id:
-            st.pop("serve")
-            save_state(st)
-            info = tunnel_info()
-            if info and info.get("inst_id") == inst.id:
-                stop_tunnel()
+        with no_interrupt():
+            if inst is not None:
+                delete_instance(c, inst.id, reason="serve-up startup failed")
+            delete_by_hostnames(c, hostnames, reason="serve-up startup failed",
+                                skip={inst.id} if inst is not None else set())
+            st = load_state()
+            if inst is not None and st.get("serve", {}).get("id") == inst.id:
+                st.pop("serve")
+                save_state(st)
+                info = tunnel_info()
+                if info and info.get("inst_id") == inst.id:
+                    stop_tunnel()
         raise
 
 
@@ -818,6 +837,10 @@ def wait_healthy(c, inst_id: str, timeout_min: float) -> None:
             save_state(state)
             log(f"healthy via tunnel {url}; QWEN_BASE_URL={cburl} (for containers)")
             return
+        with contextlib.suppress(APIException, OSError):  # a failed status poll is not fatal
+            cur = c.instances.get_by_id(inst.id)
+            if cur.status in ("error", *GONE_STATUSES):  # e.g. spot preemption while booting
+                raise RuntimeError(f"instance {inst.id} entered {cur.status} before becoming healthy")
         try:
             r = ssh(inst.ip, f"tail -n 1 {MNT}/logs/serve-$(hostname).log 2>/dev/null || tail -n 1 /var/log/fh/startup.log",
                     alias=inst.id, timeout=30)

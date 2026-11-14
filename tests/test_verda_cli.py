@@ -260,7 +260,7 @@ def test_serve_script_binds_localhost_only():
 def test_tunnel_command_options():
     cmd = vc.tunnel_cmd("1.2.3.4", "inst-1")
     joined = " ".join(cmd)
-    assert cmd[0] == "ssh" and "-N" in cmd
+    assert cmd[0] == "ssh" and "-N" in cmd and "ControlPath=none" in joined and cmd[1:3] == ["-F", "none"]
     for opt in ("ServerAliveInterval=15", "ExitOnForwardFailure=yes", "StrictHostKeyChecking=accept-new",
                 f"UserKnownHostsFile={vc.KNOWN_HOSTS}", "HostKeyAlias=inst-1"):
         assert opt in joined
@@ -324,3 +324,26 @@ def test_serve_ensure_healthy_new_box_repoints_tunnel_same_url(sandbox, cloud, m
     start.assert_called_once_with("new", "5.6.7.8")
     assert vc.load_env()["QWEN_BASE_URL"] == before == vc.container_base_url()
     assert cloud.deleted == []
+
+
+def test_serve_up_preempted_while_booting_deletes_and_clears_state(serve_cloud, monkeypatch):
+    monkeypatch.setattr(vc, "wait_running", lambda c, i: inst("g1"))
+    monkeypatch.setattr(vc, "ensure_tunnel", lambda i, ip: False)  # sshd unreachable
+    monkeypatch.setattr(vc, "ssh", mock.Mock(side_effect=OSError))
+    serve_cloud.instances.get_by_id.return_value = inst("g1", status="discontinued")
+    with pytest.raises(RuntimeError, match="discontinued"):
+        vc.cmd_serve_up(_serve_args(timeout_min=40))
+    assert serve_cloud.deleted == ["g1"]
+    assert "serve" not in vc.load_state()
+
+
+def test_cleanup_ignores_second_ctrl_c(serve_cloud, monkeypatch):
+    import signal
+    seen = []
+    monkeypatch.setattr(vc, "wait_running", mock.Mock(side_effect=KeyboardInterrupt))
+    monkeypatch.setattr(vc, "delete_instance",
+                        lambda c, i, reason="": seen.append(signal.getsignal(signal.SIGINT)))
+    with pytest.raises(KeyboardInterrupt):
+        vc.cmd_serve_up(_serve_args())
+    assert seen == [signal.SIG_IGN]
+    assert signal.getsignal(signal.SIGINT) is not signal.SIG_IGN
