@@ -17,3 +17,5 @@ infra/verda/.stage/
 infra/verda/.fh-eval.json
 infra/verda/.fh-eval.tmp
 infra/verda/.fh-eval.lock
+infra/modal/.state.json
+infra/modal/.state.tmp

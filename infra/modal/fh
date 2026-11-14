@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# infra/modal/fh <command>     fh_modal.py in a side environment with the Modal SDK (see README.md)
+# The Modal token comes from the environment, ~/.modal.toml, or $FH_MODAL_ENV (default
+# ~/.local/state/fh/modal.env, a 0600 file with MODAL_TOKEN_ID / MODAL_TOKEN_SECRET).
+set -euo pipefail
+ENVF="${FH_MODAL_ENV:-$HOME/.local/state/fh/modal.env}"
+if [ -z "${MODAL_TOKEN_ID:-}" ] && [ -f "$ENVF" ]; then
+  set -a
+  source "$ENVF"
+  set +a
+fi
+exec uv run -q --no-project --python 3.12 --with modal==1.6.4 --with httpx --with pillow \
+  python "$(dirname "$0")/fh_modal.py" "$@"

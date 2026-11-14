@@ -16,6 +16,9 @@
 #   scripts/eval.sh --stage agents --model qwen --fleet                       # Qwen runs in parallel, one Verda
 #   scripts/eval.sh --stage agents --model qwen-fh --lora train/out/R --fleet # box per run with its own vLLM
 #          (infra/verda/fh eval-up + eval-wait; -n defaults to 15 per box there; long: run it under systemd-run)
+#   scripts/eval.sh --stage agents --model qwen --modal                       # the same on Modal: one vLLM
+#   scripts/eval.sh --stage agents --model qwen-fh --lora train/out/R --modal # endpoint per run, trials on Modal
+#          (infra/modal/fh eval; -n defaults to 15; jobs fh-<split>-qwen-modal-run<i> / qwen-fh-modal)
 # OpenCode is pinned to $OPENCODE_VERSION (the version the training data was captured with).
 # Only agent-install timeouts (before the agent sees anything) are retried, up to 2 times.
 # Jobs have fixed names and go to runs/<job>; an existing runs/<job> is replaced.
@@ -32,6 +35,7 @@ SPLIT=eval
 HARBOR_ENV=docker
 OPENCODE_VERSION=1.19.5
 FLEET=0
+MODAL=0
 LORA=
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -42,13 +46,19 @@ while [ $# -gt 0 ]; do
     --split) SPLIT="$2"; shift 2 ;;
     --env) HARBOR_ENV="$2"; shift 2 ;;
     --fleet) FLEET=1; shift ;;
+    --modal) MODAL=1; shift ;;
     --lora) LORA="$2"; shift 2 ;;
     -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 case "$STAGE" in all|baselines|agents|summarize) ;; *) echo "bad --stage: $STAGE" >&2; exit 2 ;; esac
-if [ "$FLEET" = 1 ]; then
+if [ "$MODAL" = 1 ]; then
+  [ "$FLEET" = 0 ] || { echo "--modal and --fleet exclude each other" >&2; exit 2; }
+  case "$MODEL" in qwen) ;; qwen-fh) [ -n "$LORA" ] || { echo "--model qwen-fh --modal needs --lora DIR" >&2; exit 2; } ;;
+    *) echo "--modal runs Qwen only (--model qwen or qwen-fh)" >&2; exit 2 ;; esac
+  N="${N:-15}"
+elif [ "$FLEET" = 1 ]; then
   case "$MODEL" in qwen) ;; qwen-fh) [ -n "$LORA" ] || { echo "--model qwen-fh --fleet needs --lora DIR" >&2; exit 2; } ;;
     *) echo "--fleet runs Qwen only (--model qwen or qwen-fh)" >&2; exit 2 ;; esac
   # Harbor runs on the eval boxes, with Docker there.
@@ -133,6 +143,13 @@ if { [ "$STAGE" = all ] || [ "$STAGE" = agents ]; } && [ "$FLEET" = 1 ]; then
   # Fetches each run to runs/fh-$SPLIT-$LABEL-run<i>/ as it finishes and deletes its box; reports lost boxes.
   infra/verda/fh eval-wait --fleet "$SPLIT-$LABEL" || FLEET_RC=$?
   stage_time "fleet-$SPLIT-$LABEL" $((SECONDS - t0))
+elif { [ "$STAGE" = all ] || [ "$STAGE" = agents ]; } && [ "$MODAL" = 1 ]; then
+  ensure_tasks
+  UP=(--tasks "$TASKS" --runs "$RUNS" -n "$N")
+  [ "$MODEL" = qwen-fh ] && UP+=(--lora "$LORA")
+  t0=$SECONDS
+  infra/modal/fh eval "${UP[@]}" || FLEET_RC=$?
+  stage_time "modal-$SPLIT-$MODEL" $((SECONDS - t0))
 elif [ "$STAGE" = all ] || [ "$STAGE" = agents ]; then
   ensure_tasks
   # Give Harbor only the one key the model needs, not the whole .env.
@@ -162,6 +179,6 @@ uv run python scripts/summarize.py --runs "$OUT" --out results
 echo
 echo "Full tables: results/summary.md (per item, per kind); raw data: results/summary.json; Harbor jobs: $OUT/"
 if [ "${FLEET_RC:-0}" != 0 ]; then
-  echo "eval-wait: not every fleet run finished and was fetched (see above); the summary may lack runs" >&2
+  echo "eval-wait / modal eval: not every run finished and was fetched (see above); the summary may lack runs" >&2
   exit "$FLEET_RC"
 fi
