@@ -669,6 +669,7 @@ def cmd_harbor_agent(args) -> None:
 
 # ---- parallel evals: one Harbor run per box (eval.yaml) ---------------------------------------------
 EVAL_YAML = HERE / "eval.yaml"
+EVAL_JOB = HERE / "eval_job.sh"     # the job eval.yaml runs (part of the comparability hash)
 EVAL_STATE_PATH = HERE / ".fh-eval.json"
 EVAL_LOCK_PATH = HERE / ".fh-eval.lock"
 RUNS_DIR = ROOT / "runs"
@@ -766,7 +767,7 @@ def eval_definition(a) -> dict:
         "n_concurrent": a.n, "model_repo": a.model_repo or envs["MODEL_REPO"],
         "model_rev": a.model_rev or envs["MODEL_REV"], "vllm_version": envs["VLLM_VERSION"],
         "harbor_version": envs["HARBOR_VERSION"], "opencode_version": OPENCODE_VERSION,
-        "max_run_hours": a.max_run_hours, "eval_yaml_sha": sha_files([EVAL_YAML]), "git_commit": git_commit(),
+        "max_run_hours": a.max_run_hours, "eval_yaml_sha": sha_files([EVAL_YAML, EVAL_JOB]), "git_commit": git_commit(),
     }
 
 
@@ -801,6 +802,7 @@ def stage_eval(defn: dict) -> Path:
     cfg = {"agents": [harbor_agent_entry(EVAL_RELAY_URL, defn["served_name"], defn["opencode_version"])]}
     (dest / "cfg.json").write_text(json.dumps(cfg, indent=1) + "\n")
     shutil.copy2(HERE / "verify_weights.py", dest / "verify_weights.py")
+    shutil.copy2(EVAL_JOB, dest / "eval_job.sh")
     (dest / "meta.json").write_text(json.dumps(defn, indent=1) + "\n")
     (dest / ".skyignore").write_text("")   # sync everything (tasks/ is git-ignored in the repo)
     return dest

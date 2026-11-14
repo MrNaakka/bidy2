@@ -92,6 +92,7 @@ def test_stage_holds_tasks_privately_and_targets_the_relay(evalbox):
     assert agent["kwargs"]["version"] == fh.OPENCODE_VERSION
     assert json.loads((stage / "meta.json").read_text())["tasks_sha"] == d["tasks_sha"]
     assert (stage / ".skyignore").exists() and (stage / "verify_weights.py").exists()
+    assert (stage / "eval_job.sh").read_text() == fh.EVAL_JOB.read_text()
 
 
 def test_launch_args_are_identical_across_boxes_but_the_job(evalbox):

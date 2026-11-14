@@ -100,6 +100,11 @@ knows: `eval-up` for 5 minutes after a failed launch, `eval-wait` for 30 (also f
 replaced with `--new`). An instance that boots later than that, with no `eval-wait` running, has no job and
 no autodown: check `fh sky status` and the Verda console after a failed launch.
 
+The key: SkyPilot passes it as a secret, and our job hands it to curl and Harbor only through 0600 files.
+Harbor 0.25.0 itself passes the agent's environment as `docker compose exec -e QWEN_API_KEY=...`, so the key
+is in that process's arguments on the box while trials run. The box is single-user (root), and the trial
+containers have their own PID namespace and cannot see host processes; the same holds for local Harbor runs.
+
 Trial containers reach vLLM through `socat` on the Docker bridge (`http://172.17.0.1:18000/v1`); vLLM itself
 listens on `127.0.0.1:8000`, with the key from the `QWEN_API_KEY` SkyPilot secret. Docker needs
 `docker-buildx` on the box: Harbor builds the separate verifier images with buildx.

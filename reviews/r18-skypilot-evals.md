@@ -1,0 +1,7 @@
+Two blocking issues remain:
+
+1. **[P1] Hard timeout misses descendant processes — [infra/verda/eval.yaml:56](/home/user/bidy2/.claude/worktrees/agent-a8ddeacc470898e32/infra/verda/eval.yaml:56).** `pgrep -P $$` signals only direct children. Killing a preparation subprocess can leave its children running with the job’s output open; the EXIT trap also kills the helper before its KILL escalation. A shortened reproduction left orphan processes and an open log pipe past the deadline and grace period. This can prevent autodown when the watcher is absent. **Fix:** supervise the entire body with an external `timeout --kill-after` and terminate its dedicated process group.
+
+2. **[P1] Harbor still puts the API key on command lines — [infra/verda/eval.yaml:149](/home/user/bidy2/.claude/worktrees/agent-a8ddeacc470898e32/infra/verda/eval.yaml:149).** Pinned Harbor 0.25.0 forwards OpenCode’s environment through `DockerEnvironment._compose_exec`, producing `docker compose … exec -e QWEN_API_KEY=<secret> …`. The key remains visible in process arguments during agent execution, violating the explicit requirement. I confirmed argument construction with a dummy key. **Fix:** pin a patched Harbor that passes values through the subprocess environment and uses `-e QWEN_API_KEY` by name, or uses the Docker Engine API.
+
+The resume guard and fleet-wrapper exit-status fixes passed targeted checks. No files were modified.
