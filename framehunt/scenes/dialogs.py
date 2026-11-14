@@ -25,6 +25,7 @@ DLG_W, DLG_H = 700, 300
 SHADOW = 18
 CODE_TEXT = (10, 6)
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ0123456789"   # no I/O (vs 1/0)
+CODE_FORMAT = "6 characters: uppercase letters A-Z except I and O, and digits 0-9"
 
 NAVY = (32, 39, 56)
 WHITE = (255, 255, 255)
@@ -90,6 +91,79 @@ def _ordinal(n: int) -> str:
     return f"{n}{suf}"
 
 
+def draw_app_background(user: str, rows) -> Image.Image:
+    """The Ledgerly app (top bar, sidebar, invoice table, status bar) without clock and bell."""
+    im = Image.new("RGB", (W, H), WHITE)
+    d = ImageDraw.Draw(im)
+    # Top bar.
+    d.rectangle((0, 0, W, TOP_H - 1), fill=NAVY)
+    d.rounded_rectangle((28, 30, 80, 82), 10, fill=(46, 204, 113))
+    draw_text(d, (41, 33), "L", "sans-bold", 36, WHITE)
+    draw_text(d, (98, 36), "Ledgerly", "sans-bold", 32, WHITE)
+    d.rounded_rectangle((520, 34, 1180, 78), 22, fill=(52, 60, 82))
+    draw_text(d, (552, 45), "Search invoices, customers, payments...", "sans", 18,
+              (160, 168, 185))
+    d.ellipse((1830, 30, 1882, 82), fill=(90, 110, 160))
+    initials = "".join(p[0] for p in user.replace(".", "").split())
+    draw_text(d, (1838, 42), initials[:2], "sans-bold", 22, WHITE)
+    # Sidebar.
+    side = L["side"]
+    d.rectangle(side.edges, fill=(245, 247, 250))
+    d.line((side.right, side.y, side.right, side.bottom), fill=LINE)
+    for item, box in zip(NAV_ITEMS, NAV):
+        active = item == "Invoices"
+        if active:
+            d.rounded_rectangle(box.edges, 8, fill=(225, 236, 255))
+        draw_text(d, box.at(26, 8), item, "sans-bold" if active else "sans", 19,
+                  BLUE if active else INK)
+    # Main content: invoice table.
+    heading, new = L["heading"], L["new"]
+    draw_text(d, heading.at(0, 0), "Invoices", "sans-bold", 30, INK)
+    draw_text(d, heading.at(0, 44), "All invoices · Q4 2026", "sans", 17, MUTED)
+    d.rounded_rectangle(new.edges, 8, fill=BLUE)
+    draw_text(d, new.at(28, 11), "+ New invoice", "sans-bold", 18, WHITE)
+    thead = L["thead"]
+    d.rectangle(thead.edges, fill=(248, 249, 250))
+    for name, cx in TABLE_COLS:
+        draw_text(d, thead.at(16 + cx, 12), name, "sans-bold", 16, MUTED)
+    for row, (inv, cust, due, amt, status) in zip(ROWS, rows):
+        d.line((row.x, row.y, row.right, row.y), fill=LINE)
+        cells = [(inv, BLUE), (cust, INK), (due, INK), (amt, INK)]
+        for (text, ink), (_, cx) in zip(cells, TABLE_COLS):
+            draw_text(d, row.at(16 + cx, 10), text, "sans", 16, ink)
+        fill, ink = STATUS_COLS[status]
+        pill_x = row.x + 16 + TABLE_COLS[4][1]
+        d.rounded_rectangle((pill_x, row.y + 7, pill_x + 96, row.y + 33), 12, fill=fill)
+        draw_text(d, (pill_x + 16, row.y + 10), status, "sans", 15, ink)
+        draw_text(d, row.at(16 + TABLE_COLS[5][1], 10), user, "sans", 16, MUTED)
+    # Status bar.
+    status_bar = L["status"]
+    d.rectangle(status_bar.edges, fill=(233, 236, 239))
+    draw_text(d, status_bar.at(16, 6), "Connected to ledger.prod  ·  v4.12.3",
+              "sans", 14, MUTED)
+    return im
+
+
+def draw_bell(d: ImageDraw.ImageDraw, n: int) -> None:
+    x, y, w, h = TRACE_BOX
+    d.rectangle((x, y, x + w - 1, y + h - 1), fill=NAVY)
+    # Bell icon.
+    bx, by = x + 6, y + 18
+    d.pieslice((bx, by, bx + 56, by + 60), 180, 360, fill=(230, 234, 242))
+    d.rectangle((bx, by + 29, bx + 56, by + 50), fill=(230, 234, 242))
+    d.polygon([(bx - 8, by + 56), (bx + 64, by + 56), (bx + 56, by + 46), (bx, by + 46)],
+              fill=(230, 234, 242))
+    d.ellipse((bx + 20, by + 54, bx + 36, by + 68), fill=(230, 234, 242))
+    # Badge pill with the count.
+    txt = str(n)
+    tw = text_width(txt, *BADGE_FONT)
+    pw = max(84, int(tw) + 36)
+    px0 = x + 72
+    d.rounded_rectangle((px0, y + 2, px0 + pw, y + 94), 46,
+                        fill=RED if n else (90, 98, 115))
+    draw_text(d, (px0 + pw / 2, y - 1), txt, *BADGE_FONT, WHITE, "center")
+
+
 class DialogsScene(Scene):
     kind = "dialogs"
 
@@ -132,7 +206,7 @@ class DialogsScene(Scene):
             f"in the {_ordinal(self.k)} error dialog? The red badge on the notification bell "
             f"in the top bar counts the error dialogs shown so far."
         )
-        self.answer_format = "6 characters, A-Z and 0-9"
+        self.answer_format = CODE_FORMAT
         self._rows = self._table_rows(self.rng("table"))[:N_ROWS]
 
     # --- static layers -------------------------------------------------------------
@@ -149,55 +223,7 @@ class DialogsScene(Scene):
 
     @cached_property
     def _background(self) -> Image.Image:
-        im = Image.new("RGB", (W, H), WHITE)
-        d = ImageDraw.Draw(im)
-        # Top bar.
-        d.rectangle((0, 0, W, TOP_H - 1), fill=NAVY)
-        d.rounded_rectangle((28, 30, 80, 82), 10, fill=(46, 204, 113))
-        draw_text(d, (41, 33), "L", "sans-bold", 36, WHITE)
-        draw_text(d, (98, 36), "Ledgerly", "sans-bold", 32, WHITE)
-        d.rounded_rectangle((520, 34, 1180, 78), 22, fill=(52, 60, 82))
-        draw_text(d, (552, 45), "Search invoices, customers, payments...", "sans", 18,
-                  (160, 168, 185))
-        d.ellipse((1830, 30, 1882, 82), fill=(90, 110, 160))
-        initials = "".join(p[0] for p in self.user.replace(".", "").split())
-        draw_text(d, (1838, 42), initials[:2], "sans-bold", 22, WHITE)
-        # Sidebar.
-        side = L["side"]
-        d.rectangle(side.edges, fill=(245, 247, 250))
-        d.line((side.right, side.y, side.right, side.bottom), fill=LINE)
-        for item, box in zip(NAV_ITEMS, NAV):
-            active = item == "Invoices"
-            if active:
-                d.rounded_rectangle(box.edges, 8, fill=(225, 236, 255))
-            draw_text(d, box.at(26, 8), item, "sans-bold" if active else "sans", 19,
-                      BLUE if active else INK)
-        # Main content: invoice table.
-        heading, new = L["heading"], L["new"]
-        draw_text(d, heading.at(0, 0), "Invoices", "sans-bold", 30, INK)
-        draw_text(d, heading.at(0, 44), "All invoices · Q4 2026", "sans", 17, MUTED)
-        d.rounded_rectangle(new.edges, 8, fill=BLUE)
-        draw_text(d, new.at(28, 11), "+ New invoice", "sans-bold", 18, WHITE)
-        thead = L["thead"]
-        d.rectangle(thead.edges, fill=(248, 249, 250))
-        for name, cx in TABLE_COLS:
-            draw_text(d, thead.at(16 + cx, 12), name, "sans-bold", 16, MUTED)
-        for row, (inv, cust, due, amt, status) in zip(ROWS, self._rows):
-            d.line((row.x, row.y, row.right, row.y), fill=LINE)
-            cells = [(inv, BLUE), (cust, INK), (due, INK), (amt, INK)]
-            for (text, ink), (_, cx) in zip(cells, TABLE_COLS):
-                draw_text(d, row.at(16 + cx, 10), text, "sans", 16, ink)
-            fill, ink = STATUS_COLS[status]
-            pill_x = row.x + 16 + TABLE_COLS[4][1]
-            d.rounded_rectangle((pill_x, row.y + 7, pill_x + 96, row.y + 33), 12, fill=fill)
-            draw_text(d, (pill_x + 16, row.y + 10), status, "sans", 15, ink)
-            draw_text(d, row.at(16 + TABLE_COLS[5][1], 10), self.user, "sans", 16, MUTED)
-        # Status bar.
-        status_bar = L["status"]
-        d.rectangle(status_bar.edges, fill=(233, 236, 239))
-        draw_text(d, status_bar.at(16, 6), "Connected to ledger.prod  ·  v4.12.3",
-                  "sans", 14, MUTED)
-        return im
+        return draw_app_background(self.user, self._rows)
 
     @cached_property
     def _background_dim(self) -> Image.Image:
@@ -270,28 +296,8 @@ class DialogsScene(Scene):
         now = self.base_time + dt.timedelta(seconds=frame / self.FPS)
         draw_text(d, (1290, 44), now.strftime("%a %d %b  %H:%M:%S"), "sans", 19,
                   (200, 206, 220))
-        self._draw_bell(d, self.badge_at(frame))
+        draw_bell(d, self.badge_at(frame))
         return im
-
-    @staticmethod
-    def _draw_bell(d: ImageDraw.ImageDraw, n: int) -> None:
-        x, y, w, h = TRACE_BOX
-        d.rectangle((x, y, x + w - 1, y + h - 1), fill=NAVY)
-        # Bell icon.
-        bx, by = x + 6, y + 18
-        d.pieslice((bx, by, bx + 56, by + 60), 180, 360, fill=(230, 234, 242))
-        d.rectangle((bx, by + 29, bx + 56, by + 50), fill=(230, 234, 242))
-        d.polygon([(bx - 8, by + 56), (bx + 64, by + 56), (bx + 56, by + 46), (bx, by + 46)],
-                  fill=(230, 234, 242))
-        d.ellipse((bx + 20, by + 54, bx + 36, by + 68), fill=(230, 234, 242))
-        # Badge pill with the count.
-        txt = str(n)
-        tw = text_width(txt, *BADGE_FONT)
-        pw = max(84, int(tw) + 36)
-        px0 = x + 72
-        d.rounded_rectangle((px0, y + 2, px0 + pw, y + 94), 46,
-                            fill=RED if n else (90, 98, 115))
-        draw_text(d, (px0 + pw / 2, y - 1), txt, *BADGE_FONT, WHITE, "center")
 
     def debug_info(self) -> dict:
         dls = [{"k": i + 1, "open_frame": dl["open"], "close_frame": dl["close"],
