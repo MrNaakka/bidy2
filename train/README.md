@@ -380,3 +380,31 @@ EVAL items, 3 runs `fh-eval-qwen-grpo-run{1,2,3}`, `-n 15`). Per-iteration logs:
 (`times.txt`, `curve.jsonl`, `it<k>/{runs,data/pg_stats.json,train/loss.jsonl,train/final}`).
 Tests: `tests/test_grpo.py` (advantages, conversion of all rollouts, and on the tiny model: A>0 lowers
 the row's NLL, A<0 raises it, zero-advantage rows change nothing, 2-rank DDP equals one process).
+
+### Async GRPO (`infra/verda/grpo_async/`, `train/async_grpo.py`)
+
+The same objective without the synchronous rollout -> update barrier:
+
+* **Inference** (`serve.sh`): long-lived vLLMs (fleet flags + `VLLM_ALLOW_RUNTIME_LORA_UPDATING`,
+  `--max-loras 3`) serving the policy as `fh-v<N>`; a new version is hot-loaded with
+  `/v1/load_lora_adapter`, never a restart.
+* **Relay** (`log_relay.py --policy-file`): pins every trial to the version current at its first request,
+  rewrites `model` to it, adds `logprobs`/`return_tokens_as_token_ids`, and hands OpenCode the reply
+  with the log-probs removed and the public model name restored. The log keeps OpenCode's request plus
+  the behaviour log-prob of every generated token (checked against `usage.completion_tokens`;
+  `check_logprobs.py` confirms reasoning, content and tool-call tokens all get one under the qwen3
+  parsers).
+* **Scheduler** (`scheduler.py`): keeps ~24 trials per inference GPU in flight as one small Harbor job
+  per TRAIN item (`-k 8` = one group, 8 min agent timeout); a finished job is converted by
+  `rollouts_to_pg.py --behavior` and, with signal, queued for the trainer; every group is logged to
+  `events.jsonl`; new adapters are loaded into every vLLM before the policy switches; adapters are
+  unloaded only when no running job can be pinned to them.
+* **Trainer** (`async_grpo.py`, torchrun): takes 4-12 ready groups sampled by the last <= 2 versions,
+  PPO-clipped loss `-min(r A, clip(r, 0.8, 1.2) A)` with `r = exp(logp_theta - logp_behaviour)` per
+  assistant token (behaviour log-probs aligned to the trainer's tokens by id; unmatched tokens use ratio
+  1), token-normalized, one optimizer step, publishes `adapters/v<N+1>`. `metrics.jsonl`: reward per kind,
+  staleness histogram, clip fraction, k3 KL(behaviour || current), matched fraction, grad norm, samples/min.
+* `start.sh` starts it all as systemd units; `cutover.sh` switches from the sync loop at an iteration
+  boundary and runs the final evals. Pipeline test without a real policy: `make_tiny_model.py --vllm`
+  (133M random model with the real head dims, servable by vLLM) and `scheduler.py --synthetic` (coin
+  rewards).
