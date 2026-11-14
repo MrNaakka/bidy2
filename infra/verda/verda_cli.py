@@ -17,6 +17,8 @@ import io
 import json
 import os
 import secrets
+import signal
+import socket
 import subprocess
 import sys
 import time
@@ -34,6 +36,10 @@ LEDGER_PATH = HERE / "ledger.jsonl"
 INVENTORY_PATH = HERE / "inventory.json"
 REMOTE = HERE / "remote"
 SSH_KEY = Path.home() / ".ssh" / "verda_framehunt"
+KNOWN_HOSTS = HERE / "known_hosts"  # host keys, pinned per instance id (HostKeyAlias)
+LOCK_PATH = HERE / ".serve-ensure.lock"
+TUNNEL_PIDFILE = HERE / "tunnel.pid"
+TUNNEL_LOG = HERE / "tunnel.log"
 
 # ---- fixed choices (pinned for reproducibility) --------------------------------
 LOCATION = "FIN-01"  # most spot GPU types + CPU spot; see inventory.json
@@ -54,6 +60,17 @@ SERVE_PREFIX = "fh-qwen-serve"
 DL_PREFIX = "fh-qwen-dl"
 DOWNLOAD_FALLBACK = ["CPU.8V.32G", "CPU.16V.64G", "CPU.4V.16G", "CPU.32V.128G"]
 STARTUP_GRACE_S = 40 * 60  # a serving box that is not healthy after this is replaced
+GONE_STATUSES = ("deleted", "discontinued")  # get_by_id status of an instance that no longer exists/bills
+
+# vLLM listens on 127.0.0.1:PORT on the instance only. This box reaches it through an
+# SSH local forward (TUNNEL_BIND:TUNNEL_PORT -> instance 127.0.0.1:PORT), so the Bearer
+# key never crosses the internet in clear text. Docker on this box is rootless
+# (slirp4netns with host loopback enabled): containers on any compose network reach the
+# host's 127.0.0.1 as 10.0.2.2, so QWEN_BASE_URL is http://10.0.2.2:TUNNEL_PORT/v1.
+# On rootful Docker set FH_TUNNEL_BIND=172.17.0.1 and FH_TUNNEL_CONTAINER_HOST=172.17.0.1.
+TUNNEL_BIND = os.environ.get("FH_TUNNEL_BIND", "127.0.0.1")
+TUNNEL_PORT = int(os.environ.get("FH_TUNNEL_PORT", "18000"))
+TUNNEL_CONTAINER_HOST = os.environ.get("FH_TUNNEL_CONTAINER_HOST", "10.0.2.2")
 
 # Serving candidates. Weights: BF16 55.6 GB, FP8 30.9 GB. The model is a hybrid
 # (Gated DeltaNet + 16 full-attention layers with 4 KV heads x 256), so KV cache
@@ -258,13 +275,17 @@ def ensure_ssh_key(c, state) -> str:
     return state["ssh_key_id"]
 
 
-def ssh(ip: str, cmd: str, timeout: int = 60, check: bool = False) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["ssh", "-i", str(SSH_KEY), "-o", "StrictHostKeyChecking=no", "-o",
-         "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "-o", "ConnectTimeout=10",
-         f"root@{ip}", cmd],
-        capture_output=True, text=True, timeout=timeout, check=check,
-    )
+def ssh_opts(alias: str) -> list[str]:
+    """Trust-on-first-use per instance: the host key is pinned under the instance id
+    (HostKeyAlias) in KNOWN_HOSTS, so a later box that reuses the IP gets its own entry."""
+    return ["-i", str(SSH_KEY), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
+            "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={KNOWN_HOSTS}",
+            "-o", f"HostKeyAlias={alias}", "-o", "LogLevel=ERROR", "-o", "ConnectTimeout=10"]
+
+
+def ssh(ip: str, cmd: str, *, alias: str, timeout: int = 60, check: bool = False) -> subprocess.CompletedProcess:
+    return subprocess.run(["ssh", *ssh_opts(alias), f"root@{ip}", cmd],
+                          capture_output=True, text=True, timeout=timeout, check=check)
 
 
 # ---- volume ---------------------------------------------------------------------
@@ -349,15 +370,69 @@ def create_instance(c, state, *, itype, hostname, script_name, script, spot, os_
     return inst
 
 
-def delete_instance(c, inst_id: str, reason: str = "") -> None:
+class DeleteFailed(RuntimeError):
+    """An instance could not be confirmed deleted; it may still be running and billing."""
+
+
+def _not_found(e: BaseException) -> bool:
+    return isinstance(e, APIException) and e.code == "not_found"
+
+
+def instance_gone(c, inst_id: str) -> bool:
+    """True only on confirmed absence (API 404 or a terminal status). API errors propagate."""
     try:
         inst = c.instances.get_by_id(inst_id)
-        c.instances.action(inst_id, "delete", volume_ids=[inst.os_volume_id] if inst.os_volume_id else None,
-                           delete_permanently=True)
-    except Exception as e:  # already gone (e.g. spot discontinued)
-        log(f"delete {inst_id}: {type(e).__name__}: {str(e)[:200]}")
+    except APIException as e:
+        if _not_found(e):
+            return True
+        raise
+    return inst.status in GONE_STATUSES
+
+
+def delete_instance(c, inst_id: str, reason: str = "", *, attempts: int = 5, backoff_s: float = 5.0,
+                    confirm_s: float = 300.0) -> None:
+    """Delete an instance and wait until the API confirms it is gone.
+
+    Transient failures (API errors, network errors, a delete that does not take) are
+    retried with exponential backoff. Only a confirmed absence is recorded in the
+    ledger; otherwise DeleteFailed is raised and the caller must keep its state.
+    """
+    last: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            inst = c.instances.get_by_id(inst_id)
+            if inst.status not in GONE_STATUSES:
+                if inst.status != "deleting":
+                    c.instances.action(inst_id, "delete",
+                                       volume_ids=[inst.os_volume_id] if inst.os_volume_id else None,
+                                       delete_permanently=True)
+                deadline = time.time() + confirm_s
+                while not instance_gone(c, inst_id):
+                    if time.time() > deadline:
+                        raise TimeoutError(f"still present {confirm_s:.0f}s after the delete request")
+                    time.sleep(5)
+            break
+        except Exception as e:
+            if _not_found(e):  # already gone (e.g. spot discontinued)
+                break
+            last = e
+            log(f"delete {inst_id} attempt {attempt}/{attempts} failed: {type(e).__name__}: {str(e)[:200]}")
+            if attempt < attempts:
+                time.sleep(backoff_s * 2 ** (attempt - 1))
+    else:
+        raise DeleteFailed(f"could not confirm deletion of instance {inst_id} after {attempts} attempts "
+                           f"({type(last).__name__}: {str(last)[:200]}); it may still be billing") from last
     ledger_append(event="delete", kind="instance", id=inst_id, reason=reason)
     log(f"deleted instance {inst_id} {reason}")
+
+
+def delete_by_hostnames(c, hostnames: list[str], reason: str, skip: set[str] = frozenset()) -> None:
+    """Clean up instances whose create call was interrupted before we learned their id."""
+    if not hostnames:
+        return
+    for i in c.instances.get():
+        if i.hostname in hostnames and i.id not in skip and i.status not in GONE_STATUSES:
+            delete_instance(c, i.id, reason=reason)
 
 
 def wait_volume_free(c, vol_id: str, timeout_s: int = 300) -> None:
@@ -424,36 +499,41 @@ def cmd_download(args) -> None:
     if not get_volume(c, state):
         sys.exit("no volume; run volume-create first")
     vol = state["volume"]
-    insts = our_instances(c, DL_PREFIX)
-    if insts:
-        inst = insts[0]
-        log(f"reusing download instance {inst.id} ({inst.status})")
-    else:
-        models = "\n".join(f"{r} {rev}" for r, rev in MODELS.items() if r in args.repos)
-        script = render("download.sh", {
-            "__MODELS__": models, "__VLLM_VERSION__": VLLM_VERSION,
-            "__VERIFY_PY__": (REMOTE / "verify_weights.py").read_text()}, vol)
-        types = [args.type] if args.type else DOWNLOAD_FALLBACK
-        options = [(t, True) for t in types] + [(t, False) for t in types]
-        if args.on_demand:
-            options = [(t, False) for t in types]
-        inst = None
-        for itype, spot in options:
-            try:
-                inst = create_instance(c, state, itype=itype, hostname=f"{DL_PREFIX}-{int(time.time())}",
-                                       script_name=DL_PREFIX, script=script, spot=spot, os_gb=120)
-                break
-            except APIException as e:
-                log(f"{itype} {'spot' if spot else 'on-demand'} unavailable: {str(e).splitlines()[-1][:120]}")
-        if inst is None:
-            sys.exit("no CPU capacity for the download instance")
-    inst = wait_running(c, inst.id)
-    log(f"download instance {inst.ip}; polling {MNT}/logs/download.status")
-    t0, status = time.time(), ""
+    inst, hostnames, status = None, [], ""
+    # Everything from provisioning on is inside try/finally, so a failure or Ctrl-C while
+    # creating or booting the box still deletes it (unless --keep).
     try:
+        insts = our_instances(c, DL_PREFIX)
+        if insts:
+            inst = insts[0]
+            log(f"reusing download instance {inst.id} ({inst.status})")
+        else:
+            models = "\n".join(f"{r} {rev}" for r, rev in MODELS.items() if r in args.repos)
+            script = render("download.sh", {
+                "__MODELS__": models, "__VLLM_VERSION__": VLLM_VERSION,
+                "__VERIFY_PY__": (REMOTE / "verify_weights.py").read_text()}, vol)
+            types = [args.type] if args.type else DOWNLOAD_FALLBACK
+            options = [(t, True) for t in types] + [(t, False) for t in types]
+            if args.on_demand:
+                options = [(t, False) for t in types]
+            for itype, spot in options:
+                hostname = f"{DL_PREFIX}-{int(time.time())}"
+                hostnames.append(hostname)
+                try:
+                    inst = create_instance(c, state, itype=itype, hostname=hostname,
+                                           script_name=DL_PREFIX, script=script, spot=spot, os_gb=120)
+                    break
+                except APIException as e:
+                    log(f"{itype} {'spot' if spot else 'on-demand'} unavailable: {str(e).splitlines()[-1][:120]}")
+            if inst is None:
+                sys.exit("no CPU capacity for the download instance")
+        inst = wait_running(c, inst.id)
+        log(f"download instance {inst.ip}; polling {MNT}/logs/download.status")
+        t0 = time.time()
         while time.time() - t0 < args.timeout_min * 60:
             r = ssh(inst.ip, f"cat {MNT}/logs/download.status 2>/dev/null; "
-                             f"du -sh {MNT}/models 2>/dev/null | cut -f1; tail -n 2 /var/log/fh/startup.log")
+                             f"du -sh {MNT}/models 2>/dev/null | cut -f1; tail -n 2 /var/log/fh/startup.log",
+                    alias=inst.id)
             out = r.stdout.strip().splitlines()
             if out:
                 status = out[0]
@@ -465,11 +545,14 @@ def cmd_download(args) -> None:
                 break
             time.sleep(60)
         r = ssh(inst.ip, f"{VERIFY_SUMMARY_CMD}; grep -E '^\\[fh\\]' {MNT}/logs/download.log | tail -n 20",
-                timeout=120)
+                alias=inst.id, timeout=120)
         print(r.stdout)
     finally:
         if not args.keep:
-            delete_instance(c, inst.id, reason=f"download {status or 'timeout'}")
+            reason = f"download {status or 'incomplete'}"
+            if inst is not None:
+                delete_instance(c, inst.id, reason=reason)
+            delete_by_hostnames(c, hostnames, reason=reason, skip={inst.id} if inst is not None else set())
             for sc in c.startup_scripts.get():
                 if sc.name == DL_PREFIX:
                     c.startup_scripts.delete_by_id(sc.id)
@@ -533,8 +616,126 @@ def health(base_url: str, key: str, timeout: float = 10) -> bool:
         return False
 
 
-def base_url_for(ip: str) -> str:
-    return f"http://{ip}:{PORT}/v1"
+def local_base_url() -> str:
+    """URL of the tunnel as seen from this box (host-side health checks, `test`)."""
+    host = "127.0.0.1" if TUNNEL_BIND in ("127.0.0.1", "0.0.0.0", "localhost") else TUNNEL_BIND
+    return f"http://{host}:{TUNNEL_PORT}/v1"
+
+
+def container_base_url() -> str:
+    """QWEN_BASE_URL: the tunnel as seen from Docker containers on this box. It does not
+    depend on the instance, so it survives preemption and re-provisioning."""
+    return f"http://{TUNNEL_CONTAINER_HOST}:{TUNNEL_PORT}/v1"
+
+
+# ---- ssh tunnel -----------------------------------------------------------------
+def tunnel_cmd(ip: str, alias: str) -> list[str]:
+    return ["ssh", *ssh_opts(alias), "-N",
+            "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3",
+            "-o", "ExitOnForwardFailure=yes",
+            "-L", f"{TUNNEL_BIND}:{TUNNEL_PORT}:127.0.0.1:{PORT}", f"root@{ip}"]
+
+
+def _pid_alive(pid: int) -> bool:
+    with contextlib.suppress(ChildProcessError, OSError):
+        os.waitpid(pid, os.WNOHANG)  # reap it if it is our own exited child
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return False
+    return stat.rsplit(")", 1)[1].split()[0] not in ("Z", "X")
+
+
+def _is_tunnel_pid(pid: int) -> bool:
+    try:
+        argv = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+    except OSError:
+        return False
+    return (bool(argv) and argv[0].endswith(b"ssh")
+            and f"{TUNNEL_BIND}:{TUNNEL_PORT}:127.0.0.1:{PORT}".encode() in argv)
+
+
+def _read_pidfile() -> dict | None:
+    try:
+        return json.loads(TUNNEL_PIDFILE.read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def tunnel_info() -> dict | None:
+    """The pidfile record if that tunnel process is alive, else None."""
+    info = _read_pidfile()
+    if info and _pid_alive(info["pid"]) and _is_tunnel_pid(info["pid"]):
+        return info
+    return None
+
+
+def _port_open(host: str, port: int) -> bool:
+    with contextlib.suppress(OSError), socket.create_connection((host, port), timeout=1):
+        return True
+    return False
+
+
+def stop_tunnel() -> None:
+    info = _read_pidfile()
+    if info and _pid_alive(info["pid"]) and _is_tunnel_pid(info["pid"]):
+        os.kill(info["pid"], signal.SIGTERM)
+        for _ in range(50):
+            if not _pid_alive(info["pid"]):
+                break
+            time.sleep(0.1)
+        else:
+            os.kill(info["pid"], signal.SIGKILL)
+        log(f"stopped tunnel pid {info['pid']} -> {info.get('ip')}")
+    TUNNEL_PIDFILE.unlink(missing_ok=True)
+
+
+def start_tunnel(inst_id: str, ip: str, timeout_s: float = 30) -> bool:
+    """(Re)start the detached ssh -N -L process to this instance. True once it listens."""
+    stop_tunnel()
+    host = local_base_url().split("//")[1].rsplit(":", 1)[0]
+    if _port_open(host, TUNNEL_PORT):
+        raise RuntimeError(f"{host}:{TUNNEL_PORT} is in use by another process; set FH_TUNNEL_PORT")
+    with TUNNEL_LOG.open("a") as lf:
+        lf.write(f"--- {now_iso()} tunnel to {ip} ({inst_id})\n")
+        lf.flush()
+        p = subprocess.Popen(tunnel_cmd(ip, inst_id), stdin=subprocess.DEVNULL, stdout=lf, stderr=lf,
+                             start_new_session=True)  # survives this CLI (and its watchdog loop)
+    TUNNEL_PIDFILE.write_text(json.dumps({"pid": p.pid, "inst_id": inst_id, "ip": ip, "bind": TUNNEL_BIND,
+                                          "port": TUNNEL_PORT, "started": now_iso()}) + "\n")
+    t0 = time.time()
+    while time.time() - t0 < timeout_s:
+        if p.poll() is not None:  # ssh refused / sshd not up yet / forward failed
+            TUNNEL_PIDFILE.unlink(missing_ok=True)
+            log(f"tunnel to {ip} exited rc={p.returncode} (see {TUNNEL_LOG.relative_to(ROOT)})")
+            return False
+        if _port_open(host, TUNNEL_PORT):
+            log(f"tunnel up: {TUNNEL_BIND}:{TUNNEL_PORT} -> {ip}:127.0.0.1:{PORT} (pid {p.pid})")
+            return True
+        time.sleep(0.5)
+    stop_tunnel()
+    log(f"tunnel to {ip} not listening after {timeout_s:.0f}s")
+    return False
+
+
+def ensure_tunnel(inst_id: str, ip: str) -> bool:
+    """Keep a live tunnel that points at this instance; restart a dead one, re-point a stale one."""
+    info = tunnel_info()
+    if info and info.get("inst_id") == inst_id and info.get("ip") == ip:
+        return True
+    if info:
+        log(f"tunnel points at {info.get('ip')} ({str(info.get('inst_id'))[:8]}); re-pointing to {ip}")
+    elif TUNNEL_PIDFILE.exists():
+        log("tunnel process is dead; restarting")
+    return start_tunnel(inst_id, ip)
+
+
+# ---- serving --------------------------------------------------------------------
+def _write_base_url() -> str:
+    url = container_base_url()
+    if load_env().get("QWEN_BASE_URL") != url:
+        set_env_var("QWEN_BASE_URL", url)
+    return url
 
 
 def cmd_serve_up(args) -> None:
@@ -542,16 +743,20 @@ def cmd_serve_up(args) -> None:
     state = load_state()
     if not get_volume(c, state) or "weights" not in state:
         sys.exit("volume/weights missing; run volume-create and download first")
-    existing = [i for i in our_instances(c, SERVE_PREFIX) if i.status not in ("error", "discontinued")]
+    existing = [i for i in our_instances(c, SERVE_PREFIX) if i.status not in ("error", *GONE_STATUSES)]
     if existing:
         inst = existing[0]
         log(f"serving instance already exists: {inst.id} {inst.instance_type} {inst.status}")
-    else:
-        opts = pick_candidate(c, args)
-        if not opts:
-            sys.exit("no candidate GPU available in the volume's location (try --on-demand)")
-        key = api_key()
-        inst = None
+        if args.no_wait:
+            return
+        wait_healthy(c, inst.id, args.timeout_min)  # not ours to delete on failure
+        return
+    opts = pick_candidate(c, args)
+    if not opts:
+        sys.exit("no candidate GPU available in the volume's location (try --on-demand)")
+    key = api_key()
+    inst, hostnames = None, []
+    try:
         for price, itype, variant, extra, spot in opts:
             model_dir = state["weights"].get(VARIANT_REPO[variant], {}).get("path")
             if not model_dir:
@@ -563,6 +768,7 @@ def cmd_serve_up(args) -> None:
                 "__SERVED_NAME__": SERVED_NAME, "__PORT__": str(PORT),
                 "__VLLM_ARGS__": " ".join(va), "__API_KEY__": key}, state["volume"])
             hostname = f"{SERVE_PREFIX}-{int(time.time())}"
+            hostnames.append(hostname)
             try:
                 inst = create_instance(c, state, itype=itype, hostname=hostname, script_name=SERVE_PREFIX,
                                        script=script, spot=spot, os_gb=60)
@@ -575,29 +781,46 @@ def cmd_serve_up(args) -> None:
                           "eur_per_h": price, "created": time.time(), "vllm_args": va,
                           "model_dir": model_dir}
         save_state(state)
-    if args.no_wait:
-        return
-    wait_healthy(c, inst.id, args.timeout_min)
+        if args.no_wait:
+            return
+        wait_healthy(c, inst.id, args.timeout_min)
+    except BaseException as e:  # includes sys.exit() from a health timeout and Ctrl-C
+        if args.keep or (inst is None and not hostnames):
+            raise
+        log(f"serve startup failed ({type(e).__name__}: {str(e)[:160]}); deleting the new instance "
+            "(use --keep to keep it)")
+        if inst is not None:
+            delete_instance(c, inst.id, reason="serve-up startup failed")
+        delete_by_hostnames(c, hostnames, reason="serve-up startup failed",
+                            skip={inst.id} if inst is not None else set())
+        st = load_state()
+        if inst is not None and st.get("serve", {}).get("id") == inst.id:
+            st.pop("serve")
+            save_state(st)
+            info = tunnel_info()
+            if info and info.get("inst_id") == inst.id:
+                stop_tunnel()
+        raise
 
 
 def wait_healthy(c, inst_id: str, timeout_min: float) -> None:
     key = load_env()["QWEN_API_KEY"]
     inst = wait_running(c, inst_id)
-    url = base_url_for(inst.ip)
+    url = local_base_url()
     t0 = time.time()
     last_tail = ""
     while time.time() - t0 < timeout_min * 60:
-        if health(url, key):
-            set_env_var("QWEN_BASE_URL", url)
+        if ensure_tunnel(inst.id, inst.ip) and health(url, key):
+            cburl = _write_base_url()
             state = load_state()
             state.setdefault("serve", {})["ready_after_s"] = round(time.time() - state["serve"].get("created", t0))
-            state["serve"]["base_url"] = url
+            state["serve"]["base_url"] = cburl
             save_state(state)
-            log(f"healthy: {url} (QWEN_BASE_URL written to .env)")
+            log(f"healthy via tunnel {url}; QWEN_BASE_URL={cburl} (for containers)")
             return
         try:
             r = ssh(inst.ip, f"tail -n 1 {MNT}/logs/serve-$(hostname).log 2>/dev/null || tail -n 1 /var/log/fh/startup.log",
-                    timeout=30)
+                    alias=inst.id, timeout=30)
             tail = r.stdout.strip()[-160:]
             if tail and tail != last_tail:
                 log(f"... {tail}")
@@ -611,11 +834,19 @@ def wait_healthy(c, inst_id: str, timeout_min: float) -> None:
 def cmd_serve_down(args) -> None:
     c = client()
     state = load_state()
+    failed = []
     for inst in our_instances(c, SERVE_PREFIX):
-        delete_instance(c, inst.id, reason="serve-down")
+        try:
+            delete_instance(c, inst.id, reason="serve-down")
+        except DeleteFailed as e:
+            log(str(e))
+            failed.append(inst.id)
+    if failed:  # keep state, tunnel and QWEN_BASE_URL: the box may still be running
+        raise DeleteFailed(f"serve-down could not delete {failed}; state kept, rerun serve-down")
     for s in c.startup_scripts.get():
         if s.name == SERVE_PREFIX:
             c.startup_scripts.delete_by_id(s.id)
+    stop_tunnel()
     state.pop("serve", None)
     save_state(state)
     set_env_var("QWEN_BASE_URL", "")
@@ -626,15 +857,17 @@ def cmd_serve_status(args) -> None:
     env = load_env()
     state = load_state()
     insts = our_instances(c, SERVE_PREFIX)
+    info = tunnel_info()
     if not insts:
         print("no serving instance")
     for i in insts:
-        url = base_url_for(i.ip) if i.ip else None
-        ok = bool(url and health(url, env.get("QWEN_API_KEY", "")))
+        via = bool(info and info.get("inst_id") == i.id)
+        ok = via and health(local_base_url(), env.get("QWEN_API_KEY", ""))
         print(json.dumps({"id": i.id, "type": i.instance_type, "status": i.status, "spot": i.is_spot,
-                          "ip": i.ip, "base_url": url, "healthy": ok,
+                          "ip": i.ip, "tunnel": via, "base_url": env.get("QWEN_BASE_URL"), "healthy": ok,
                           "variant": state.get("serve", {}).get("variant"),
                           "price_per_hour": i.price_per_hour}))
+    print(json.dumps({"tunnel": info, "local_url": local_base_url()}))
 
 
 @contextlib.contextmanager
@@ -649,19 +882,25 @@ def file_lock(path: Path):
 
 
 def cmd_serve_ensure(args) -> None:
-    """Idempotent: healthy -> no-op; booting -> wait (or return); gone/broken -> replace."""
-    with file_lock(HERE / ".serve-ensure.lock"):
+    """Idempotent: healthy -> no-op; booting -> wait (or return); gone/broken -> replace.
+    Also keeps the SSH tunnel alive and pointed at the current box. QWEN_BASE_URL never
+    changes across re-provisioning, so running jobs pick up the new box transparently."""
+    with file_lock(LOCK_PATH):
         c = client()
         state = load_state()
         key = load_env().get("QWEN_API_KEY", "")
         insts = our_instances(c, SERVE_PREFIX)
         for i in insts:
-            url = base_url_for(i.ip) if i.ip else None
-            if url and health(url, key):
-                if load_env().get("QWEN_BASE_URL") != url:
-                    set_env_var("QWEN_BASE_URL", url)
-                log(f"healthy {i.instance_type} {url}")
-                return
+            if i.ip and i.status == "running":
+                was_up = tunnel_info() is not None
+                up = ensure_tunnel(i.id, i.ip)
+                ok = up and health(local_base_url(), key)
+                if up and not ok and was_up:  # rule out a wedged tunnel before judging the box
+                    ok = start_tunnel(i.id, i.ip) and health(local_base_url(), key)
+                if ok:
+                    url = _write_base_url()
+                    log(f"healthy {i.instance_type} {i.ip} via tunnel; QWEN_BASE_URL={url}")
+                    return
             age = time.time() - state.get("serve", {}).get("created", 0) if state.get("serve", {}).get("id") == i.id else 1e9
             if i.status in ("error", "discontinued", "offline", "deleting") or age > STARTUP_GRACE_S:
                 log(f"replacing {i.id} status={i.status} age={age:.0f}s")
@@ -732,10 +971,11 @@ def stream_tps(url, key, max_tokens=512) -> dict:
 
 def cmd_test(args) -> None:
     env = load_env()
-    url, key = env.get("QWEN_BASE_URL"), env.get("QWEN_API_KEY")
-    if not url:
-        sys.exit("QWEN_BASE_URL not set; run serve-up")
-    results = {"base_url_host": url.split("//")[1].split(":")[0]}
+    key = env.get("QWEN_API_KEY")
+    if not env.get("QWEN_BASE_URL") or not tunnel_info():
+        sys.exit("no endpoint/tunnel; run serve-up or serve-ensure")
+    url = local_base_url()  # QWEN_BASE_URL is the container-side address of the same tunnel
+    results = {"base_url": env["QWEN_BASE_URL"], "via_tunnel_to": tunnel_info().get("ip")}
     # unauthenticated request must fail
     results["no_key_status"] = httpx.get(f"{url}/models", timeout=10).status_code
 
@@ -793,7 +1033,7 @@ def harbor_agent_entry(base_url: str) -> dict:
 
 
 def cmd_harbor_agent(args) -> None:
-    url = load_env().get("QWEN_BASE_URL") or "http://<ip>:8000/v1"
+    url = load_env().get("QWEN_BASE_URL") or container_base_url()
     print(json.dumps(harbor_agent_entry(url), indent=1))
 
 
@@ -855,6 +1095,8 @@ def main() -> None:
         s.add_argument("--on-demand", action="store_true", help="also consider on-demand capacity")
         s.add_argument("--mtp", action="store_true", help="enable MTP speculative decoding")
         s.add_argument("--timeout-min", type=float, default=40)
+        s.add_argument("--keep", action="store_true",
+                       help="keep a newly created instance if it fails to become healthy")
         if name == "serve-up":
             s.add_argument("--no-wait", action="store_true")
         else:
@@ -877,7 +1119,10 @@ def main() -> None:
         b = client().balance.get()
         st["initial_balance"] = f"{b.amount:.3f} {b.currency} @ {now_iso()}"
         save_state(st)
-    args.fn(args)
+    try:
+        args.fn(args)
+    except DeleteFailed as e:
+        sys.exit(f"ERROR: {e}")
 
 
 if __name__ == "__main__":

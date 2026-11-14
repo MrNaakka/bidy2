@@ -1,6 +1,6 @@
 """Write one Harbor task directory per FrameHunt item.
 
-    uv run python scripts/build_tasks.py --split eval [--out tasks/eval] [--budget 500000] [--only ID ...]
+    uv run python scripts/build_tasks.py --split eval [--out tasks/eval] [--budget 120000] [--only ID ...]
 
 Layout per item (follows step0/probe):
     task.toml                      MCP server `framehunt` at http://fh-mcp:8000/mcp

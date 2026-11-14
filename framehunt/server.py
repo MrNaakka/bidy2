@@ -8,7 +8,7 @@ call log; ``/_health`` is public.
 The logic lives in :class:`FrameHuntEnv` (plain Python, testable without HTTP).
 :func:`build_mcp` wires an env into a FastMCP app.
 
-Env vars: FH_KIND, FH_SEED, FH_BUDGET_PX (default 500000), VERIFY_TOKEN,
+Env vars: FH_KIND, FH_SEED, FH_BUDGET_PX (default 120000), VERIFY_TOKEN,
 FH_LOG_PATH (optional JSONL copy of the call log).
 """
 
@@ -26,7 +26,7 @@ from typing import Any, Callable
 
 from PIL import Image as PILImage
 
-DEFAULT_BUDGET_PX = 500_000
+DEFAULT_BUDGET_PX = 120_000
 MIN_OUT_WIDTH = 8
 MIN_SHEET_N = 2
 MAX_SHEET_N = 16

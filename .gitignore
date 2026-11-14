@@ -8,3 +8,6 @@ tasks/
 reviews/*.log
 infra/verda/.serve-ensure.lock
 secrets/
+infra/verda/tunnel.pid
+infra/verda/tunnel.log
+infra/verda/known_hosts

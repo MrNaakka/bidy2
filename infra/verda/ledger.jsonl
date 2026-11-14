@@ -11,3 +11,4 @@
 {"ts": "2026-11-14T01:33:02+00:00", "event": "delete", "kind": "instance", "id": "9f6c62cc-edfc-4cb5-b2cf-70702042784e", "reason": "gone (spot preempted?)"}
 {"ts": "2026-11-14T01:34:09+00:00", "event": "create", "kind": "instance", "id": "b1a21537-7df8-41f8-b615-b88f60e50b4c", "type": "1H100.80S.30V", "hostname": "fh-qwen-serve-1794620026", "location": "FIN-01", "spot": true, "price_per_hour": 2.341, "currency": "eur", "api_price_per_hour": 2.3414}
 {"ts": "2026-11-14T01:40:47+00:00", "event": "delete", "kind": "instance", "id": "b1a21537-7df8-41f8-b615-b88f60e50b4c", "reason": "serve-down"}
+{"ts": "2026-11-14T02:35:37+00:00", "event": "create", "kind": "instance", "id": "5dc90c09-c33d-462e-92a8-220021594a9e", "type": "1A100.22V", "hostname": "fh-qwen-serve-1794623712", "location": "FIN-01", "spot": true, "price_per_hour": 1.071, "currency": "eur", "api_price_per_hour": 1.0712}

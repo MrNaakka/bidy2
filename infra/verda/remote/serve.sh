@@ -1,6 +1,7 @@
 # Job body for the vLLM serving instance (appended to common.sh by verda_cli.py).
 # Placeholders (double-underscore wrapped): VLLM_VERSION, MODEL_DIR, SERVED_NAME, PORT,
 #   VLLM_ARGS, API_KEY
+# vLLM binds 127.0.0.1 only; verda_cli.py reaches it through an SSH tunnel.
 mount_data || exit 1
 VENV="$MNT/envs/vllm-__VLLM_VERSION__"
 mkdir -p "$MNT/logs"
@@ -30,7 +31,7 @@ Environment=CUDA_HOME=/usr/local/cuda
 Environment=FLASHINFER_WORKSPACE_BASE=$MNT/cache/flashinfer
 # PyTorch-native top-k/top-p sampler: avoids a multi-minute FlashInfer JIT on every new box
 Environment=VLLM_USE_FLASHINFER_SAMPLER=0
-ExecStart=$VENV/bin/vllm serve __MODEL_DIR__ --served-model-name __SERVED_NAME__ --host 0.0.0.0 --port __PORT__ --api-key \${VLLM_API_KEY} __VLLM_ARGS__
+ExecStart=$VENV/bin/vllm serve __MODEL_DIR__ --served-model-name __SERVED_NAME__ --host 127.0.0.1 --port __PORT__ --api-key \${VLLM_API_KEY} __VLLM_ARGS__
 Restart=on-failure
 RestartSec=15
 StandardOutput=append:$LOG

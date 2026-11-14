@@ -83,7 +83,7 @@ identical on every machine. All randomness uses `random.Random(seed)` /
 
 ### MCP server `framehunt/server.py`
 
-Configured by env vars: `FH_KIND`, `FH_SEED`, `FH_BUDGET_PX` (default 500000),
+Configured by env vars: `FH_KIND`, `FH_SEED`, `FH_BUDGET_PX` (default 120000),
 `VERIFY_TOKEN`, `FH_LOG_PATH` (optional). Streamable HTTP on `0.0.0.0:8000/mcp`.
 
 Agent-facing tools (the agent's whole action space):
@@ -197,3 +197,7 @@ answering *without looking*.
   well-formed guess).
 - `scripts/eval.sh`: one command that builds tasks, then runs the reference, three
   agent runs, and both baselines through Harbor, and prints a results table.
+
+## Budget choice (120k pixels)
+
+Pilot runs with Opus 5.5 (2026-11-14) set this number. At 500k pixels Opus solved 3 of 3 items while spending 60–97 % of the budget. Its first 480-wide overview frame alone cost 130k, and none of that waste was ever punished. The reference needs at most 58.6k on any eval item. At 120k, about 2× the reference, careless spending stops being free. One full native frame (2.07 Mpx) is far out of reach, but there is ample room for a planned coarse-to-fine search. In the 120k pilot Opus scored 5 of 6. The failure was a grid-indexing slip on a contact sheet, never checked before it spent the remaining budget.

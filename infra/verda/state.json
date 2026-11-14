@@ -19,5 +19,29 @@
    "path": "/mnt/fh/models/Qwen3.8-27B-FP8"
   }
  },
- "vllm_env": "/mnt/fh/envs/vllm-0.33.0"
+ "vllm_env": "/mnt/fh/envs/vllm-0.33.0",
+ "serve": {
+  "id": "5dc90c09-c33d-462e-92a8-220021594a9e",
+  "type": "1A100.22V",
+  "variant": "bf16",
+  "spot": true,
+  "eur_per_h": 1.071,
+  "created": 1794623737.9308982,
+  "vllm_args": [
+   "--max-model-len",
+   "65536",
+   "--gpu-memory-utilization",
+   "0.92",
+   "--max-num-seqs",
+   "16",
+   "--enable-auto-tool-choice",
+   "--tool-call-parser",
+   "qwen3_coder",
+   "--reasoning-parser",
+   "qwen3",
+   "--limit-mm-per-prompt",
+   "'{\"image\": 64, \"video\": 0}'"
+  ],
+  "model_dir": "/mnt/fh/models/Qwen3.8-27B"
+ }
 }
