@@ -167,6 +167,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
     && rm -rf /var/lib/apt/lists/*
 # Pinned like the sidecar. The reference solution (oracle) needs them; agents may use them too.
 RUN pip3 install --no-cache-dir --break-system-packages {pins}
+# Pre-install what Harbor's OpenCode agent installs at setup (nvm + Node 22 + opencode-ai, the
+# version eval.sh pins). Harbor still runs its install step, but it then finds everything in
+# place instead of downloading it in every trial. This only speeds up setup; the agent's
+# environment is the same. Agents without Node are unaffected.
+ENV NVM_DIR=/root/.nvm
+RUN curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.2/install.sh | env -u NODE_VERSION bash \
+    && . "$NVM_DIR/nvm.sh" && nvm install 22 && nvm alias default 22 \
+    && npm i -g opencode-ai@1.19.5 && opencode --version \
+    && ln -sf "$(command -v node)" /usr/local/bin/node && ln -sf "$(command -v npm)" /usr/local/bin/npm
 WORKDIR /app
 """
 

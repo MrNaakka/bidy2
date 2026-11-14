@@ -121,7 +121,7 @@ def test_serve_down_keeps_state_when_delete_fails(sandbox, monkeypatch):
     assert vc.load_state()["serve"]["id"] == "i1"
     assert vc.load_env()["QWEN_BASE_URL"] == "http://10.0.2.2:18000/v1"
     stop.assert_not_called()
-    assert ledger(sandbox) == []
+    assert not any(r["event"] == "delete" for r in ledger(sandbox))
 
 
 def test_serve_down_success_clears_state(sandbox, monkeypatch):
@@ -1273,7 +1273,7 @@ def test_train_budget_guard(sandbox, monkeypatch):
 def _tick_env(monkeypatch, status_text, *, box_extra=None, run_extra=None):
     st = _train_state(train_run=_run(**(run_extra or {})),
                       train={"id": "t1", "hostname": "fhbot-train-0123456789ab", "created": vc.time.time(),
-                             **(box_extra or {})})
+                             "run": "r1", **(box_extra or {})})
     vc.save_state(st)
     c = mock.Mock()
     c.instances.get_by_id.return_value = inst("t1", hostname="fhbot-train-0123456789ab", ip="5.5.5.5")
@@ -1284,7 +1284,8 @@ def _tick_env(monkeypatch, status_text, *, box_extra=None, run_extra=None):
     def fake_ssh(ip, cmd, **k):
         calls["ssh"].append(cmd)
         if "ready=" in cmd:
-            return SimpleNamespace(stdout=status_text, stderr="", returncode=0)
+            text = status_text if "run=" in status_text else "run=r1\n" + status_text
+            return SimpleNamespace(stdout=text, stderr="", returncode=0)
         if "printf 'data=" in cmd:  # identity: what is on the volume
             return SimpleNamespace(stdout=f"data=D\ncode=C\nmanifest={manifest}\nrunstate=3\n", stderr="",
                                    returncode=0)
@@ -1293,7 +1294,7 @@ def _tick_env(monkeypatch, status_text, *, box_extra=None, run_extra=None):
     monkeypatch.setattr(vc, "ssh", fake_ssh)
     monkeypatch.setattr(vc, "_upload_dir", lambda *a: calls.__setitem__("upload", calls["upload"] + 1))
     monkeypatch.setattr(vc, "train_fetch_from", lambda ip, alias, run: calls.__setitem__("fetch", 1) or vc.ROOT / "train/out/r1")
-    monkeypatch.setattr(vc, "delete_instance", lambda c, i, reason="": calls["deleted"].append(i))
+    monkeypatch.setattr(vc, "delete_instance", lambda c, i, reason="", **k: calls["deleted"].append(i))
     return c, calls
 
 
@@ -1570,7 +1571,7 @@ def test_r10_5_resume_with_different_identity_is_refused_on_tick(sandbox, monkey
 def test_r10_5_done_with_foreign_manifest_not_accepted(sandbox, monkeypatch):
     c, calls = _tick_env(monkeypatch, "ready=1\nservice=inactive\ndone=1\nfatal=0\n", box_extra={"started": True})
     vc.update_state(lambda s: s["train_run"].update(code_sha="OTHER-CODE"))
-    assert vc.train_tick(c) == "done"
+    assert vc.train_tick(c) == "failed"
     run = vc.load_state()["train_run"]
     assert calls["deleted"] == ["t1"] and not run.get("done") and run["failed"].startswith("DONE rejected")
     assert not any("cp -r" in x for x in calls["ssh"])
@@ -1689,8 +1690,9 @@ def test_r11_3_manifest_only_written_into_fresh_dir(sandbox, tmp_path, monkeypat
 
 def test_r11_3_done_without_manifest_is_not_accepted(sandbox, tmp_path, monkeypatch):
     run, out = _vol_dirs(tmp_path, monkeypatch, run_files=("final", "DONE"))
-    with pytest.raises(vc.TrainFatal, match="no manifest"):
-        vc.train_publish_via("ip", "a", run)
+    vc.save_state({"train_run": run})
+    assert vc.train_verify_and_publish("ip", "a", run) == "failed"
+    assert "no manifest" in vc.load_state()["train_run"]["failed"]
     assert not (tmp_path / "adapters").exists()
 
 
@@ -1700,6 +1702,100 @@ def test_r11_3_tick_rejects_done_without_manifest(sandbox, monkeypatch):
     monkeypatch.setattr(vc, "ssh", lambda ip, cmd, **k: SimpleNamespace(
         stdout="data=D\ncode=C\nmanifest=\nrunstate=3\n", stderr="", returncode=0)
         if "printf 'data=" in cmd else real(ip, cmd, **k))
-    assert vc.train_tick(c) == "done"
+    assert vc.train_tick(c) == "failed"
     run = vc.load_state()["train_run"]
     assert calls["deleted"] == ["t1"] and not run.get("done") and "no manifest" in run["failed"]
+
+
+# ---- r12 ---------------------------------------------------------------------------------------
+def test_r12_1_ledger_row_written_with_tracking(sandbox, monkeypatch):
+    c = _post_cloud(monkeypatch, lambda url, json: SimpleNamespace(text="t-new"))
+    monkeypatch.setattr(vc, "eur_prices", lambda c: {"1H100.80S.30V": {"spot_price": "2.341"}})
+    seen = []
+    real_append = vc.ledger_append
+
+    def spy(**rec):  # the ledger row is written inside the tracking transaction
+        seen.append(vc._txn_depth)
+        real_append(**rec)
+
+    monkeypatch.setattr(vc, "ledger_append", spy)
+    vc.create_instance(c, _vol_state(), role="train", itype="1H100.80S.30V", hostname="fhbot-train-0123456789ab",
+                       script_name="x", script="s", spot=True, record={"run": "r1"})
+    assert seen == [1]
+    assert vc.load_state()["train"]["price_per_hour"] == 2.341 and ledger(sandbox)[0]["id"] == "t-new"
+
+
+def test_r12_1_reconcile_backfills_missing_create_for_tracked_box(sandbox, recon, monkeypatch):
+    created = vc.time.time() - 3 * 3600
+    vc.save_state(_train_state(train_run=_run(), train={"id": "t1", "hostname": "fhbot-train-0123456789ab",
+                                                       "created": created, "price_per_hour": 2.341, "run": "r1"}))
+    recon.instances.get.return_value = [inst("t1", hostname="fhbot-train-0123456789ab")]
+    vc.reconcile(recon)  # interrupted between tracking and the ledger write
+    rows = ledger(sandbox)
+    assert len(rows) == 1 and rows[0]["id"] == "t1" and rows[0]["price_per_hour"] == 2.341
+    assert abs(vc.datetime.fromisoformat(rows[0]["ts"]).timestamp() - created) < 2
+    assert 6.5 < vc.ledger_total_eur() < 7.5  # ~3 h x 2.341: the budget guard sees the spend
+    vc.reconcile(recon)
+    assert len(ledger(sandbox)) == 1  # idempotent
+
+
+def test_r12_2_train_up_refuses_while_other_runs_box_is_tracked(train_cloud, monkeypatch):
+    vc.save_state(_train_state(train_run=_run(run="A", desired=False),
+                               train={"id": "tA", "hostname": "fhbot-train-0123456789ab", "created": vc.time.time(),
+                                      "run": "A"}))
+    train_cloud.instances.get.return_value = [inst("tA", hostname="fhbot-train-0123456789ab")]
+    prov = mock.Mock()
+    monkeypatch.setattr(vc, "_train_provision", prov)
+    with pytest.raises(SystemExit, match="still tracked"):
+        vc.cmd_train_up(_up_args(run="B"))
+    prov.assert_not_called()
+    assert vc.load_state()["train_run"]["run"] == "A"  # definition not replaced
+
+
+def test_r12_2_tick_deletes_box_recorded_for_another_run(sandbox, monkeypatch):
+    c, calls = _tick_env(monkeypatch, READY_IDLE, box_extra={"run": "A"})  # train_run is r1
+    assert vc.train_tick(c) == "cleaned" and calls["deleted"] == ["t1"]
+    assert not any("systemctl start" in x for x in calls["ssh"])
+
+
+def test_r12_2_tick_deletes_box_whose_unit_runs_another_run(sandbox, monkeypatch):
+    c, calls = _tick_env(monkeypatch, "run=A\n" + READY_IDLE.replace("service=inactive", "service=active"),
+                         box_extra={"started": True})
+    assert vc.train_tick(c) == "cleaned" and calls["deleted"] == ["t1"]
+
+
+def test_r12_3_manifest_read_failure_keeps_run_unverified_then_retries(sandbox, monkeypatch):
+    c, calls = _tick_env(monkeypatch, "ready=1\nservice=inactive\ndone=1\nfatal=0\n", box_extra={"started": True})
+    real = vc.ssh
+    monkeypatch.setattr(vc, "ssh", lambda ip, cmd, **k: (_ for _ in ()).throw(TimeoutError("ssh timed out"))
+                        if "printf 'data=" in cmd else real(ip, cmd, **k))
+    assert vc.train_tick(c) == "unverified"
+    run = vc.load_state()["train_run"]
+    assert calls["deleted"] == ["t1"] and "train" not in vc.load_state()  # GPU gone anyway
+    assert run["unverified"] and not run.get("done") and not run.get("adapter")
+    monkeypatch.setattr(vc, "client", lambda: c)
+    monkeypatch.setattr(vc, "reconcile", lambda c: None)
+    for f, v in (("data_sha", "D"), ("train_code_sha", "C"), ("train_req_hash", "R")):
+        monkeypatch.setattr(vc, f, (lambda v: lambda *a: v)(v))
+    monkeypatch.setattr(vc, "epoch_tokens", lambda d: 1)
+    with pytest.raises(SystemExit, match="unverified"):  # cannot be restarted as a new training
+        vc.cmd_train_up(_up_args())
+    # no box with the volume: stays unverified
+    monkeypatch.setattr(vc, "_train_box_ip", lambda c: None)
+    assert vc.train_tick(c) == "unverified"
+    # the serving box comes up: the next tick verifies and publishes through it
+    monkeypatch.setattr(vc, "ssh", real)
+    monkeypatch.setattr(vc, "_train_box_ip", lambda c: ("6.6.6.6", "g1"))
+    assert vc.train_tick(c) == "done"
+    run = vc.load_state()["train_run"]
+    assert run["done"] and not run["unverified"] and run["adapter"] == "/mnt/fh/adapters/r1"
+
+
+def test_r12_3_train_publish_verifies_unverified_run(sandbox, monkeypatch):
+    c, calls = _tick_env(monkeypatch, READY_IDLE, run_extra={"desired": False, "unverified": True})
+    vc.update_state(lambda s: s.pop("train"))
+    monkeypatch.setattr(vc, "client", lambda: c)
+    monkeypatch.setattr(vc, "reconcile", lambda c: None)
+    monkeypatch.setattr(vc, "_train_box_ip", lambda c: ("6.6.6.6", "g1"))
+    vc.cmd_train_publish(SimpleNamespace(run=None))
+    assert vc.load_state()["train_run"]["done"] is True

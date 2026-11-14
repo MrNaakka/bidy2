@@ -222,7 +222,7 @@ def now_iso() -> str:
 
 
 def ledger_append(**rec) -> None:
-    rec = {"ts": now_iso(), **rec}
+    rec = {"ts": now_iso(), **rec}  # a caller may pass ts= (backfill with the original creation time)
     with LEDGER_PATH.open("a") as f:
         f.write(json.dumps(rec) + "\n")
 
@@ -503,17 +503,18 @@ def create_instance(c, state, *, role, itype, hostname, script_name, script, spo
     # (any other failure, e.g. a lost response, leaves the intent for reconcile's sweep)
     eur_h = float(prices.get(itype, {}).get("spot_price" if spot else "price_per_hour", 0) or 0)
     tracked = {"id": inst_id, "hostname": hostname, "type": itype, "spot": spot, "created": time.time(),
-               **(record or {})}
+               "price_per_hour": eur_h, **(record or {})}
 
-    def track(st):
+    def track(st):  # ledger row and tracking in one state transaction (ledger first)
+        if not _ledger_has("create", inst_id):
+            ledger_append(event="create", kind="instance", id=inst_id, type=itype, hostname=hostname,
+                          location=vol["location"], spot=spot, price_per_hour=eur_h, currency="eur")
         st[role] = tracked
         st.get("pending_creates", {}).pop(hostname, None)
         if not st.get("pending_creates"):
             st.pop("pending_creates", None)
     update_state(track)
     state[role] = tracked
-    ledger_append(event="create", kind="instance", id=inst_id, type=itype, hostname=hostname,
-                  location=vol["location"], spot=spot, price_per_hour=eur_h, currency="eur")
     log(f"created {itype} {'spot' if spot else 'on-demand'} {inst_id} ({hostname}) €{eur_h}/h")
     return SimpleNamespace(id=inst_id, hostname=hostname, instance_type=itype, is_spot=spot)
 
@@ -677,6 +678,15 @@ def reconcile(c) -> dict:
         if dl.get("id") in live and not dl.get("keep") and not owner_alive(dl):
             to_delete.append(live[dl["id"]])
         tracked = {(st.get(r) or {}).get("id") for r in ROLES}
+        for role in ROLES:  # tracked boxes always have a ledger row (spend accounting / budget)
+            rec = st.get(role) or {}
+            if rec.get("id") in live and not _ledger_has("create", rec["id"]):
+                i = live[rec["id"]]
+                ledger_append(ts=datetime.fromtimestamp(rec.get("created", t_list), UTC).isoformat(timespec="seconds"),
+                              event="create", kind="instance", id=i.id, type=i.instance_type,
+                              hostname=i.hostname, location=i.location, spot=i.is_spot,
+                              price_per_hour=float(rec.get("price_per_hour") or i.price_per_hour or 0),
+                              currency="eur", note="backfilled by reconcile")
         for i in live.values():  # the fh- sweep
             if i.id in tracked or i.hostname in creating:
                 continue
@@ -1681,6 +1691,7 @@ def train_prepare(ip: str, alias: str, run: dict) -> None:
 
 
 TRAIN_STATUS_CMD = """OUT={out}
+echo "run=$(cat /var/lib/fh/train-run 2>/dev/null)"
 echo "ready=$(test -f /var/lib/fh/train-ready && echo 1 || echo 0)"
 echo "service=$(systemctl is-active fh-train 2>/dev/null || true)"
 echo "exit=$(systemctl show fh-train -p ExecMainStatus --value 2>/dev/null)"
@@ -1693,7 +1704,7 @@ tail -n 10 $OUT/loss.jsonl 2>/dev/null | sed 's/^/loss=/'
 
 
 def parse_train_status(text: str) -> dict:
-    st = {"ready": False, "service": "", "exit": "", "done": False, "fatal": 0, "total_steps": None,
+    st = {"run": None, "ready": False, "service": "", "exit": "", "done": False, "fatal": 0, "total_steps": None,
           "eval": None, "losses": []}
     for line in text.splitlines():
         k, _, v = line.partition("=")
@@ -1712,6 +1723,8 @@ def parse_train_status(text: str) -> dict:
                 st["eval"] = json.loads(v)
         elif k in ("service", "exit"):
             st[k] = v
+        elif k == "run":
+            st[k] = v or None
     last = st["losses"][-1] if st["losses"] else None
     st["step"] = last["step"] if last else 0
     st["loss"] = last["loss"] if last else None
@@ -1817,8 +1830,10 @@ def train_tick(c) -> str:
     run = st.get("train_run") or {}
     box = st.get("train") or {}
     active = bool(run.get("desired")) and not run.get("done")
-    if box.get("id") and not active:  # stopped/disabled/failed/done run with a box left over
-        return _train_cleanup(c, box)
+    if box.get("id") and (not active or box.get("run") != run.get("run")):
+        return _train_cleanup(c, box)  # box of an inactive run, or of another run: delete it
+    if run.get("unverified"):
+        return _train_retry_verify(c, run)
     if active and ledger_total_eur() >= run["max_eur"]:
         return _train_stop_budget(c, box, run, ledger_total_eur())
     if not active:
@@ -1858,9 +1873,11 @@ def train_tick(c) -> str:
     if rs["total_steps"]:
         _train_mark(progress=round(rs["step"] / rs["total_steps"], 4), step=rs["step"],
                     total_steps=rs["total_steps"], loss=rs["loss"])
+    if rs["run"] != run["run"]:  # the unit on the box runs something else
+        log(f"training box {inst.id} runs {rs['run']!r}, not {run['run']!r}; deleting it")
+        return _train_cleanup(c, box)
     if rs["done"]:
-        _train_finish(c, inst, run)
-        return "done"
+        return _train_finish(c, inst, run)
     if rs["fatal"]:
         return _train_count_failure(c, inst, run, "box setup failed (FATAL in startup log)", replace=True)
     if not rs["ready"]:
@@ -1950,12 +1967,9 @@ def _train_stop_budget(c, box: dict, run: dict, spent: float) -> str:
     return "budget"
 
 
-def train_publish_via(ip: str, alias: str, run: dict) -> dict:
-    """Check the manifest, copy runs/<run>/final to adapters/<run> on the volume, fetch it here.
-    Returns {"adapter": path|None, "fetched": path|None, "error": str|None}."""
-    name = run["run"]
+def _publish_copy_fetch(ip: str, alias: str, name: str) -> dict:
+    """Copy runs/<run>/final to adapters/<run> on the volume and fetch it here (best effort)."""
     res = {"adapter": None, "fetched": None, "error": None}
-    check_manifest(remote_run_identity(ip, alias, run)["manifest"], run, required=True)
     r = ssh(ip, f"set -e; test -f {MNT}/runs/{name}/final/adapter_model.safetensors; mkdir -p {MNT}/adapters; "
                 f"rm -rf {MNT}/adapters/{name}.tmp; cp -r {MNT}/runs/{name}/final {MNT}/adapters/{name}.tmp; "
                 f"rm -rf {MNT}/adapters/{name}; mv {MNT}/adapters/{name}.tmp {MNT}/adapters/{name}; sync",
@@ -1971,34 +1985,63 @@ def train_publish_via(ip: str, alias: str, run: dict) -> dict:
     return res
 
 
-def _train_finish(c, inst, run: dict) -> None:
-    """DONE: publish + fetch once (best effort), then ALWAYS delete the box. A failed
-    publication is recorded with the surviving runs/<run>/final location; `train-publish`
-    retries later through any box with the volume. serve_desired is left as it is."""
+def train_verify_and_publish(ip: str, alias: str, run: dict) -> str:
+    """Accept a DONE only after the volume's manifest was read and matches the run.
+
+    - manifest read failed (ssh/API error): run stays 'unverified' (retryable through any
+      box: next tick or train-publish), never 'done'.
+    - manifest missing/different, or no DONE marker: run failed (DONE rejected).
+    - verified: run done; then publish + fetch once (a failure there is recorded for
+      train-publish; the run is still done because its identity was verified).
+    Returns 'done' | 'unverified' | 'failed'."""
     name = run["run"]
-    res = {"adapter": None, "fetched": None, "error": None}
-    manifest_ok = True
     try:
-        res = train_publish_via(inst.ip, inst.id, run)
+        ident = remote_run_identity(ip, alias, run)
+        check_manifest(ident["manifest"], run, required=True)
+        r = ssh(ip, f"test -f {MNT}/runs/{name}/DONE", alias=alias, timeout=60)
+        if r.returncode == 1:
+            raise TrainFatal(f"no DONE marker in {MNT}/runs/{name}")
+        if r.returncode != 0:
+            raise RuntimeError(f"DONE check failed (ssh rc {r.returncode})")
     except TrainFatal as e:
-        manifest_ok = False
-        res["error"] = str(e)
+        _train_mark(desired=False, unverified=False, failed=f"DONE rejected: {e}", finished=now_iso())
+        log(f"training {name}: DONE not accepted ({e})")
+        return "failed"
     except Exception as e:
-        res["error"] = f"publish failed: {e}"
-    delete_instance(c, inst.id, reason=f"train {name} done")
-    _drop_train_box(inst.id)
-    if not manifest_ok:
-        _train_mark(desired=False, failed=f"DONE rejected: {res['error']}", finished=now_iso())
-        log(f"training {name}: DONE not accepted ({res['error']})")
-        return
-    _train_mark(done=True, desired=False, progress=1.0, adapter=res["adapter"], fetched=res["fetched"],
-                final=f"{MNT}/runs/{name}/final", publish_error=res["error"], finished=now_iso())
+        _train_mark(desired=False, unverified=True, last_failure=f"verification failed: {e}")
+        log(f"training {name}: could not verify DONE ({e}); kept as unverified, retried via any box "
+            "(next train-ensure / train-publish)")
+        return "unverified"
+    res = _publish_copy_fetch(ip, alias, name)
+    _train_mark(done=True, unverified=False, desired=False, progress=1.0, adapter=res["adapter"],
+                fetched=res["fetched"], final=f"{MNT}/runs/{name}/final", publish_error=res["error"],
+                finished=now_iso())
     if res["error"]:
-        log(f"training {name} done; {res['error']}. The adapter is at {MNT}/runs/{name}/final on the volume; "
+        log(f"training {name} done (verified); {res['error']}. The adapter is at {MNT}/runs/{name}/final; "
             "run `train-publish` while any box has the volume")
     else:
         log(f"training {name} done; adapter {res['adapter']} (serve-up --lora {res['adapter']}); "
             f"local copy: {res['fetched']}")
+    return "done"
+
+
+def _train_finish(c, inst, run: dict) -> str:
+    """DONE seen on the box: verify + publish through it, then ALWAYS delete the box.
+    serve_desired is left as it is."""
+    phase = "unverified"
+    try:
+        phase = train_verify_and_publish(inst.ip, inst.id, run)
+    finally:
+        delete_instance(c, inst.id, reason=f"train {run['run']} done ({phase})")
+        _drop_train_box(inst.id)
+    return phase
+
+
+def _train_retry_verify(c, run: dict) -> str:
+    box = _train_box_ip(c)
+    if not box:
+        return "unverified"  # waits for any box with the volume (serving or training)
+    return train_verify_and_publish(box[0], box[1], run)
 
 
 def _serving_blocks_training(st: dict) -> str | None:
@@ -2039,6 +2082,12 @@ def cmd_train_up(args) -> None:
         if spent >= float(args.max_eur):
             sys.exit(f"train-up refused: ledger €{spent:.2f} already >= --max-eur {args.max_eur}")
         prev = st.get("train_run") or {}
+        tbox = st.get("train") or {}
+        if tbox.get("id") and tbox.get("run") != args.run:
+            sys.exit(f"training box {tbox['id']} of run {tbox.get('run')!r} is still tracked; wait until "
+                     "train-ensure/train-down has confirmed its deletion before starting another run")
+        if prev.get("run") == args.run and prev.get("unverified"):
+            sys.exit(f"run {args.run} finished but is unverified; run train-publish (needs any box with the volume)")
         if prev.get("run") == args.run:
             same = {k: prev.get(k) == run[k] for k in ("trainer_args", "data_sha", "code_sha", "req_hash")}
             if not all(same.values()):
@@ -2157,18 +2206,17 @@ def cmd_train_publish(args) -> None:
         run = load_state().get("train_run") or {}
         if not run or (args.run and args.run != run.get("run")):
             sys.exit("only the current train_run can be published (its manifest is checked)")
-        if not run.get("done"):
+        if not (run.get("done") or run.get("unverified")):
             sys.exit(f"run {run['run']} has not finished")
         box = _train_box_ip(c)
         if not box:
-            sys.exit(f"no running box has the volume attached; the adapter is at {run.get('final')}. "
+            sys.exit(f"no running box has the volume attached; the adapter is at {MNT}/runs/{run['run']}/final. "
                      "Run this again while the serving box is up (serve-up) or during another training run.")
-        res = train_publish_via(box[0], box[1], run)
-        _train_mark(adapter=res["adapter"] or run.get("adapter"), fetched=res["fetched"] or run.get("fetched"),
-                    publish_error=res["error"])
-        if res["error"]:
-            sys.exit(f"train-publish: {res['error']}")
-        log(f"published {res['adapter']}; local copy {res['fetched']}")
+        phase = train_verify_and_publish(box[0], box[1], run)
+        run = load_state()["train_run"]
+        if phase != "done" or run.get("publish_error"):
+            sys.exit(f"train-publish: {phase}: {run.get('publish_error') or run.get('failed') or run.get('last_failure')}")
+        log(f"published {run['adapter']}; local copy {run['fetched']}")
 
 
 def cmd_train_fetch(args) -> None:

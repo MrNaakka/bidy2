@@ -45,5 +45,6 @@ StandardOutput=append:$OUT/train.log
 StandardError=append:$OUT/train.log
 EOF
 systemctl daemon-reload
+echo "$RUN" > /var/lib/fh/train-run   # which run this box's unit executes (checked every tick)
 echo "venv=$VENV" > /var/lib/fh/train-ready
 echo "[fh] training box ready; waiting for verda_cli.py to upload data and start fh-train"
