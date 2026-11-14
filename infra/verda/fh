@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
+# infra/verda/fh <command>      fh.py in a side environment with our SkyPilot fork
+# infra/verda/fh sky <args>     the SkyPilot CLI from the same environment (sky status, sky logs, ...)
 set -euo pipefail
 SKYPILOT="skypilot[verda] @ git+https://github.com/jonibeach/skypilot@a0ac1fca47010ca31f5fc5961e4ae055e822f405"
-exec uv run --no-project --python 3.13 --with "$SKYPILOT" --with httpx --with pillow \
-  python "$(dirname "$0")/fh.py" "$@"
+# FastAPI 0.145 dropped unknown FastAPI() kwargs, and the SkyPilot API server passes prefix=.
+RUN=(uv run --no-project --python 3.13 --with "$SKYPILOT" --with "fastapi<0.145" --with httpx --with pillow)
+if [ "${1:-}" = sky ]; then
+  shift
+  exec "${RUN[@]}" sky "$@"
+fi
+exec "${RUN[@]}" python "$(dirname "$0")/fh.py" "$@"
