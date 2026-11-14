@@ -1,10 +1,12 @@
 # Job body for the weight-download instance (appended to common.sh by verda_cli.py).
-# Placeholders (double-underscore wrapped): MODELS ("repo revision" lines), VLLM_VERSION, VERIFY_PY
+# Placeholders (double-underscore wrapped): MODELS ("repo revision" lines), VLLM_VERSION, VERIFY_PY,
+#   ATTEMPT (unique per CLI attempt; the CLI accepts only a status line carrying it)
 mount_data || exit 1
-install_uv
-STATUS="$MNT/logs/download.status"
+ATTEMPT="__ATTEMPT__"
+STATUS="$MNT/logs/download-$ATTEMPT.status"
 mkdir -p "$MNT/models" "$MNT/logs" "$MNT/envs" "$MNT/bin"
-echo "running $(date -Is)" > "$STATUS"
+echo "running $ATTEMPT $(date -Is)" > "$STATUS"
+install_uv
 exec > >(tee -a "$MNT/logs/download.log") 2>&1
 
 cat > "$MNT/bin/verify_weights.py" <<'PYEOF'
@@ -39,6 +41,6 @@ if [ ! -x "$VENV/bin/vllm" ]; then
 fi
 "$VENV/bin/python" -c "import vllm; print('[fh] vllm', vllm.__version__)" || fail=1
 
-if [ "$fail" = 0 ]; then echo "done $(date -Is)" > "$STATUS"; else echo "failed $(date -Is)" > "$STATUS"; fi
+if [ "$fail" = 0 ]; then echo "done $ATTEMPT $(date -Is)" > "$STATUS"; else echo "failed $ATTEMPT $(date -Is)" > "$STATUS"; fi
 du -sh "$MNT"/models/* "$VENV" || true
 echo "[fh] download job finished fail=$fail"

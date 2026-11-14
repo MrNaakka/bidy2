@@ -5,9 +5,14 @@
 #   scripts/eval.sh --stage baselines    # build + reference + nop + stop-early + summary (no API spend)
 #   scripts/eval.sh --stage agents       # the 3 OpenCode runs + summary (needs ANTHROPIC_API_KEY, e.g. in .env)
 #   scripts/eval.sh --stage summarize    # only rebuild results/summary.{md,json} from runs/
+#   scripts/eval.sh --stage agents --model qwen   # Qwen3.8-27B on our vLLM endpoint (infra/verda; needs
+#                                                 # QWEN_BASE_URL and QWEN_API_KEY in .env, endpoint up)
 #
 # Options: -n N (concurrent trials, default 4), --runs R (agent runs, default 3),
-#          --model M (default anthropic/claude-opus-5-5), --split S (default eval).
+#          --model M (default anthropic/claude-opus-5-5; "qwen" = Qwen3.8-27B via infra/verda,
+#          "qwen-fh" = the same with our LoRA adapter), --split S (default eval).
+# OpenCode is pinned to $OPENCODE_VERSION (the version the training data was captured with).
+# Infrastructure exceptions (e.g. agent install timeouts) are retried up to 2 times.
 # Jobs have fixed names and go to runs/<job>; an existing runs/<job> is replaced.
 set -euo pipefail
 
@@ -19,6 +24,7 @@ N=4
 RUNS=3
 MODEL="anthropic/claude-opus-5-5"
 SPLIT=eval
+OPENCODE_VERSION=1.19.5
 while [ $# -gt 0 ]; do
   case "$1" in
     --stage) STAGE="$2"; shift 2 ;;
@@ -47,7 +53,7 @@ job() {  # job name, then harbor run args
   rm -rf "$OUT/$name"
   local t0=$SECONDS
   echo "=== $name: harbor run $*"
-  harbor run -p "$TASKS" --job-name "$name" -o "$OUT" -n "$N" -y "$@"
+  harbor run -p "$TASKS" --job-name "$name" -o "$OUT" -n "$N" -r 2 -y "$@"
   stage_time "$name" $((SECONDS - t0))
 }
 
@@ -73,10 +79,26 @@ fi
 
 if [ "$STAGE" = all ] || [ "$STAGE" = agents ]; then
   [ -d "$TASKS" ] || uv run python scripts/build_tasks.py --split "$SPLIT"
-  ENVFILE=()
-  [ -f .env ] && ENVFILE=(--env-file .env)
+  # Give Harbor only the one key the model needs, not the whole .env.
+  KEYENV="$(mktemp)"; trap 'rm -f "$KEYENV"' EXIT
+  envval() { local v="${!1:-}"; [ -n "$v" ] || v="$(grep -m1 "^$1=" .env 2>/dev/null | cut -d= -f2- || true)"; printf '%s' "$v"; }
+  case "$MODEL" in
+    qwen|qwen-fh)
+      SERVED=qwen3.8-27b; LABEL=qwen
+      [ "$MODEL" = qwen-fh ] && { SERVED=qwen3.8-27b-fh; LABEL=qwen-fh; }
+      printf 'QWEN_API_KEY=%s\n' "$(envval QWEN_API_KEY)" > "$KEYENV"
+      CFG="$(mktemp --suffix .json)"
+      uv run python infra/verda/verda_cli.py harbor-agent --served-name "$SERVED" --opencode-version "$OPENCODE_VERSION" > "$CFG"
+      AGENT_ARGS=(-c "$CFG")
+      ;;
+    *)
+      LABEL=opencode
+      printf 'ANTHROPIC_API_KEY=%s\n' "$(envval ANTHROPIC_API_KEY)" > "$KEYENV"
+      AGENT_ARGS=(-a opencode -m "$MODEL" --ak "version=$OPENCODE_VERSION")
+      ;;
+  esac
   for i in $(seq 1 "$RUNS"); do
-    job "fh-$SPLIT-opencode-run$i" -a opencode -m "$MODEL" "${ENVFILE[@]}"
+    job "fh-$SPLIT-$LABEL-run$i" "${AGENT_ARGS[@]}" --env-file "$KEYENV"
   done
 fi
 

@@ -19,3 +19,7 @@
 {"ts": "2026-11-14T02:56:50+00:00", "event": "delete", "kind": "instance", "id": "f647c1a6-6a56-4d1a-b96e-db174a473990", "reason": "gone (spot preempted?)"}
 {"ts": "2026-11-14T02:57:32+00:00", "event": "create", "kind": "instance", "id": "b5f4168d-2399-44a0-86d5-4bf90f1b04d7", "type": "1A100.22V", "hostname": "fh-qwen-serve-1794625012", "location": "FIN-01", "spot": true, "price_per_hour": 1.071, "currency": "eur", "api_price_per_hour": 1.0712}
 {"ts": "2026-11-14T03:04:42+00:00", "event": "delete", "kind": "instance", "id": "b5f4168d-2399-44a0-86d5-4bf90f1b04d7", "reason": "serve-down"}
+{"ts": "2026-11-14T03:29:47+00:00", "event": "create", "kind": "instance", "id": "cccf21e6-2666-4628-a306-e6c0406e1178", "type": "1A6000.10V", "hostname": "fh-qwen-serve-1794626965", "location": "FIN-01", "spot": true, "price_per_hour": 0.3966, "currency": "eur", "api_price_per_hour": 0.3966}
+{"ts": "2026-11-14T03:50:53+00:00", "event": "delete", "kind": "instance", "id": "cccf21e6-2666-4628-a306-e6c0406e1178", "reason": "serve-up startup failed"}
+{"ts": "2026-11-14T03:51:34+00:00", "event": "create", "kind": "instance", "id": "30c2106d-a465-4dd4-adde-884b5baf0fcf", "type": "1H100.80S.30V", "hostname": "fh-qwen-serve-1794628270", "location": "FIN-01", "spot": true, "price_per_hour": 2.341, "currency": "eur", "api_price_per_hour": 2.3414}
+{"ts": "2026-11-14T04:02:28+00:00", "event": "delete", "kind": "instance", "id": "30c2106d-a465-4dd4-adde-884b5baf0fcf", "reason": "lead: orphaned after session restart"}

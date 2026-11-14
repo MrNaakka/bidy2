@@ -55,6 +55,8 @@ MODELS = {  # repo -> pinned revision
 }
 VARIANT_REPO = {"bf16": "Qwen/Qwen3.8-27B", "fp8": "Qwen/Qwen3.8-27B-FP8"}
 SERVED_NAME = "qwen3.8-27b"
+LORA_NAME = "qwen3.8-27b-fh"  # LoRA adapter served next to the base model (serve-up --lora PATH)
+LORA_MAX_RANK = 16
 PORT = 8000
 SERVE_PREFIX = "fh-qwen-serve"
 DL_PREFIX = "fh-qwen-dl"
@@ -131,7 +133,36 @@ def load_state() -> dict:
 
 
 def save_state(state: dict) -> None:
-    STATE_PATH.write_text(json.dumps(state, indent=1) + "\n")
+    tmp = STATE_PATH.with_name(STATE_PATH.name + ".tmp")
+    tmp.write_text(json.dumps(state, indent=1) + "\n")
+    tmp.replace(STATE_PATH)  # atomic: a crash never leaves a half-written state file
+
+
+def update_state(fn) -> dict:
+    """Load, modify and save the state file in one step (avoids writing back a stale copy)."""
+    st = load_state()
+    fn(st)
+    save_state(st)
+    return st
+
+
+def _proc_start(pid: int) -> str | None:
+    """Kernel start time of a live (non-zombie) process; with the pid it identifies the process."""
+    try:
+        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+    except (OSError, IndexError):
+        return None
+    return None if fields[0] in ("Z", "X") else fields[19]
+
+
+def proc_identity() -> dict:
+    return {"pid": os.getpid(), "pid_start": _proc_start(os.getpid())}
+
+
+def owner_alive(rec: dict) -> bool:
+    """True if the process recorded in rec (proc_identity()) is still running."""
+    pid = rec.get("pid")
+    return bool(pid) and rec.get("pid_start") is not None and _proc_start(pid) == rec.get("pid_start")
 
 
 def now_iso() -> str:
@@ -144,8 +175,35 @@ def ledger_append(**rec) -> None:
         f.write(json.dumps(rec) + "\n")
 
 
+# The Verda SDK calls requests.request / requests.post (auth) without a timeout, so a
+# stalled connection could hang a command (and hold the serve-ensure lock) forever.
+# Every requests call in this process gets a finite (connect, read) timeout instead.
+HTTP_TIMEOUT = (10, 60)
+
+
+def install_http_timeouts() -> None:
+    import requests
+
+    orig = requests.sessions.Session.request
+    if getattr(orig, "_fh_default_timeout", False):
+        return
+
+    def request(self, method, url, *args, **kwargs):
+        if kwargs.get("timeout") is None and len(args) < 7:  # timeout is positional #7 after url
+            kwargs["timeout"] = HTTP_TIMEOUT
+        return orig(self, method, url, *args, **kwargs)
+
+    request._fh_default_timeout = True
+    requests.sessions.Session.request = request
+
+
+install_http_timeouts()
+
+
 def client():
     from verda import VerdaClient
+
+    install_http_timeouts()
 
     env = load_env()
     cid = os.environ.get("VERDA_CLIENT_ID") or env.get("VERDA_CLIENT_ID")
@@ -342,7 +400,17 @@ def render(body_file: str, subs: dict[str, str], vol: dict) -> str:
     return text
 
 
-def create_instance(c, state, *, itype, hostname, script_name, script, spot, os_gb=80):
+def _find_by_hostname(c, hostname: str):
+    return next((i for i in c.instances.get() if i.hostname == hostname and i.status not in GONE_STATUSES), None)
+
+
+def create_instance(c, state, *, role, itype, hostname, script_name, script, spot, os_gb=80, record=None):
+    """Create an instance and track it in state[role] ("serve" or "download").
+
+    The creation intent (hostname, type, time, owner pid) is written to
+    state["pending_creates"] *before* the API call. If the response is lost or the
+    process dies, `reconcile` later finds the box by hostname and adopts or deletes it.
+    """
     from verda.instances import OSVolume
 
     vol = state["volume"]
@@ -353,6 +421,9 @@ def create_instance(c, state, *, itype, hostname, script_name, script, spot, os_
             c.startup_scripts.delete_by_id(s.id)
     sc = c.startup_scripts.create(script_name, script)
     prices = eur_prices(c)
+    state.setdefault("pending_creates", {})[hostname] = {
+        "role": role, "type": itype, "spot": spot, "ts": time.time(), "at": now_iso(), **proc_identity()}
+    save_state(state)
     try:
         inst = c.instances.create(
             instance_type=itype, image=IMAGE, hostname=hostname, description=hostname,
@@ -363,12 +434,26 @@ def create_instance(c, state, *, itype, hostname, script_name, script, spot, os_
             max_wait_time=600,
         )
     except TimeoutError:  # order accepted but still queued: it exists and bills once running
-        inst = next(i for i in c.instances.get() if i.hostname == hostname)
+        inst = _find_by_hostname(c, hostname)
+        if inst is None:
+            raise  # unknown outcome: the pending record stays for reconcile
+    except APIException:
+        # Usually a clean rejection (no capacity). Only forget the intent once the
+        # listing confirms nothing was created; if the listing fails, reconcile decides.
+        inst = _find_by_hostname(c, hostname)
+        if inst is None:
+            state["pending_creates"].pop(hostname, None)
+            save_state(state)
+            raise
     p = prices.get(itype, {})
     eur_h = float(p.get("spot_price" if spot else "price_per_hour", inst.price_per_hour))
     ledger_append(event="create", kind="instance", id=inst.id, type=itype, hostname=hostname,
                   location=vol["location"], spot=spot, price_per_hour=eur_h, currency="eur",
                   api_price_per_hour=inst.price_per_hour)
+    state[role] = {"id": inst.id, "hostname": hostname, "type": itype, "spot": spot, "created": time.time(),
+                   **(record or {})}
+    state["pending_creates"].pop(hostname, None)
+    save_state(state)
     log(f"created {itype} {'spot' if spot else 'on-demand'} {inst.id} ({hostname}) €{eur_h}/h")
     return inst
 
@@ -437,19 +522,129 @@ def no_interrupt():
     except ValueError:  # not in the main thread
         yield
         return
+    remaining = signal.alarm(0)  # a Deadline must not cut a cleanup short either
     try:
         yield
     finally:
         signal.signal(signal.SIGINT, old)
+        if remaining:
+            signal.alarm(remaining)
 
 
 def delete_by_hostnames(c, hostnames: list[str], reason: str, skip: set[str] = frozenset()) -> None:
-    """Clean up instances whose create call was interrupted before we learned their id."""
+    """Clean up instances whose create call was interrupted before we learned their id.
+    Pending-create records are cleared only once the outcome is known; if the lookup
+    itself fails they stay in state and `reconcile` finishes the job later."""
     if not hostnames:
         return
-    for i in c.instances.get():
-        if i.hostname in hostnames and i.id not in skip and i.status not in GONE_STATUSES:
-            delete_instance(c, i.id, reason=reason)
+    try:
+        insts = c.instances.get()
+    except Exception as e:
+        log(f"cleanup lookup failed ({type(e).__name__}); pending creates {hostnames} stay in state "
+            "and are reconciled by the next command")
+        return
+    resolved = set()
+    for hn in hostnames:
+        for i in insts:
+            if i.hostname == hn and i.id not in skip and i.status not in GONE_STATUSES:
+                delete_instance(c, i.id, reason=reason)
+        resolved.add(hn)
+
+    def drop(st):
+        for hn in resolved:
+            st.get("pending_creates", {}).pop(hn, None)
+    update_state(drop)
+
+
+PENDING_TTL_S = 3600  # forget a pending create that never showed up after this long
+
+
+def _ledger_has(event: str, inst_id: str) -> bool:
+    if not LEDGER_PATH.exists():
+        return False
+    recs = (json.loads(l) for l in LEDGER_PATH.read_text().splitlines() if l.strip())
+    return any(r.get("event") == event and r.get("id") == inst_id for r in recs)
+
+
+def reconcile(c) -> dict:
+    """Bring state in line with the account. Runs at the start of every cloud command.
+
+    - pending creates whose owner process is gone: adopt the box as the serving
+      instance (if none is tracked) or delete it; forget intents that never
+      materialized after PENDING_TTL_S.
+    - a tracked download box whose owner process is gone (and not --keep): delete it.
+    - a tracked serve/download record whose instance no longer exists (preempted, or
+      deleted outside the CLI): drop it, closing its ledger entry if still open.
+    - any instance on the account that state does not know about: flag it (never
+      deleted automatically; it may belong to someone else).
+    """
+    out = {"adopted": [], "deleted": [], "dropped": [], "unknown": []}
+    try:
+        insts = c.instances.get()
+    except Exception as e:
+        log(f"reconcile: cannot list instances ({type(e).__name__}: {str(e)[:120]}); skipped")
+        return out
+    st = load_state()
+    live = {i.id: i for i in insts if i.status not in GONE_STATUSES}
+    by_host = {i.hostname: i for i in live.values()}
+    pend = st.setdefault("pending_creates", {})
+    for hn, rec in list(pend.items()):
+        if owner_alive(rec):
+            continue  # a running command is still creating it
+        i = by_host.get(hn)
+        if i is None:
+            if time.time() - rec.get("ts", 0) > PENDING_TTL_S:
+                pend.pop(hn)
+                out["dropped"].append(hn)
+            continue
+        if not _ledger_has("create", i.id):
+            ledger_append(event="create", kind="instance", id=i.id, type=i.instance_type, hostname=hn,
+                          location=i.location, spot=i.is_spot, price_per_hour=float(i.price_per_hour or 0),
+                          currency="eur", note="found by reconcile")
+        serve = st.get("serve") or {}
+        if rec.get("role") == "serve" and serve.get("id") not in live:
+            st["serve"] = {"id": i.id, "hostname": hn, "type": i.instance_type, "spot": i.is_spot,
+                           "created": rec.get("ts", time.time()), "adopted": True}
+            log(f"reconcile: adopted orphaned serving instance {i.id} ({hn})")
+            out["adopted"].append(i.id)
+        else:
+            try:
+                delete_instance(c, i.id, reason=f"reconcile: orphaned {rec.get('role')} create")
+            except DeleteFailed as e:
+                log(f"reconcile: {e}")
+                continue
+            out["deleted"].append(i.id)
+        pend.pop(hn)
+    for role in ("serve", "download"):
+        rec = st.get(role) or {}
+        if rec.get("id") and rec["id"] not in live and rec.get("hostname") not in pend:
+            if not _ledger_has("delete", rec["id"]):
+                ledger_append(event="delete", kind="instance", id=rec["id"], reason=f"reconcile: {role} box gone")
+            log(f"reconcile: tracked {role} instance {rec['id']} is gone; clearing it from state")
+            st.pop(role)
+            info = tunnel_info()
+            if role == "serve" and info and info.get("inst_id") == rec["id"]:
+                stop_tunnel()
+            out["dropped"].append(rec["id"])
+    dl = st.get("download")
+    if dl:
+        if not dl.get("keep") and not owner_alive(dl):
+            try:
+                delete_instance(c, dl["id"], reason="reconcile: orphaned download box")
+                st.pop("download")
+                out["deleted"].append(dl["id"])
+            except DeleteFailed as e:
+                log(f"reconcile: {e}")
+    if not pend:
+        st.pop("pending_creates")
+    known = {(st.get("serve") or {}).get("id"), (st.get("download") or {}).get("id")}
+    for i in live.values():
+        if i.id not in known and i.hostname not in pend and i.id not in out["deleted"]:
+            log(f"WARNING: instance {i.id} ({i.hostname}, {i.instance_type}, {i.status}, "
+                f"{i.price_per_hour}/h) is not tracked by state.json; delete it with `delete {i.id}` if unused")
+            out["unknown"].append(i.id)
+    save_state(st)
+    return out
 
 
 def wait_volume_free(c, vol_id: str, timeout_s: int = 300) -> None:
@@ -510,6 +705,19 @@ for f in sorted(glob.glob("{MNT}/models/*.verify.json")):
 VERIFY_SUMMARY_CMD = ("python3 -c \"$(echo " + base64.b64encode(_VERIFY_SUMMARY_PY.encode()).decode()
                       + " | base64 -d)\"")
 
+def download_status_path(attempt: str) -> str:
+    return f"{MNT}/logs/download-{attempt}.status"
+
+
+def parse_download_status(line: str, attempt: str) -> str:
+    """'running|done|failed <attempt> <date>' -> state word, but only for *this* attempt.
+    A status line from any other attempt (e.g. a stale 'done') counts as not started."""
+    parts = line.split()
+    if len(parts) >= 2 and parts[0] in ("running", "done", "failed") and parts[1] == attempt:
+        return parts[0]
+    return ""
+
+
 def cmd_download(args) -> None:
     c = client()
     state = load_state()
@@ -521,13 +729,21 @@ def cmd_download(args) -> None:
     # creating or booting the box still deletes it (unless --keep).
     try:
         insts = our_instances(c, DL_PREFIX)
-        if insts:
-            inst = insts[0]
-            log(f"reusing download instance {inst.id} ({inst.status})")
-        else:
+        rec = state.get("download") or {}
+        attempt = None
+        for i in insts:
+            if i.id == rec.get("id") and rec.get("attempt"):
+                inst, attempt = i, rec["attempt"]
+                log(f"reusing download instance {inst.id} ({inst.status}), attempt {attempt}")
+                update_state(lambda st: st["download"].update(keep=args.keep, **proc_identity()))
+            else:  # no attempt id on record: its status can't be trusted, so replace it
+                log(f"download instance {i.id} has no recorded attempt; deleting it")
+                delete_instance(c, i.id, reason="download: untracked attempt")
+        if inst is None:
+            attempt = secrets.token_hex(6)
             models = "\n".join(f"{r} {rev}" for r, rev in MODELS.items() if r in args.repos)
             script = render("download.sh", {
-                "__MODELS__": models, "__VLLM_VERSION__": VLLM_VERSION,
+                "__MODELS__": models, "__VLLM_VERSION__": VLLM_VERSION, "__ATTEMPT__": attempt,
                 "__VERIFY_PY__": (REMOTE / "verify_weights.py").read_text()}, vol)
             types = [args.type] if args.type else DOWNLOAD_FALLBACK
             options = [(t, True) for t in types] + [(t, False) for t in types]
@@ -537,25 +753,27 @@ def cmd_download(args) -> None:
                 hostname = f"{DL_PREFIX}-{int(time.time())}"
                 hostnames.append(hostname)
                 try:
-                    inst = create_instance(c, state, itype=itype, hostname=hostname,
-                                           script_name=DL_PREFIX, script=script, spot=spot, os_gb=120)
+                    inst = create_instance(c, state, role="download", itype=itype, hostname=hostname,
+                                           script_name=DL_PREFIX, script=script, spot=spot, os_gb=120,
+                                           record={"attempt": attempt, "keep": args.keep, **proc_identity()})
                     break
                 except APIException as e:
                     log(f"{itype} {'spot' if spot else 'on-demand'} unavailable: {str(e).splitlines()[-1][:120]}")
             if inst is None:
                 sys.exit("no CPU capacity for the download instance")
         inst = wait_running(c, inst.id)
-        log(f"download instance {inst.ip}; polling {MNT}/logs/download.status")
+        spath = download_status_path(attempt)
+        log(f"download instance {inst.ip}; polling {spath}")
         t0 = time.time()
         while time.time() - t0 < args.timeout_min * 60:
-            r = ssh(inst.ip, f"cat {MNT}/logs/download.status 2>/dev/null; "
+            r = ssh(inst.ip, f"echo \"$(cat {spath} 2>/dev/null)\"; "
                              f"du -sh {MNT}/models 2>/dev/null | cut -f1; tail -n 2 /var/log/fh/startup.log",
                     alias=inst.id)
-            out = r.stdout.strip().splitlines()
+            out = r.stdout.splitlines()  # line 1 is always the (possibly empty) status line
             if out:
-                status = out[0]
+                status = parse_download_status(out[0], attempt)
                 log(" | ".join(x[-120:] for x in out[:4]))
-            if status.startswith(("done", "failed")):
+            if status in ("done", "failed"):
                 break
             if any("FATAL" in x for x in out):
                 status = "failed (FATAL in startup log)"
@@ -570,16 +788,20 @@ def cmd_download(args) -> None:
             with no_interrupt():
                 if inst is not None:
                     delete_instance(c, inst.id, reason=reason)
+                    update_state(lambda st: st.pop("download", None)
+                                 if (st.get("download") or {}).get("id") == inst.id else None)
                 delete_by_hostnames(c, hostnames, reason=reason, skip={inst.id} if inst is not None else set())
                 for sc in c.startup_scripts.get():
                     if sc.name == DL_PREFIX:
                         c.startup_scripts.delete_by_id(sc.id)
-    if not status.startswith("done"):
+    if status != "done":
         sys.exit(f"download job status: {status or 'timeout'}")
-    state["weights"] = {r: {"revision": MODELS[r], "path": f"{MNT}/models/{r.split('/')[1]}"}
-                        for r in args.repos}
-    state["vllm_env"] = f"{MNT}/envs/vllm-{VLLM_VERSION}"
-    save_state(state)
+
+    def done(st):
+        st["weights"] = {r: {"revision": MODELS[r], "path": f"{MNT}/models/{r.split('/')[1]}"}
+                         for r in args.repos}
+        st["vllm_env"] = f"{MNT}/envs/vllm-{VLLM_VERSION}"
+    update_state(done)
 
 
 # ---- serving --------------------------------------------------------------------
@@ -617,19 +839,29 @@ def pick_candidate(c, args):
     return sorted(opts, key=lambda o: o[0])
 
 
-def vllm_args(variant: str, extra: list[str], mtp: bool) -> list[str]:
+def vllm_args(variant: str, extra: list[str], mtp: bool, lora: str | None = None) -> list[str]:
     args = list(BASE_VLLM_ARGS)
     # later flags override earlier ones in argparse
     args += extra
     if mtp:
         args += ["--speculative-config", "'{\"method\": \"mtp\", \"num_speculative_tokens\": 2}'"]
+    if lora:  # adapter dir on the instance (e.g. on the volume under /mnt/fh)
+        if any(ch in lora for ch in " '\"$`;&|\\") or "=" in lora:
+            raise SystemExit(f"--lora path must be a plain path, got {lora!r}")
+        args += ["--enable-lora", "--max-lora-rank", str(LORA_MAX_RANK), "--lora-modules", f"{LORA_NAME}={lora}"]
     return args
 
 
-def health(base_url: str, key: str, timeout: float = 10) -> bool:
+def served_names(lora: str | None) -> list[str]:
+    return [SERVED_NAME] + ([LORA_NAME] if lora else [])
+
+
+def health(base_url: str, key: str, timeout: float = 10, names: list[str] | None = None) -> bool:
+    """200 from /v1/models listing every expected model id (base, plus the LoRA if served)."""
     try:
         r = httpx.get(f"{base_url}/models", headers={"Authorization": f"Bearer {key}"}, timeout=timeout)
-        return r.status_code == 200 and any(m["id"] == SERVED_NAME for m in r.json()["data"])
+        ids = {m["id"] for m in r.json()["data"]} if r.status_code == 200 else set()
+        return r.status_code == 200 and set(names or [SERVED_NAME]) <= ids
     except Exception:
         return False
 
@@ -780,7 +1012,7 @@ def cmd_serve_up(args) -> None:
             if not model_dir:
                 log(f"skip {itype}: {variant} weights not on the volume")
                 continue
-            va = vllm_args(variant, extra, args.mtp)
+            va = vllm_args(variant, extra, args.mtp, args.lora)
             script = render("serve.sh", {
                 "__VLLM_VERSION__": VLLM_VERSION, "__MODEL_DIR__": model_dir,
                 "__SERVED_NAME__": SERVED_NAME, "__PORT__": str(PORT),
@@ -788,16 +1020,15 @@ def cmd_serve_up(args) -> None:
             hostname = f"{SERVE_PREFIX}-{int(time.time())}"
             hostnames.append(hostname)
             try:
-                inst = create_instance(c, state, itype=itype, hostname=hostname, script_name=SERVE_PREFIX,
-                                       script=script, spot=spot, os_gb=60)
+                inst = create_instance(c, state, role="serve", itype=itype, hostname=hostname,
+                                       script_name=SERVE_PREFIX, script=script, spot=spot, os_gb=60)
                 break
             except APIException as e:
                 log(f"{itype} {'spot' if spot else 'on-demand'} unavailable: {str(e).splitlines()[-1][:120]}")
         if inst is None:
             sys.exit("all candidates failed to deploy")
-        state["serve"] = {"id": inst.id, "type": itype, "variant": variant, "spot": spot,
-                          "eur_per_h": price, "created": time.time(), "vllm_args": va,
-                          "model_dir": model_dir}
+        state["serve"].update(variant=variant, eur_per_h=price, vllm_args=va, model_dir=model_dir, lora=args.lora)
+        state["serve_lora"] = args.lora  # remembered so serve-ensure re-provisions with the same adapter
         save_state(state)
         if args.no_wait:
             return
@@ -829,7 +1060,8 @@ def wait_healthy(c, inst_id: str, timeout_min: float) -> None:
     t0 = time.time()
     last_tail = ""
     while time.time() - t0 < timeout_min * 60:
-        if ensure_tunnel(inst.id, inst.ip) and health(url, key):
+        names = served_names((load_state().get("serve") or {}).get("lora"))
+        if ensure_tunnel(inst.id, inst.ip) and health(url, key, names=names):
             cburl = _write_base_url()
             state = load_state()
             state.setdefault("serve", {})["ready_after_s"] = round(time.time() - state["serve"].get("created", t0))
@@ -885,7 +1117,8 @@ def cmd_serve_status(args) -> None:
         print("no serving instance")
     for i in insts:
         via = bool(info and info.get("inst_id") == i.id)
-        ok = via and health(local_base_url(), env.get("QWEN_API_KEY", ""))
+        ok = via and health(local_base_url(), env.get("QWEN_API_KEY", ""),
+                            names=served_names(state.get("serve", {}).get("lora")))
         print(json.dumps({"id": i.id, "type": i.instance_type, "status": i.status, "spot": i.is_spot,
                           "ip": i.ip, "tunnel": via, "base_url": env.get("QWEN_BASE_URL"), "healthy": ok,
                           "variant": state.get("serve", {}).get("variant"),
@@ -894,22 +1127,92 @@ def cmd_serve_status(args) -> None:
 
 
 @contextlib.contextmanager
-def file_lock(path: Path):
-    with path.open("w") as f:
+def file_lock(path: Path, ttl_s: float):
+    """Exclusive non-blocking lock for serve-ensure that survives a hung holder.
+
+    flock is released by the kernel when the holder dies, so a dead holder never
+    blocks. The holder records its pid, start time and deadline (now + ttl_s) in the
+    file; a later caller that finds the lock held past deadline + LOCK_GRACE_S by the
+    same live process terminates it and takes over, so the watchdog keeps working.
+    """
+    with path.open("a+") as f:
         try:
             fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            log("another serve-ensure is running; exiting")
-            sys.exit(0)
+            f.seek(0)
+            try:
+                holder = json.loads(f.read() or "{}")
+            except ValueError:
+                holder = {}
+            overdue = time.time() > holder.get("deadline", float("inf")) + LOCK_GRACE_S
+            if not (overdue and owner_alive(holder)):
+                log(f"another serve-ensure is running (pid {holder.get('pid')}); exiting")
+                sys.exit(0)
+            log(f"serve-ensure pid {holder['pid']} is past its deadline; terminating it")
+            terminate_process(holder["pid"])
+            for _ in range(60):
+                try:
+                    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    time.sleep(0.5)
+            else:
+                sys.exit(f"could not take the serve-ensure lock from pid {holder['pid']}")
+        f.seek(0)
+        f.truncate()
+        f.write(json.dumps({**proc_identity(), "acquired": time.time(), "deadline": time.time() + ttl_s}))
+        f.flush()
         yield
+
+
+LOCK_GRACE_S = 300
+
+
+def terminate_process(pid: int, wait_s: float = 15) -> None:
+    with contextlib.suppress(ProcessLookupError):
+        os.kill(pid, signal.SIGTERM)
+    t0 = time.time()
+    while time.time() - t0 < wait_s and _proc_start(pid) is not None:
+        time.sleep(0.5)
+    if _proc_start(pid) is not None:
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(pid, signal.SIGKILL)
+
+
+class Deadline(BaseException):
+    """serve-ensure ran past its own deadline (BaseException so retry loops don't swallow it)."""
+
+
+@contextlib.contextmanager
+def deadline(seconds: float):
+    """SIGALRM-based overall time limit for this process (main thread only)."""
+    def fire(signum, frame):
+        raise Deadline(f"exceeded {seconds:.0f}s deadline")
+    try:
+        old = signal.signal(signal.SIGALRM, fire)
+    except ValueError:
+        yield
+        return
+    signal.alarm(max(1, int(seconds)))
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
+
+
+def ensure_ttl_s(args) -> float:
+    return 45 * 60 + (args.timeout_min * 60 if getattr(args, "wait", False) else 0)
 
 
 def cmd_serve_ensure(args) -> None:
     """Idempotent: healthy -> no-op; booting -> wait (or return); gone/broken -> replace.
     Also keeps the SSH tunnel alive and pointed at the current box. QWEN_BASE_URL never
     changes across re-provisioning, so running jobs pick up the new box transparently."""
-    with file_lock(LOCK_PATH):
+    ttl = ensure_ttl_s(args)
+    with file_lock(LOCK_PATH, ttl), deadline(ttl):
         c = client()
+        reconcile(c)
         state = load_state()
         key = load_env().get("QWEN_API_KEY", "")
         insts = our_instances(c, SERVE_PREFIX)
@@ -917,9 +1220,10 @@ def cmd_serve_ensure(args) -> None:
             if i.ip and i.status == "running":
                 was_up = tunnel_info() is not None
                 up = ensure_tunnel(i.id, i.ip)
-                ok = up and health(local_base_url(), key)
+                names = served_names(state.get("serve", {}).get("lora"))
+                ok = up and health(local_base_url(), key, names=names)
                 if up and not ok and was_up:  # rule out a wedged tunnel before judging the box
-                    ok = start_tunnel(i.id, i.ip) and health(local_base_url(), key)
+                    ok = start_tunnel(i.id, i.ip) and health(local_base_url(), key, names=names)
                 if ok:
                     url = _write_base_url()
                     log(f"healthy {i.instance_type} {i.ip} via tunnel; QWEN_BASE_URL={url}")
@@ -934,11 +1238,14 @@ def cmd_serve_ensure(args) -> None:
                     wait_healthy(c, i.id, args.timeout_min)
                 return
         if state.get("serve", {}).get("id") and not any(i.id == state["serve"]["id"] for i in insts):
-            ledger_append(event="delete", kind="instance", id=state["serve"]["id"], reason="gone (spot preempted?)")
+            if not _ledger_has("delete", state["serve"]["id"]):
+                ledger_append(event="delete", kind="instance", id=state["serve"]["id"], reason="gone (spot preempted?)")
             log(f"instance {state['serve']['id']} is gone (preempted?)")
             state.pop("serve")
             save_state(state)
         args.no_wait = not args.wait
+        if args.lora is None:  # keep serving the adapter the last serve-up asked for
+            args.lora = state.get("serve_lora")
         cmd_serve_up(args)
 
 
@@ -1036,7 +1343,7 @@ def cmd_test(args) -> None:
     (HERE / "last_test.json").write_text(json.dumps({"ts": now_iso(), **results}, indent=1) + "\n")
 
 
-def harbor_agent_entry(base_url: str) -> dict:
+def harbor_agent_entry(base_url: str, served_name: str = SERVED_NAME, opencode_version: str | None = None) -> dict:
     """Harbor `agents[]` entry for OpenCode against our endpoint.
 
     Harbor registers custom models as `{}` (text-only), and OpenCode then replaces
@@ -1044,20 +1351,28 @@ def harbor_agent_entry(base_url: str) -> dict:
     support image input)". The opencode_config overlay below is merged into
     Harbor's generated provider and declares image input.
     """
-    model = json.loads((HERE / "opencode-qwen.json").read_text())["provider"]["verda-qwen"]["models"][SERVED_NAME]
+    # The LoRA adapter has the base model's capabilities (vision, tools, reasoning, context).
+    model = dict(json.loads((HERE / "opencode-qwen.json").read_text())["provider"]["verda-qwen"]["models"][SERVED_NAME])
+    if served_name == LORA_NAME:
+        model["name"] = f"{model['name']} (FrameHunt LoRA)"
+    kwargs: dict = {"opencode_config": {"provider": {"verda-qwen": {"models": {served_name: model}}}}}
+    if opencode_version:
+        kwargs["version"] = opencode_version  # Harbor installs opencode-ai@<version>
     return {
         "name": "opencode",
-        "model_name": f"verda-qwen/{SERVED_NAME}",
+        "model_name": f"verda-qwen/{served_name}",
         "base_url": base_url,
         "model_api_key_name": "QWEN_API_KEY",
         "model_api_format": "openai_chat_completions",
-        "kwargs": {"opencode_config": {"provider": {"verda-qwen": {"models": {SERVED_NAME: model}}}}},
+        "kwargs": kwargs,
     }
 
 
 def cmd_harbor_agent(args) -> None:
+    """Prints a Harbor JobConfig fragment ({"agents": [...]}) for `harbor run -c`. Local only."""
     url = load_env().get("QWEN_BASE_URL") or container_base_url()
-    print(json.dumps(harbor_agent_entry(url), indent=1))
+    entry = harbor_agent_entry(url, served_name=args.served_name, opencode_version=args.opencode_version)
+    print(json.dumps({"agents": [entry]}, indent=1))
 
 
 # ---- ledger ---------------------------------------------------------------------
@@ -1095,6 +1410,9 @@ def cmd_ledger(args) -> None:
         print(f"account balance now: {b.amount:.3f} {b.currency}; at start: {st.get('initial_balance')}")
 
 
+LOCAL_CMDS = ("ledger", "harbor-agent", "test")  # never touch the cloud API
+
+
 # ---- main -----------------------------------------------------------------------
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
@@ -1120,6 +1438,9 @@ def main() -> None:
         s.add_argument("--timeout-min", type=float, default=40)
         s.add_argument("--keep", action="store_true",
                        help="keep a newly created instance if it fails to become healthy")
+        s.add_argument("--lora", metavar="PATH",
+                       help=f"also serve a LoRA adapter (dir on the instance, e.g. under {MNT}) as {LORA_NAME}"
+                            + ("" if name == "serve-up" else "; default: the adapter of the last serve-up"))
         if name == "serve-up":
             s.add_argument("--no-wait", action="store_true")
         else:
@@ -1128,7 +1449,11 @@ def main() -> None:
     sub.add_parser("serve-down", help="delete serving instances").set_defaults(fn=cmd_serve_down)
     sub.add_parser("serve-status", help="show serving instance + health").set_defaults(fn=cmd_serve_status)
     sub.add_parser("test", help="vision + tool-call + throughput smoke test").set_defaults(fn=cmd_test)
-    sub.add_parser("harbor-agent", help="print a Harbor agents[] entry (OpenCode + image input)").set_defaults(fn=cmd_harbor_agent)
+    s = sub.add_parser("harbor-agent", help="print a Harbor JobConfig fragment {agents: [OpenCode + image input]}")
+    s.add_argument("--served-name", choices=[SERVED_NAME, LORA_NAME], default=SERVED_NAME,
+                   help=f"model to target: the base model or the LoRA adapter ({LORA_NAME})")
+    s.add_argument("--opencode-version", help="pin the OpenCode version Harbor installs (kwargs.version)")
+    s.set_defaults(fn=cmd_harbor_agent)
     sub.add_parser("instances", help="list all instances on the account").set_defaults(fn=cmd_instances)
     s = sub.add_parser("delete", help="delete one instance by id")
     s.add_argument("id")
@@ -1138,10 +1463,12 @@ def main() -> None:
     s.set_defaults(fn=cmd_ledger)
     args = p.parse_args()
     st = load_state()
-    if "initial_balance" not in st and args.cmd not in ("ledger",):
+    if "initial_balance" not in st and args.cmd not in LOCAL_CMDS:
         b = client().balance.get()
         st["initial_balance"] = f"{b.amount:.3f} {b.currency} @ {now_iso()}"
         save_state(st)
+    if args.cmd not in LOCAL_CMDS and args.cmd != "serve-ensure":  # serve-ensure reconciles under its lock
+        reconcile(client())
     try:
         args.fn(args)
     except DeleteFailed as e:
