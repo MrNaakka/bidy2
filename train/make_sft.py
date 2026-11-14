@@ -81,7 +81,7 @@ from framehunt.server import (
     FrameHuntEnv,
     FrameHuntError,
 )
-from framehunt.splits import derive_seed, load_salt, train_items
+from framehunt.splits import TRAIN_KINDS, derive_seed, load_salt, train_items
 
 W, H = 1920, 1080
 
@@ -525,7 +525,109 @@ def solve_dashboard(ep: Episode, rng, q: dict) -> str:
     return val
 
 
-SOLVERS = {"logstream": solve_logstream, "dialogs": solve_dialogs, "dashboard": solve_dashboard}
+def solve_toasts(ep: Episode, rng, q: dict) -> str:
+    T = R.Toasts
+    k, fps = q["k"], ep.fps
+    maybe_info(ep, rng)
+    overview(ep, rng, pick(rng, [ep.last, rng.randrange(ep.n_frames // 3, ep.last)]), (120, 160, 200, 240),
+             ", especially the notification bell badge and the toast stack on the right")
+    box = T.TRACE_BOX
+    ep.note = (f"The overview shows the Ledgerly app with a navy top bar; the bell with the red badge is at the top right, "
+               f"about x={box[0]}..{box[0] + box[2]}, y={box[1]}..{box[1] + box[3]}. Toasts stack in a column at "
+               f"x={T.SLOT0[0]}..{T.SLOT0[0] + T.SLOT0[2]}, newest on top (y={T.SLOT0[1]}..{T.SLOT0[1] + T.SLOT0[3]}).")
+    ow = pick(rng, [30, 40, 48])
+    tm = R.Dialogs.badge_templates(ow, 99)
+
+    def read(img):
+        return R.nearest(img, tm)[0]
+
+    f = search_event(ep, rng, box, ow, read, f"badge {k}", lambda v: f"badge {v}", lambda v: v >= k,
+                     "bell badge", sheet_cap=24_000)
+    vow = pick(rng, [60, 80])
+    tv = R.Dialogs.badge_templates(vow, 99)
+    if not verify_event(ep, rng, f, box, vow, lambda img: R.nearest(img, tv)[0], lambda v: f"badge {v}",
+                        lambda v: v >= k, "bell badge"):
+        raise RuntimeError("verification failed")
+    ep.note += (f" The {_ord(k)} Error toast appeared on this frame, so on this exact frame it is the newest toast, "
+                f"in the top slot; a frame earlier the newest red toast is the previous Error, and a few frames later "
+                f"a newer toast pushes it down.")
+
+    div = pick(rng, [8, 8, 4])
+    tow = T.SLOT0[2] // div
+    top = ep.view(f, T.SLOT0, tow, pick(rng, [
+        f"Check the top toast at t={ts(f, fps)}s at 1/{div} scale ({tow} px wide): its colour stripe should be red (Error).",
+        f"Cheap 1/{div}-scale look at the top slot of the toast stack on frame {f} to confirm it is a red Error toast."]))
+    sw = max(1, T.STRIPE_W * tow // T.SLOT0[2])
+    if not T.is_red(top[2:-2, 0:sw]):
+        raise RuntimeError("top toast is not red")
+    ep.note = f"The top toast on frame {f} has a red stripe, so it is an Error toast: the {_ord(k)} one."
+
+    mx, my = rng.randint(2, 12), rng.randint(2, 8)
+    with_label = rng.random() < 0.3
+    x, y, w, h = T.CODE_BOX
+    x0 = (T.SLOT0[0] + 36) if with_label else x - mx
+    cbox = (x0, y - my, x + w + mx - x0 + rng.randint(0, 10), h + 2 * my)
+    crop = ep.view(f, cbox, cbox[2], pick(rng, [
+        f"Read the code at native resolution on the same frame: a {cbox[2]}x{cbox[3]} crop of the top toast's code box ({cbox[2] * cbox[3]} px).",
+        f"One native crop ({cbox[2]}x{cbox[3]}, {cbox[2] * cbox[3]} px) of the code{' with its label' if with_label else ''} in the top toast at t={ts(f, fps)}s."]))
+    code, _margin = R.ocr_string(crop, (x - x0 + T.CODE_TEXT[0], my + T.CODE_TEXT[1]), *T.CODE_FONT, T.INK,
+                                 T.CODE_BOX_RGB, T.ALPHABET, 6, 6)
+    ep.note = f"The crop shows the code {code}."
+    return code
+
+
+def solve_leaderboard(ep: Episode, rng, q: dict) -> str:
+    B = R.Board
+    k, fps = q["k"], ep.fps
+    maybe_info(ep, rng)
+    overview(ep, rng, pick(rng, [ep.last, rng.randrange(ep.n_frames // 3, ep.last)]), (120, 160, 200, 240),
+             ", especially the 'alerts fired' counter and the endpoint table")
+    db = B.digits_box()
+    ep.note = (f"The overview shows an API error tracker: the big 'alerts fired' counter is at the top right "
+               f"(its number at about x={db[0]}..{db[0] + db[2]}, y={db[1]}..{db[1] + db[3]}), and the endpoint table "
+               f"is on the left with {B.N_ROWS} rows of {B.ROW_H} px from y={B.ROW_Y0}.")
+    ow = pick(rng, [25, 33, 40])
+    tm = B.counter_templates(ow)
+
+    def read(img):
+        return R.nearest(img, tm)[0]
+
+    f = search_event(ep, rng, db, ow, read, f"alerts fired: {k}", lambda v: f"alerts fired: {v}", lambda v: v >= k,
+                     "alerts counter", sheet_cap=8_000)
+    vow = pick(rng, [50, 66])
+    tv = B.counter_templates(vow)
+    if not verify_event(ep, rng, f, db, vow, lambda img: R.nearest(img, tv)[0], lambda v: f"alerts fired: {v}",
+                        lambda v: v >= k, "alerts counter"):
+        raise RuntimeError("verification failed")
+    ep.note += (" The table refreshes and re-sorts every second, so I must find the endpoint's row on this same "
+                "frame and read its value on this same frame.")
+
+    div = pick(rng, [3, 3, 4])
+    nb = (B.PANEL_X + B.NAME_DX - 6, B.ROW_Y0, B.NAMES_W, B.N_ROWS * B.ROW_H)
+    now = nb[2] // div
+    names = ep.view(f, nb, now, pick(rng, [
+        f"Find the row of \"{q['endpoint']}\" on frame {f}: the endpoint name column at 1/{div} scale ({now} px wide).",
+        f"Which row is \"{q['endpoint']}\" right now? Cheap 1/{div}-scale look at the name column at t={ts(f, fps)}s."]))
+    row, _m = B.find_row(names, q["endpoint"], now)
+    vx, vy = B.PANEL_X + B.VALUE_DX, B.ROW_Y0 + row * B.ROW_H + B.VALUE_DY
+    ep.note = f"\"{q['endpoint']}\" is row {row + 1} of 10 on this frame; its errors/min value sits at about x={vx}, y={vy}."
+
+    with_name = rng.random() < 0.25
+    padl, padr, padt, padb = rng.randint(2, 8), rng.randint(0, 16), rng.randint(2, 6), rng.randint(2, 6)
+    x0 = (B.PANEL_X + B.NAME_DX - 4) if with_name else vx - padl
+    bw = vx + 40 - x0 + padr
+    box = (x0, vy - padt, bw, 17 + padt + padb)
+    crop = ep.view(f, box, bw, pick(rng, [
+        f"Read the value at native resolution on frame {f}: a {box[2]}x{box[3]} crop of row {row + 1}{' including the name' if with_name else ''} ({box[2] * box[3]} px).",
+        f"Native crop ({box[2]}x{box[3]}, {box[2] * box[3]} px) of row {row + 1}'s errors/min at t={ts(f, fps)}s, same frame as the row lookup."]))
+    bg = B.ALT if row % 2 else B.PANEL
+    val, _margin = R.ocr_string(crop, (vx - x0, padt), *B.VALUE_FONT, B.TEXT, bg, "0123456789", 3, 4)
+    ep.note = f"The crop reads {q['endpoint']} = {val} errors/min."
+    return val
+
+
+SOLVERS = {"logstream": solve_logstream, "dialogs": solve_dialogs, "dashboard": solve_dashboard,
+           "toasts": solve_toasts, "leaderboard": solve_leaderboard}
 
 
 # ============================================================== one item
@@ -624,6 +726,8 @@ def main(argv=None) -> int:
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--date", default="2026-11-14", help="centre of the system prompt dates (+-20 days)")
     ap.add_argument("--only", nargs="*", default=None)
+    ap.add_argument("--kinds", nargs="*", default=None, choices=TRAIN_KINDS,
+                    help=f"only these kinds (default: all of {', '.join(TRAIN_KINDS)})")
     ap.add_argument("--check-capture", action="store_true", help="only run the capture parity check")
     a = ap.parse_args(argv)
     if a.check_capture:
@@ -637,6 +741,8 @@ def main(argv=None) -> int:
     items = list(train_items(a.per_kind))
     if a.only:
         items = [it for it in items if it[0] in set(a.only)]
+    if a.kinds:
+        items = [it for it in items if it[1] in set(a.kinds)]
     out = a.out
     if out.exists():
         shutil.rmtree(out)
@@ -659,7 +765,7 @@ def main(argv=None) -> int:
             f.write(json.dumps(r) + "\n")
     stats = {"items": len(items), "kept": len(rows), "rejected": len(rejected), "seconds": round(time.time() - t0, 1),
              "budget": a.budget, "gen_seed": a.seed, "by_kind": {}}
-    for kind in ("logstream", "dialogs", "dashboard"):
+    for kind in TRAIN_KINDS:
         kr = [r for r in rows if r["kind"] == kind]
         px = sorted(r["pixels_used"] for r in kr)
         calls = [r["n_calls"] for r in kr]
