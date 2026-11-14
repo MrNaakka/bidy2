@@ -450,7 +450,6 @@ class Dash:
             errs.append((float(np.abs(t[ry0:ry1] - names[ry0:ry1]).mean()), r))
         errs.sort()
         row = errs[0][1]
-        say(f"\"{q['title']}\" is row {row + 1} of the contents.")
         bg = cls.ALT if row % 2 else cls.PANEL
         vy = cls.TABLE_Y + 44 + row * cls.ROW_H + 11
         box = (cls.VALUE_X - 4, vy - 4, 79, 27)
@@ -737,6 +736,7 @@ class Doc:
             errs.append((e, k))
         errs.sort()
         row = errs[0][1]
+        say(f"\"{q['title']}\" is row {row + 1} of the contents.")
         # 3. its printed page number (right column, 1/4)
         yr = cls.TOC_Y0 + row * cls.TOC_PITCH
         fbox = (cls.MR - 150, yr - 10, 170, 60)
