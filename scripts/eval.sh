@@ -94,7 +94,7 @@ if [ "$STAGE" = all ] || [ "$STAGE" = agents ]; then
       [ "$MODEL" = qwen-fh ] && { SERVED=qwen3.8-27b-fh; LABEL=qwen-fh; }
       printf 'QWEN_API_KEY=%s\n' "$(envval QWEN_API_KEY)" > "$KEYENV"
       CFG="$(mktemp --suffix .json)"
-      uv run python infra/verda/verda_cli.py harbor-agent --served-name "$SERVED" --opencode-version "$OPENCODE_VERSION" > "$CFG"
+      uv run python infra/verda/fh.py harbor-agent --served-name "$SERVED" --opencode-version "$OPENCODE_VERSION" > "$CFG"
       AGENT_ARGS=(-c "$CFG")
       ;;
     *)

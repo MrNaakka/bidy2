@@ -1,0 +1,42 @@
+name: fh-download
+
+resources:
+  infra: verda/FIN-01
+  cpus: 8+
+  disk_size: 60
+
+volumes:
+  /mnt/fh: fh-qwen
+
+envs:
+  VLLM_VERSION: 0.33.0
+  MODELS: |
+    Qwen/Qwen3.8-27B 37561816e66b5b9153b1b64c10968c18c1e6f4a0
+    Qwen/Qwen3.8-27B-FP8 c3a462cc3d38cf351f3b26cbd763469eeb74ef81
+
+run: |
+  set -euo pipefail
+  export PATH="$HOME/.local/bin:$PATH" UV_PYTHON_INSTALL_DIR=/mnt/fh/uv/python UV_LINK_MODE=copy
+  command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
+  export HF_HUB_ENABLE_HF_TRANSFER=1 HF_HUB_DISABLE_TELEMETRY=1 HF_HOME=$HOME/.cache/huggingface
+  mkdir -p /mnt/fh/models /mnt/fh/envs
+  while read -r repo rev; do
+    [ -z "$repo" ] && continue
+    dir=/mnt/fh/models/${repo#*/}
+    if [ "$(cat "$dir.REVISION" 2>/dev/null)" = "$repo $rev" ]; then
+      echo "$repo@$rev already verified"; continue
+    fi
+    rm -f "$dir.REVISION"
+    uvx --python 3.12 --from 'huggingface_hub[cli,hf_transfer]' \
+      hf download "$repo" --revision "$rev" --local-dir "$dir" --max-workers 16
+    uv run --no-project --python 3.12 python verify_weights.py "$repo" "$rev" "$dir"
+    echo "$repo $rev" > "$dir.REVISION"
+  done <<< "$MODELS"
+  VENV=/mnt/fh/envs/vllm-$VLLM_VERSION
+  if [ ! -x "$VENV/bin/vllm" ]; then
+    uv python install 3.12
+    uv venv --python 3.12 "$VENV"
+    VIRTUAL_ENV="$VENV" uv pip install "vllm==$VLLM_VERSION"
+  fi
+  "$VENV/bin/python" -c "import vllm; print('vllm', vllm.__version__)"
+  sync

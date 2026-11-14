@@ -1,0 +1,74 @@
+name: fh-train
+
+resources:
+  infra: verda/FIN-01
+  use_spot: true
+  disk_size: 100
+  any_of:
+    - instance_type: 1H100.80S.30V
+    - instance_type: 1H100.80S.32V
+    - instance_type: 1H200.141S.44V
+    - instance_type: 1A100.22V
+    - instance_type: 1RTXPRO6000.30V
+
+volumes:
+  /mnt/fh: fh-qwen
+
+envs:
+  RUN: null
+  MANIFEST: null
+  DATA_SHA: null
+  CODE_SHA: null
+  REQ_HASH: null
+  DATA_REMOTE: null
+  TRAINER_ARGS: null
+
+setup: |
+  set -euo pipefail
+  export PATH="$HOME/.local/bin:$PATH" UV_PYTHON_INSTALL_DIR=/mnt/fh/uv/python UV_LINK_MODE=copy
+  command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
+  VENV=/mnt/fh/envs/train-$REQ_HASH
+  if [ ! -f "$VENV/.fh-ok" ]; then
+    rm -rf "$VENV"
+    uv venv --python 3.12 "$VENV"
+    VIRTUAL_ENV="$VENV" uv pip install -r code/requirements.txt -r code/requirements-gpu.txt
+    "$VENV/bin/python" -c "import torch, peft; assert torch.cuda.is_available()"
+    touch "$VENV/.fh-ok"
+  fi
+
+run: |
+  set -euo pipefail
+  OUT=/mnt/fh/runs/$RUN
+  mkdir -p "$OUT" /mnt/fh/data
+  if [ -f "$OUT/manifest.json" ]; then
+    if [ "$(cat "$OUT/manifest.json")" != "$MANIFEST" ]; then
+      echo "FATAL: $OUT/manifest.json belongs to a different run definition" | tee "$OUT/FATAL" >&2
+      exit 3
+    fi
+  elif compgen -G "$OUT/ckpt-*" >/dev/null || compgen -G "$OUT/.tmp-ckpt-*" >/dev/null ||
+       [ -e "$OUT/args.json" ] || [ -e "$OUT/loss.jsonl" ] || [ -e "$OUT/DONE" ] || [ -e "$OUT/final" ]; then
+    echo "FATAL: $OUT holds a run without manifest.json" | tee "$OUT/FATAL" >&2
+    exit 3
+  else
+    printf '%s' "$MANIFEST" > "$OUT/.manifest.tmp" && mv "$OUT/.manifest.tmp" "$OUT/manifest.json"
+  fi
+  if [ "$(cat "$DATA_REMOTE/.fh_sha" 2>/dev/null)" != "$DATA_SHA" ]; then
+    rm -rf "$DATA_REMOTE.tmp" && cp -r data "$DATA_REMOTE.tmp"
+    echo "$DATA_SHA" > "$DATA_REMOTE.tmp/.fh_sha"
+    rm -rf "$DATA_REMOTE" && mv "$DATA_REMOTE.tmp" "$DATA_REMOTE"
+  fi
+  if [ "$(cat "$OUT/code/.fh_sha" 2>/dev/null)" != "$CODE_SHA" ]; then
+    rm -rf "$OUT/code.tmp" && cp -r code "$OUT/code.tmp"
+    echo "$CODE_SHA" > "$OUT/code.tmp/.fh_sha"
+    rm -rf "$OUT/code" && mv "$OUT/code.tmp" "$OUT/code"
+  fi
+  if [ ! -f "$OUT/DONE" ]; then
+    cd "$OUT/code"
+    export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True HF_HUB_OFFLINE=1 TOKENIZERS_PARALLELISM=false
+    /mnt/fh/envs/train-$REQ_HASH/bin/python sft_lora.py $TRAINER_ARGS 2>&1 | tee -a "$OUT/train.log"
+  fi
+  test -f "$OUT/final/adapter_model.safetensors"
+  mkdir -p /mnt/fh/adapters
+  rm -rf "/mnt/fh/adapters/$RUN.tmp" && cp -r "$OUT/final" "/mnt/fh/adapters/$RUN.tmp"
+  rm -rf "/mnt/fh/adapters/$RUN" && mv "/mnt/fh/adapters/$RUN.tmp" "/mnt/fh/adapters/$RUN"
+  sync

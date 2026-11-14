@@ -6,10 +6,11 @@ jobs/
 runs/
 tasks/
 reviews/*.log
-infra/verda/.serve-ensure.lock
-infra/verda/.state.lock
-infra/verda/state.json.tmp
 secrets/
 infra/verda/tunnel.pid
 infra/verda/tunnel.log
 infra/verda/known_hosts
+infra/verda/.fh-state.json
+infra/verda/.fh-state.tmp
+infra/verda/.fh.lock
+infra/verda/.stage/

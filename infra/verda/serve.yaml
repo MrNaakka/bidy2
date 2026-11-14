@@ -1,0 +1,59 @@
+name: fh-serve
+
+resources:
+  infra: verda/FIN-01
+  use_spot: true
+  disk_size: 80
+  any_of:
+    - instance_type: 1A100.22V
+    - instance_type: 1RTXPRO6000.30V
+    - instance_type: 1H100.80S.30V
+    - instance_type: 1H100.80S.32V
+    - instance_type: 1H200.141S.44V
+
+volumes:
+  /mnt/fh: fh-qwen
+
+envs:
+  VLLM_VERSION: 0.33.0
+  SERVED_NAME: qwen3.8-27b
+  LORA_NAME: qwen3.8-27b-fh
+  LORA_MAX_RANK: "16"
+  LORA: ""
+  PORT: "8000"
+
+secrets:
+  QWEN_API_KEY: null
+
+setup: |
+  set -euo pipefail
+  VENV=/mnt/fh/envs/vllm-$VLLM_VERSION
+  test -x "$VENV/bin/vllm" || { echo "$VENV is missing: run download.yaml first" >&2; exit 1; }
+
+run: |
+  set -euo pipefail
+  VENV=/mnt/fh/envs/vllm-$VLLM_VERSION
+  gpus=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits)
+  n=$(echo "$gpus" | wc -l)
+  per_gpu_gib=$(( $(echo "$gpus" | head -1) / 1024 ))
+  if [ $(( n * per_gpu_gib )) -ge 75 ]; then
+    model=/mnt/fh/models/Qwen3.8-27B
+  else
+    model=/mnt/fh/models/Qwen3.8-27B-FP8
+  fi
+  args=(--max-model-len 65536 --gpu-memory-utilization 0.92 --max-num-seqs 16
+        --enable-auto-tool-choice --tool-call-parser qwen3_coder --reasoning-parser qwen3
+        --limit-mm-per-prompt '{"image": 64, "video": 0}'
+        --tensor-parallel-size "$n")
+  if [ "$per_gpu_gib" -lt 44 ]; then
+    args+=(--max-model-len 32768 --max-num-seqs 4)
+  fi
+  if [ -n "$LORA" ]; then
+    args+=(--enable-lora --max-lora-rank "$LORA_MAX_RANK" --lora-modules "$LORA_NAME=$LORA")
+  fi
+  echo "serving $model on ${n}x ${per_gpu_gib} GiB"
+  export VLLM_API_KEY="$QWEN_API_KEY" HF_HUB_OFFLINE=1 VLLM_NO_USAGE_STATS=1 VLLM_USE_FLASHINFER_SAMPLER=0
+  export VLLM_CACHE_ROOT=/mnt/fh/cache/vllm TRITON_CACHE_DIR=/mnt/fh/cache/triton
+  export FLASHINFER_WORKSPACE_BASE=/mnt/fh/cache/flashinfer CUDA_HOME=/usr/local/cuda
+  export PATH="$VENV/bin:/usr/local/cuda/bin:$PATH"
+  exec vllm serve "$model" --served-model-name "$SERVED_NAME" --host 127.0.0.1 --port "$PORT" "${args[@]}"

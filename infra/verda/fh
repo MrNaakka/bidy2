@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SKYPILOT="skypilot[verda] @ git+https://github.com/jonibeach/skypilot@a0ac1fca47010ca31f5fc5961e4ae055e822f405"
+exec uv run --no-project --python 3.13 --with "$SKYPILOT" --with httpx --with pillow \
+  python "$(dirname "$0")/fh.py" "$@"

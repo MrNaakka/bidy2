@@ -1,0 +1,5 @@
+name: fh-qwen
+type: verda-block-volume
+infra: verda/FIN-01
+size: 300Gi
+use_existing: true

@@ -152,12 +152,13 @@ PyTorch reference kernels and the run is several times slower.
 
 ## 3. Serve the adapter and evaluate with Harbor
 
-Copy `/mnt/fh/runs/sft-v1/final/` (PEFT adapter, ~300 MB) to `/mnt/fh/adapters/sft-v1/`, then add
-these flags to the vLLM command in `infra/verda/remote/serve.sh` (`BASE_VLLM_ARGS`; the other flags
-stay as they are, in particular `--tool-call-parser qwen3_coder --reasoning-parser qwen3`):
+A finished run's `final/` (PEFT adapter, ~300 MB) lands in `/mnt/fh/adapters/<run>/`.
+`infra/verda/fh serve-up --lora /mnt/fh/adapters/sft-v1` adds these flags to the vLLM command in
+`infra/verda/serve.yaml` (the other flags stay as they are, in particular
+`--tool-call-parser qwen3_coder --reasoning-parser qwen3`):
 
 ```bash
---enable-lora --max-lora-rank 16 --max-loras 1 \
+--enable-lora --max-lora-rank 16 \
 --lora-modules qwen3.8-27b-fh=/mnt/fh/adapters/sft-v1
 ```
 
@@ -167,9 +168,10 @@ Default LoRA targets are standard vLLM LoRA layers (qkv_proj, o_proj, gate_up_pr
 `--lora-linear-attn` also adapts the Gated DeltaNet projections, which vLLM packs as
 `in_proj_qkvz`; test-load such an adapter in vLLM before training a long run with it.
 
-Harbor agent entry: the one `verda_cli.py harbor-agent` prints, with `"model_name":
-"verda-qwen/qwen3.8-27b-fh"` and the model key under `opencode_config.provider.verda-qwen.models`
-renamed to `qwen3.8-27b-fh` (same fields: image input, reasoning field, limits). Pin the agent's
+Harbor agent entry: the one `fh.py harbor-agent --served-name qwen3.8-27b-fh` prints, with
+`"model_name": "verda-qwen/qwen3.8-27b-fh"` and the model key under
+`opencode_config.provider.verda-qwen.models` renamed to `qwen3.8-27b-fh` (same fields: image input,
+reasoning field, limits). Pin the agent's
 OpenCode version to the captured one (`"version": "1.19.5"` in the agents[] entry) so the prompt
 and tool list match the training data. Then run the eval split three times for both
 `qwen3.8-27b` (before) and `qwen3.8-27b-fh` (after):
