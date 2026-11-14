@@ -202,7 +202,7 @@ Copy these from the hackathon host (`/home/user/bidy2/`) to the same paths in th
 | `train/data/` (85 MB) | Only for fine-tuning | The SFT dataset. Can be regenerated with `train/make_sft.py` if `secrets/train.salt` is present. |
 
 Not needed: `tasks/` (rebuilt by `scripts/build_tasks.py` / `eval.sh`), `.venv/`,
-`train/out/` and `train/hf/` (CPU validation artefacts), `reviews/*.log`, `jobs/`.
+`train/out/` and `train/hf/` (CPU validation artefacts), `reviews/`, `jobs/`.
 
 Never commit `.env` or `secrets/`. Don't post item answers or seeds publicly.
 
