@@ -101,6 +101,14 @@ forgave, and found E's row with a cheap look. Tuned to the parameters above: a 0
 top-slot window with a red successor half the time, a 0.5 s value window, and names that
 need a deliberate 1/2-scale crop of the name column.
 
+Re-pilot after tuning (6 fresh DEV items per kind): leaderboard 2/6. All 4 failures are
+the targeted decisions: read 1 to 3 frames early (E's previous value, twice), read 9
+frames late (E's next value), and one misread of the counter on 24-px contact-sheet
+tiles that was never checked at a legible scale. Toasts 6/6: even when Opus read 1 to 7
+frames late, it combined the badge count with the stack order and the red stripe to pick
+the right toast lower in the stack (Error toasts are a minority, so usually only one or
+two are visible). The toast mechanism does not bite yet; see the README / open issues.
+
 ## Interfaces
 
 ### Package `framehunt/` (scene generation)
