@@ -1,0 +1,5 @@
+# stage wall times, 2026-11-14T01:53:58Z, stage=baselines n=4
+build 1s
+fh-eval-reference 534s
+fh-eval-nop 493s
+fh-eval-stop-early 497s

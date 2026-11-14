@@ -9,7 +9,7 @@ spend pixels on *one* sharp crop of *where* the answer is written.
 
 ## Hard rules for items
 
-1. **Random answers.** Every answer is drawn from the item seed, from a space large
+1. **Random answers.** Every answer is drawn from the item's (secret) seed, from a space large
    enough that guessing is ~0 (codes like `K7Q2ZP`, request ids, 3–5 digit numbers).
    Common sense must not help.
 2. **Trace rule.** The event the question asks about is brief, but it leaves a
@@ -117,15 +117,75 @@ reward binary leaves no term to farm.
 
 ### Harbor tasks
 
-`scripts/build_tasks.py --split eval` writes `tasks/eval/<item_id>/` for a fixed list
-of `(kind, seed)` items (the split's seeds are in `framehunt/splits.py`, fixed and
-committed). Each task follows the step0 probe layout: `task.toml` with the MCP server
-`framehunt` at `http://fh-mcp:8000/mcp`, `instruction.md` (question + rules + budget),
-`environment/docker-compose.yaml` (the `fh-mcp` sidecar with `FH_KIND`, `FH_SEED`,
-`VERIFY_TOKEN`), `environment/mcp/` (Dockerfile plus a copy of `framehunt/`),
-`tests/test.sh` (reads `/_result` and `/_log`, writes reward + logs to `/logs/verifier`),
-`solution/solve.sh` (runs the reference policy). The token is random per task and lives
-only in the compose file and `tests/`, which the agent's container never sees.
+`scripts/build_tasks.py --split eval` writes `tasks/eval/<item_id>/` for the split's
+fixed, committed item ids in `framehunt/splits.py`. The scene seed of each item is
+secret (see "Item secrecy"). Each task follows the step0 probe layout: `task.toml`
+with the MCP server `framehunt` at `http://fh-mcp:8000/mcp`, `instruction.md`
+(question + rules + budget), `environment/docker-compose.yaml` (the `fh-mcp` sidecar
+with `FH_KIND`, `FH_SEED` = the derived secret seed, `VERIFY_TOKEN`),
+`environment/mcp/` (Dockerfile plus a copy of `framehunt/`), `tests/` (the verifier
+image, see below), `solution/solve.sh` (runs the reference policy). The token is
+random per task and lives only in the compose file, which the agent's container
+never sees.
+
+**The verifier never runs in the agent's container.** The agent is root in its own
+container, so anything there (binaries, interpreters, files under `/logs`) can be
+replaced, and a verifier running there could be made to print any reward. So
+`task.toml` sets `[verifier] environment_mode = "separate"`, and the chain is:
+
+1. The agent phase ends. Harbor stops the agent's (`main`) container, which also
+   kills anything the agent left running.
+2. A `[[verifier.collect]]` hook runs `python -m framehunt.evidence /fh-evidence` in
+   the `fh-mcp` sidecar, which is still running. It reads `/_result` and `/_log` from
+   the server process with the sidecar's own `VERIFY_TOKEN` and writes `result.json`
+   and `calls.jsonl`. The agent can only reach the sidecar through the four MCP tools.
+3. Harbor collects `/fh-evidence` from the sidecar (an `[[artifacts]]` entry with
+   `service = "fh-mcp"`) and recreates it at `/fh-evidence` in a fresh verifier
+   container built from `tests/Dockerfile` (python:3.12-slim + `test.sh` +
+   `framehunt/verify.py`, no network).
+4. `tests/test.sh` runs `verify.py`: reward 1 only if the sidecar's result has
+   `submitted: true` and `correct: true` (that is, the first submission was right).
+   A missing or malformed dump gives 0. It copies `result.json` and `calls.jsonl` to
+   `/logs/verifier`.
+
+Nothing written by the agent's container is read by the verifier. (The agent's
+`/logs/artifacts` is also copied into the verifier container, at `/logs/artifacts`,
+and ignored. Harbor clears `/logs/verifier`, including reward files, before the
+verifier runs.)
+
+### Item secrecy
+
+The generators are public, and so is this repository. If the committed item list
+determined the scenes, a policy could render every eval item offline, fingerprint
+the item from free `info()` facts (every eval item has a different `n_frames`), and
+submit the answer without looking at a single pixel. A review did exactly that and
+scored 30/30.
+
+So the **generator is public, the instances are private.** Each item keeps a public
+id (`logstream-7001`), but the scene is rendered from
+
+    seed = int.from_bytes(HMAC-SHA256(salt, f"{split}:{item_id}")[:8], "big")
+
+(`framehunt.splits.derive_seed`, the only place seeds come from; the task builder,
+tests and any training-data generator use it). The salt is per split and secret:
+`FH_SALT_<SPLIT>` (e.g. `FH_SALT_EVAL`) or the git-ignored `secrets/<split>.salt`.
+If neither exists, `build_tasks.py` generates one with `secrets.token_hex(32)` and
+saves it. Consequences:
+
+- Our reruns in this checkout reproduce the exact same items (same salt file).
+- A fresh checkout (the judges') gets a new salt, so new items that nobody,
+  including us, has seen. Item difficulty is the same by construction: same
+  generators, same distributions over kinds, K and event times.
+- The derived seed only goes into the sidecar's compose environment. The agent
+  doesn't see the compose file, `task.toml` metadata has no seed, and
+  `instruction.md` holds only the question and the video facts. With a 64-bit secret
+  seed, `info()` fingerprints (`n_frames` etc.) identify nothing useful: there is no
+  table to look them up in.
+
+This doesn't hide anything the task needs. The agent gets exactly the same
+`info()`, instruction and tools as before. Rule 5 ("no hidden information") is about
+what's needed to answer, and every answer is on screen. The salt only stops
+answering *without looking*.
 
 ### Reference run and baselines
 

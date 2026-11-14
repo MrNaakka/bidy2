@@ -1,11 +1,28 @@
-"""Fixed, committed item lists. Each item is (item_id, kind, seed).
+"""Fixed, committed item lists, and the secret seed derivation. Each item is
+(item_id, kind, public_seed).
 
-EVAL: 30 items (10 per kind). DEV: 60 items (20 per kind). Seeds are disjoint between
-splits (EVAL uses 7xxx, DEV uses 3xxx). item_id is "<kind>-<seed:04d>". Do not edit
-existing entries: results are reported against these exact items.
+EVAL: 30 items (10 per kind). DEV: 60 items (20 per kind). item_id is
+"<kind>-<public_seed:04d>". Public seeds are disjoint between splits (EVAL uses 7xxx,
+DEV uses 3xxx). Do not edit existing entries: results are reported against these ids.
+
+The public seed is only part of the item's name. The scene seed actually rendered is
+``derive_seed(split, item_id, salt)`` = the first 8 bytes of
+HMAC-SHA256(salt, "<split>:<item_id>") as a big-endian int. The salt is secret: it comes
+from the env var ``FH_SALT_<SPLIT>`` (e.g. FH_SALT_EVAL) or the git-ignored file
+``secrets/<split>.salt``. Without the salt, the public generators and the public item
+list don't reveal any answer. With the same salt, every item reproduces exactly.
+See docs/design.md, "Item secrecy".
 """
 
 from __future__ import annotations
+
+import hashlib
+import hmac
+import os
+import secrets as _secrets
+from pathlib import Path
+
+SECRETS_DIR = Path(__file__).resolve().parent.parent / "secrets"
 
 EVAL: tuple[tuple[str, str, int], ...] = (
     ("logstream-7001", "logstream", 7001),
@@ -104,6 +121,55 @@ DEV: tuple[tuple[str, str, int], ...] = (
 )
 
 SPLITS: dict[str, tuple[tuple[str, str, int], ...]] = {"eval": EVAL, "dev": DEV}
+
+
+def salt_env_var(split: str) -> str:
+    return f"FH_SALT_{split.upper()}"
+
+
+def salt_path(split: str, secrets_dir: Path | None = None) -> Path:
+    return (secrets_dir or SECRETS_DIR) / f"{split}.salt"
+
+
+def load_salt(split: str, *, create: bool = False, secrets_dir: Path | None = None,
+              environ=os.environ) -> str | None:
+    """The split's secret salt: env FH_SALT_<SPLIT>, else secrets/<split>.salt.
+
+    If neither exists: with ``create=True`` a fresh random salt (64 hex chars) is
+    written to secrets/<split>.salt (mode 0600) and returned; otherwise returns None.
+    """
+    v = environ.get(salt_env_var(split), "").strip()
+    if v:
+        return v
+    p = salt_path(split, secrets_dir)
+    if p.is_file():
+        v = p.read_text().strip()
+        if not v:
+            raise ValueError(f"{p} is empty; delete it to generate a new salt, or restore the old one")
+        return v
+    if not create:
+        return None
+    v = _secrets.token_hex(32)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(v + "\n")
+    return v
+
+
+def derive_seed(split: str, item_id: str, salt: str | bytes | None = None) -> int:
+    """The scene seed for an item: first 8 bytes of HMAC-SHA256(salt, f"{split}:{item_id}").
+
+    The single place where scene seeds come from (task builder, tests, training data).
+    ``salt=None`` loads the split's salt, creating it if missing (see load_salt).
+    """
+    if salt is None:
+        salt = load_salt(split, create=True)
+    key = salt.encode("utf-8") if isinstance(salt, str) else bytes(salt)
+    if not key:
+        raise ValueError("salt must not be empty")
+    mac = hmac.new(key, f"{split}:{item_id}".encode("utf-8"), hashlib.sha256).digest()
+    return int.from_bytes(mac[:8], "big")
 
 
 def _check() -> None:

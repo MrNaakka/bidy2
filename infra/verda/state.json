@@ -1,0 +1,23 @@
+{
+ "initial_balance": "215.568 eur @ 2026-11-14T00:46:40+00:00",
+ "ssh_key_id": "c3a54add-9740-4d68-bc42-3f6fd4c106e0",
+ "volume": {
+  "id": "1b815137-4001-4d63-b499-b32768b035e4",
+  "name": "fh-qwen",
+  "size_gb": 300,
+  "type": "NVMe",
+  "location": "FIN-01",
+  "mount": "/mnt/fh"
+ },
+ "weights": {
+  "Qwen/Qwen3.8-27B": {
+   "revision": "37561816e66b5b9153b1b64c10968c18c1e6f4a0",
+   "path": "/mnt/fh/models/Qwen3.8-27B"
+  },
+  "Qwen/Qwen3.8-27B-FP8": {
+   "revision": "c3a462cc3d38cf351f3b26cbd763469eeb74ef81",
+   "path": "/mnt/fh/models/Qwen3.8-27B-FP8"
+  }
+ },
+ "vllm_env": "/mnt/fh/envs/vllm-0.33.0"
+}

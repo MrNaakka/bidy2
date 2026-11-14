@@ -9,6 +9,7 @@ dependencies = [
   "numpy>=2",
   "av>=14",
   "httpx>=0.27",
+  "verda>=1.25.0",
 ]
 
 [dependency-groups]

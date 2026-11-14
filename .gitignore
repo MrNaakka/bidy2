@@ -5,3 +5,6 @@ __pycache__/
 jobs/
 runs/
 tasks/
+reviews/*.log
+infra/verda/.serve-ensure.lock
+secrets/

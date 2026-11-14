@@ -8,12 +8,28 @@ Layout per item (follows step0/probe):
     environment/Dockerfile         the agent's (main) container
     environment/docker-compose.yaml  the fh-mcp sidecar with FH_KIND, FH_SEED, FH_BUDGET_PX, VERIFY_TOKEN
     environment/mcp/               sidecar Dockerfile + a copy of framehunt/
-    tests/test.sh                  reads /_result and /_log, writes /logs/verifier/{reward.txt,result.json,calls.jsonl}
-    solution/solve.sh              oracle (currently a plumbing check, see TODO inside)
+    tests/                         the separate verifier image: Dockerfile, test.sh, verify.py
+    solution/                      oracle: solve.sh runs framehunt/reference.py (copied with the fonts)
+
+Verification never runs in the agent's container. task.toml sets
+`[verifier] environment_mode = "separate"`. After the agent phase Harbor stops the
+agent's container, runs a `[[verifier.collect]]` hook in the fh-mcp sidecar
+(`python -m framehunt.evidence /fh-evidence`, which reads the token routes of the
+running server), collects /fh-evidence from the sidecar as an artifact, and runs
+tests/test.sh in a fresh container built from tests/Dockerfile. That script
+(framehunt/verify.py) writes reward 1 only if the sidecar's result says the first
+submission was correct; a missing dump scores 0.
+
+FH_SEED is the secret scene seed, derive_seed(split, item_id, salt) from
+framehunt/splits.py. It appears only in the compose file, which the agent's container
+never sees. The salt is read from FH_SALT_<SPLIT> or secrets/<split>.salt; if neither
+exists, a random one is generated and saved to secrets/<split>.salt (git-ignored).
+Keep that file to rebuild the same items.
 
 VERIFY_TOKEN is random per task and per build (secrets.token_hex). It appears only in
-the compose file and tests/, which the agent's container never sees. Rebuilding gives
-new tokens; that does not change any item (scenes depend only on kind and seed).
+the compose file (the collect hook reads it from the sidecar's own env). Rebuilding
+gives new tokens; that does not change any item (scenes depend only on kind and the
+derived seed).
 """
 
 from __future__ import annotations
@@ -29,10 +45,11 @@ sys.path.insert(0, str(ROOT))
 
 from framehunt.scenes import make_scene  # noqa: E402
 from framehunt.server import DEFAULT_BUDGET_PX, MAX_SHEET_N, MIN_OUT_WIDTH, MIN_SHEET_N, SHEET_SEPARATOR_PX  # noqa: E402
-from framehunt.splits import SPLITS  # noqa: E402
+from framehunt.splits import SPLITS, derive_seed, load_salt, salt_path  # noqa: E402
 
 # Pinned to uv.lock (Python 3.12 resolution).
 SIDECAR_PIP = ["mcp==1.30.0", "pillow==13.0.0", "numpy==2.5.4"]
+MAIN_PIP = ["pillow==13.0.0", "numpy==2.5.4"]  # for the reference solution
 MCP_HOST = "fh-mcp"
 AGENT_TIMEOUT_SEC = 1800.0
 VERIFIER_TIMEOUT_SEC = 120.0
@@ -47,13 +64,30 @@ description = "FrameHunt {kind} item: answer a question about a screen recording
 
 [metadata]
 split = "{split}"
+item_id = "{item_id}"
 kind = "{kind}"
-seed = {seed}
 budget_px = {budget}
 
+# Verification runs in its own container (built from tests/Dockerfile), never in the
+# agent's. Harbor stops the agent's container, then the collect hook dumps the
+# sidecar's result and call log to /fh-evidence, which is collected from the sidecar
+# and re-materialized at /fh-evidence in the verifier container.
 [verifier]
 timeout_sec = {verifier_timeout}
-environment_mode = "shared"
+environment_mode = "separate"
+
+[verifier.environment]
+build_timeout_sec = 600.0
+network_mode = "no-network"
+
+[[verifier.collect]]
+service = "{host}"
+command = "python -m framehunt.evidence {evidence_dir}"
+timeout_sec = 60.0
+
+[[artifacts]]
+source = "{evidence_dir}"
+service = "{host}"
 
 [agent]
 timeout_sec = {agent_timeout}
@@ -129,8 +163,10 @@ limit. Pixels you don't use don't change the score.
 
 MAIN_DOCKERFILE = """\
 FROM ubuntu:24.04
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates python3 \\
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates python3 python3-pip \\
     && rm -rf /var/lib/apt/lists/*
+# Pinned like the sidecar. The reference solution (oracle) needs them; agents may use them too.
+RUN pip3 install --no-cache-dir --break-system-packages {pins}
 WORKDIR /app
 """
 
@@ -165,83 +201,65 @@ services:
       retries: 60
 """
 
+EVIDENCE_DIR = "/fh-evidence"
+
+# The separate verifier's image. Built from tests/ (the build context), so it holds
+# only test.sh and verify.py (stdlib only), nothing from the agent's container.
+TESTS_DOCKERFILE = """\
+FROM python:3.12-slim
+ENV PYTHONDONTWRITEBYTECODE=1
+COPY test.sh verify.py /tests/
+RUN chmod 0755 /tests/test.sh
+"""
+
 TEST_SH = """\
-#!/bin/bash
-# FrameHunt verifier. Reads the result and call log from the fh-mcp sidecar
-# (token-protected routes) and writes the reward. Reward = 1 only if the first
-# submitted answer matched exactly; anything else (no submit, server unreachable) is 0.
-set -u
-TOKEN="{token}"
-BASE="http://{host}:8000"
-OUT=/logs/verifier
-mkdir -p "$OUT"
-
-# Kill every process left over from the agent phase (except PID 1 and this script's
-# own ancestors), so nothing can rewrite the reward files after we write them.
-# Processes in PID 1's process group (the container's keep-alive, e.g. `sleep infinity`)
-# are kept too: killing them would stop the container. Agent processes can't join that
-# group, because it belongs to another session.
-stat_of() {{  # prints "PPID PGRP"; the name field may contain spaces or ')'
-  local line
-  read -r line 2>/dev/null < "/proc/$1/stat" || return 1
-  line=${{line##*) }}
-  set -- $line
-  echo "$2 $3"
-}}
-keep=" 1 $$ "
-p=$$
-while [ "$p" -gt 1 ] 2>/dev/null; do
-  st=$(stat_of "$p") || break
-  pp=${{st% *}}
-  keep="$keep$pp "
-  p=$pp
-done
-for d in /proc/[0-9]*; do
-  pid=${{d#/proc/}}
-  case "$keep" in *" $pid "*) continue ;; esac
-  st=$(stat_of "$pid") || continue
-  [ "${{st% *}}" = "$$" ] && continue
-  [ "${{st#* }}" = "1" ] && continue
-  kill -9 "$pid" 2>/dev/null
-done
-rm -f "$OUT/reward.json" "$OUT/reward.txt"
-
-REWARD=0
-if curl -sf --max-time 60 "$BASE/_result?token=$TOKEN" -o "$OUT/result.json"; then
-  echo "result: $(cat "$OUT/result.json")"
-  if grep -q '"reward":1.0' "$OUT/result.json" && grep -q '"correct":true' "$OUT/result.json"; then
-    REWARD=1
-  fi
-else
-  echo "ERROR: could not read $BASE/_result"
-fi
-curl -sf --max-time 60 "$BASE/_log?token=$TOKEN" -o "$OUT/calls.jsonl" \\
-  && echo "calls logged: $(wc -l < "$OUT/calls.jsonl")" \\
-  || echo "ERROR: could not read $BASE/_log"
-echo "$REWARD" > "$OUT/reward.txt"
-echo "reward=$REWARD"
+#!/bin/sh
+# FrameHunt verifier. Runs in Harbor's separate verifier container, never in the
+# agent's. Reads the evidence the fh-mcp sidecar dumped ({evidence_dir}/result.json,
+# calls.jsonl), writes /logs/verifier/reward.txt and copies the evidence there.
+# Reward 1 only if the sidecar says the first submission was correct; else 0.
+exec python3 /tests/verify.py {evidence_dir} /logs/verifier
 """
 
 SOLVE_SH = """\
 #!/bin/bash
-# TODO(reference): replace with the scripted coarse-to-fine reference policy
-# (`python -m framehunt.reference`), which must use only the agent's MCP tools.
-# The agent's container doesn't ship the framehunt package, so that step will have to
-# bring it in here.
-#
-# For now this is a plumbing check: a stdlib MCP client calls info, view and submit
-# with a dummy answer. Reward 0 is expected.
-set -e
-python3 "$(dirname "$0")/mcp_smoke.py" "http://{host}:8000/mcp"
+# Reference run (oracle): the scripted coarse-to-fine policy in framehunt/reference.py.
+# It uses only the agent's MCP tools (info, view, submit) over the network, exactly
+# like an agent. Its tool-call trace goes to stdout (oracle.txt) and /logs/agent.
+set -euo pipefail
+cd "$(dirname "$0")"
+python3 -c "import PIL, numpy" 2>/dev/null \\
+  || pip3 install --no-cache-dir --break-system-packages {pins} \\
+  || pip install --no-cache-dir {pins}
+mkdir -p /logs/agent
+exec python3 -m framehunt.reference --url "http://{host}:8000/mcp" --trace /logs/agent/reference_trace.json
 """
+
+
+def write_solution(d: Path, fmt: dict) -> Path:
+    """solution/: solve.sh plus a minimal framehunt package (reference.py + fonts only)."""
+    sol = d / "solution"
+    pkg = sol / "framehunt"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("")
+    shutil.copy(ROOT / "framehunt" / "reference.py", pkg / "reference.py")
+    shutil.copytree(ROOT / "framehunt" / "assets" / "fonts", pkg / "assets" / "fonts")
+    solve_sh = sol / "solve.sh"
+    solve_sh.write_text(SOLVE_SH.format(pins=" ".join(MAIN_PIP), **fmt))
+    return solve_sh
 
 
 def _ignore(_dir, names):
     return [n for n in names if n == "__pycache__" or n.endswith((".pyc", ".pyo"))]
 
 
-def build_item(out: Path, split: str, item_id: str, kind: str, seed: int, budget: int) -> Path:
-    scene = make_scene(kind, seed)
+def build_item(out: Path, split: str, item_id: str, kind: str, seed: int, budget: int,
+               salt: str | None = None) -> Path:
+    """`seed` is the item's public seed (part of its id); the scene uses the secret
+    derive_seed(split, item_id, salt). salt=None loads (or creates) the split's salt."""
+    del seed  # public; never used to render
+    scene_seed = derive_seed(split, item_id, salt)
+    scene = make_scene(kind, scene_seed)
     m = scene.meta
     token = secrets.token_hex(24)
     d = out / item_id
@@ -251,22 +269,22 @@ def build_item(out: Path, split: str, item_id: str, kind: str, seed: int, budget
     (d / "tests").mkdir()
     (d / "solution").mkdir()
 
-    fmt = dict(item_id=item_id, kind=kind, seed=seed, split=split, budget=budget, token=token, host=MCP_HOST,
+    fmt = dict(item_id=item_id, kind=kind, seed=scene_seed, evidence_dir=EVIDENCE_DIR, split=split, budget=budget, token=token, host=MCP_HOST,
                agent_timeout=AGENT_TIMEOUT_SEC, verifier_timeout=VERIFIER_TIMEOUT_SEC)
     (d / "task.toml").write_text(TASK_TOML.format(**fmt))
     (d / "instruction.md").write_text(INSTRUCTION_MD.format(
         question=scene.question, answer_format=scene.answer_format, width=m.width, height=m.height, fps=m.fps,
         n_frames=m.n_frames, duration=m.duration_s, budget=budget, full=m.width * m.height,
         min_out=MIN_OUT_WIDTH, min_n=MIN_SHEET_N, max_n=MAX_SHEET_N, sep=SHEET_SEPARATOR_PX))
-    (d / "environment" / "Dockerfile").write_text(MAIN_DOCKERFILE)
+    (d / "environment" / "Dockerfile").write_text(MAIN_DOCKERFILE.format(pins=" ".join(MAIN_PIP)))
     (d / "environment" / "docker-compose.yaml").write_text(COMPOSE.format(**fmt))
     (d / "environment" / "mcp" / "Dockerfile").write_text(SIDECAR_DOCKERFILE.format(pins=" ".join(SIDECAR_PIP)))
     shutil.copytree(ROOT / "framehunt", d / "environment" / "mcp" / "framehunt", ignore=_ignore)
+    (d / "tests" / "Dockerfile").write_text(TESTS_DOCKERFILE)
+    shutil.copy(ROOT / "framehunt" / "verify.py", d / "tests" / "verify.py")
     test_sh = d / "tests" / "test.sh"
     test_sh.write_text(TEST_SH.format(**fmt))
-    solve_sh = d / "solution" / "solve.sh"
-    solve_sh.write_text(SOLVE_SH.format(**fmt))
-    shutil.copy(ROOT / "scripts" / "mcp_smoke.py", d / "solution" / "mcp_smoke.py")
+    solve_sh = write_solution(d, fmt)
     for p in (test_sh, solve_sh):
         p.chmod(0o755)
     return d
@@ -289,8 +307,13 @@ def main(argv=None) -> int:
         if unknown:
             ap.error(f"unknown item ids for split {a.split}: {sorted(unknown)}")
         items = [it for it in items if it[0] in a.only]
+    salt = load_salt(a.split)
+    if salt is None:
+        salt = load_salt(a.split, create=True)
+        print(f"generated a new secret salt for split {a.split!r}: {salt_path(a.split)} "
+              "(keep it to rebuild these exact items; never commit it)")
     for item_id, kind, seed in items:
-        d = build_item(out, a.split, item_id, kind, seed, a.budget)
+        d = build_item(out, a.split, item_id, kind, seed, a.budget, salt=salt)
         print(d.relative_to(ROOT) if d.is_relative_to(ROOT) else d)
     print(f"built {len(items)} task(s) in {out}")
     return 0

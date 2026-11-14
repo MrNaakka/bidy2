@@ -1,0 +1,51 @@
+{
+ "ts": "2026-11-14T01:40:29+00:00",
+ "base_url_host": "135.181.63.199",
+ "no_key_status": 401,
+ "vision": {
+  "answer": "K7Q2ZP",
+  "correct": true,
+  "latency_s": 0.56,
+  "usage": {
+   "prompt_tokens": 103,
+   "total_tokens": 110,
+   "completion_tokens": 7,
+   "prompt_tokens_details": null,
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  }
+ },
+ "tool_call": {
+  "latency_s": 2.27,
+  "n_tool_calls": 1,
+  "call": {
+   "name": "view",
+   "arguments": "{\"t\": 12.5, \"out_width\": 320}"
+  },
+  "has_reasoning": true,
+  "finish_reason": "tool_calls",
+  "usage": {
+   "prompt_tokens": 361,
+   "total_tokens": 461,
+   "completion_tokens": 100,
+   "prompt_tokens_details": null,
+   "completion_tokens_details": {
+    "reasoning_tokens": 57
+   }
+  }
+ },
+ "throughput": {
+  "ttft_s": 0.21,
+  "total_s": 10.85,
+  "completion_tokens": 512,
+  "decode_tok_per_s": 48.0
+ },
+ "server": {
+  "type": "1H100.80S.30V",
+  "variant": "bf16",
+  "spot": true,
+  "eur_per_h": 2.341,
+  "ready_after_s": 349
+ }
+}

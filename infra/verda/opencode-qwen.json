@@ -1,0 +1,25 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "verda-qwen/qwen3.8-27b",
+  "provider": {
+    "verda-qwen": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Qwen3.8-27B on Verda (vLLM)",
+      "options": {
+        "baseURL": "{env:QWEN_BASE_URL}",
+        "apiKey": "{env:QWEN_API_KEY}"
+      },
+      "models": {
+        "qwen3.8-27b": {
+          "name": "Qwen3.8 27B",
+          "attachment": true,
+          "reasoning": true,
+          "tool_call": true,
+          "interleaved": { "field": "reasoning" },
+          "modalities": { "input": ["text", "image"], "output": ["text"] },
+          "limit": { "context": 65536, "output": 16384 }
+        }
+      }
+    }
+  }
+}
