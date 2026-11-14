@@ -30,8 +30,9 @@ toasts items. Final v2 numbers come later.
   counter pins the event, the answer is only briefly where you'd look, look-alikes sit
   before and after), but verification is cheap and in the same place (the bell badge
   right above the toast stack). In DEV pilots Opus checks the badge on the frame it reads
-  and succeeds (5/6). So when the agent fails, it's because of verification cost, not
-  the mechanism or the UI.
+  and succeeds (5/6). That fits the hypothesis that verification cost, not the mechanism
+  itself, drives the logstream failures. It isn't proof, since the kinds also differ in
+  layout and distractors.
 - `leaderboard` (an endpoint table that re-sorts every half second) is a replication
   experiment kept in DEV and TRAIN (Opus DEV pilot: 2/6). It is not in EVAL.
 

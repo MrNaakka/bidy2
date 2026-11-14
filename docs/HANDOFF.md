@@ -72,8 +72,9 @@ pixels. Full analysis: README.md, "Why it's hard".
 ### Already built (don't redo)
 
 `toasts` and `leaderboard` carry the logstream mechanism into two new settings. They are
-implemented, tested, reviewed (codex rounds r15–r17) and are in EVAL v2 (logstream + toasts
-+ leaderboard, 10 each). Descriptions: `docs/design.md`, "Second slice".
+implemented, tested and reviewed. **Superseded: the final EVAL v2 is logstream + dialogs +
+toasts (control), 10 each; leaderboard is DEV/TRAIN only. See README "Results" and
+docs/design.md "Second slice"; pilot results are there too.** Descriptions: `docs/design.md`, "Second slice".
 
 - Reference on 200 random seeds per new kind: 100% correct, max 41,048 px (toasts) and
   47,648 px (leaderboard).
