@@ -1,31 +1,45 @@
 # FrameHunt
 
 FrameHunt is an RL environment for **active video sampling under a pixel budget**. The
-agent gets a question about a long synthetic screen recording (a scrolling service log,
-a desktop app with stacking toast notifications, or an API error tracker whose endpoint
-table re-sorts every half second). It can't watch the video. Through an MCP server it can only ask for single frames, optionally cropped and
+setting is triage when a screen recording is the only artifact: an E2E test video from
+Playwright or Cypress, a user's bug-report recording, a terminal recording of a failed
+deploy. The agent gets a question about a long synthetic recording (a scrolling service
+log, a desktop app with error dialogs, the same app with stacking toast notifications).
+It can't watch the video. Through an MCP server it can only ask for single frames, optionally cropped and
 downscaled, and every returned pixel is charged against a hard budget of 120,000 pixels
 per item (about 6% of one full 1920x1080 frame, which is 2,073,600 pixels). A request
 that would exceed the budget is refused.
 
 Each question is about a brief event that leaves a lasting trace on screen: a counter
-or a badge. The trace is readable at 1/8 scale. The answer (a request id, a toast code,
-an errors/min value) is random and only readable at native resolution. Being slightly
+or a badge. The trace is readable at 1/8 scale. The answer (a request id, an error code, a toast code)
+is random and only readable at native resolution. Being slightly
 off is punished with a confident wrong answer: one frame early, a look-alike (the
-previous ERROR line, the previous Error toast, the endpoint's previous value) sits where
+previous ERROR line, the previous Error toast) sits where
 the answer will be; a little late, the answer has moved or changed. Good play: binary-search the cheap trace to find *when*, then spend pixels
 on one sharp crop of *where*. Reward is 1 for an exact answer on the first submission,
 else 0. Design details: [docs/design.md](docs/design.md).
 
 ## Results
 
-**EVAL v2** (current, `framehunt/splits.py` `EVAL`): 10 logstream, 10 toasts and 10
-leaderboard items. Final v2 numbers come later. The tables below are **v1** results on
-the first EVAL set (`EVAL_V1`: 10 each of logstream, dialogs and dashboard; rebuild it
-with `scripts/build_tasks.py --split eval --v1`). The logstream items are the same in
-both sets. Dialogs and dashboard were too easy for Opus (8–10/10), so v2 replaces them
-with `toasts` and `leaderboard`, which carry logstream's failure mechanism into new
-settings (see "Second slice" in [docs/design.md](docs/design.md)).
+**EVAL v2** (current, `framehunt/splits.py` `EVAL`): 10 logstream, 10 dialogs and 10
+toasts items. Final v2 numbers come later.
+- **logstream** (a terminal recording of a failing service): the hard case. Verifying
+  the event frame and finding the right row need extra looks that Opus doesn't spend.
+- **dialogs** (the common E2E-video case: an error dialog pops up and closes).
+- **toasts**, the explicit **control**: the same mechanism as logstream (a lasting
+  counter pins the event, the answer is only briefly where you'd look, look-alikes sit
+  before and after), but verification is cheap and in the same place (the bell badge
+  right above the toast stack). In DEV pilots Opus checks the badge on the frame it reads
+  and succeeds (5/6). So when the agent fails, it's because of verification cost, not
+  the mechanism or the UI.
+- `leaderboard` (an endpoint table that re-sorts every half second) is a replication
+  experiment kept in DEV and TRAIN (Opus DEV pilot: 2/6). It is not in EVAL.
+
+The tables below are **v1** results on the first EVAL set (`EVAL_V1`: 10 each of
+logstream, dialogs and dashboard; rebuild it with `scripts/build_tasks.py --split eval
+--v1`). The logstream and dialogs items are the same ids in both sets (dialogs' answer
+format now names its exact alphabet). See "Second slice" in
+[docs/design.md](docs/design.md).
 
 v1: 30 EVAL_V1 items (10 per kind), 120k-pixel budget, run through Harbor.
 
@@ -55,9 +69,8 @@ A full Harbor run log of Opus run 1, with its score, is in
 
 ## Why it's hard
 
-(Failure analysis of the v1 runs. Toasts and leaderboard were built to test the same
-decisions: verify the event frame before reading, and read the moving target on that
-same frame.)
+(Failure analysis of the v1 runs. Toasts, the v2 control, tests the same decisions with
+cheap, co-located verification.)
 
 The agent has everything it needs. The instruction states the question, the video
 facts, the budget and the cost of every call. The trace (counter, badge or red tile) is
@@ -203,13 +216,13 @@ directory.
 ```bash
 uv run pytest -m "not reference"     # unit and server tests
 uv run pytest -m reference -s        # the reference policy on all 30 EVAL items (in-process HTTP, no Docker)
-                                     # and on 200 random seeds per new kind
+                                     # and on 200 random seeds each of toasts and leaderboard
 ```
 
 ## Layout
 
-- `framehunt/scenes/`: scene generators (`logstream`, `toasts`, `leaderboard` in EVAL v2;
-  `dialogs`, `dashboard` in EVAL v1, DEV and TRAIN)
+- `framehunt/scenes/`: scene generators (`logstream`, `dialogs`, `toasts` in EVAL v2;
+  `dashboard` in EVAL v1; `leaderboard` in DEV and TRAIN; all kinds in DEV and TRAIN)
 - `framehunt/server.py`: the MCP server (the agent's tools and the budget)
 - `framehunt/reference.py`: the reference policy
 - `framehunt/baselines/`: the stop-early baseline agent

@@ -51,7 +51,7 @@ All 1920×1080, 10 fps, 3–8 minutes long (n_frames chosen from the seed).
 
 K and event times are random. Events sit in roughly the 10–90 % range of the video.
 
-### Second slice: toasts and leaderboard (EVAL v2)
+### Second slice: toasts and leaderboard; the EVAL v2 set
 
 Opus 5.5 scored 3/10 on logstream but 8–10/10 on dialogs and dashboard (EVAL v1).
 Logstream is hard because being slightly wrong still yields a confident wrong answer:
@@ -59,8 +59,19 @@ one frame early, the (K-1)-th ERROR line is on screen as a convincing distractor
 frames late, newer lines have scrolled in, so "the newest line" is wrong. In dialogs and
 dashboard the answer holds for seconds on both sides of the event, sits at a fixed spot
 and has no look-alike on screen, so an imprecise search still lands on it. The two new
-kinds carry logstream's mechanism into other settings. EVAL v2 is logstream + toasts +
-leaderboard (10 each); dialogs and dashboard stay in the code, in DEV and in TRAIN.
+kinds carry logstream's mechanism into other settings.
+
+**EVAL v2 (final): logstream + dialogs + toasts, 10 each.** The setting is triage when a
+screen recording is the only artifact: E2E test videos (Playwright, Cypress), users'
+bug-report recordings, terminal recordings of a failed deploy. Logstream is the hard
+case: verifying the event frame and finding the row need extra looks, which Opus
+doesn't spend. Dialogs is the common E2E case. Toasts is the explicit **control**: it
+has the same mechanism (a lasting counter pins the event, the answer is only briefly
+where you'd look, look-alikes before and after), but verification is cheap and in the
+same place (the badge right above the stack). Opus verifies there and succeeds (pilots
+below), which shows its logstream failures come from verification cost, not from the
+mechanism or the UI. Leaderboard stays in DEV and TRAIN as a replication experiment
+(Opus DEV pilot 2/6, below); dashboard is in EVAL_V1, DEV and TRAIN.
 
 - `toasts`: the same desktop app as `dialogs`, with non-modal toast notifications
   stacking at the top right: Info (blue), Warning (amber), Error (red), each with a

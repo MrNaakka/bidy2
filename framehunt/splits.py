@@ -1,10 +1,11 @@
 """Fixed, committed item lists, and the secret seed derivation. Each item is
 (item_id, kind, public_seed).
 
-EVAL (v2): 30 items, 10 each of logstream, toasts and leaderboard. EVAL_V1 is the
-first evaluation set (10 each of logstream, dialogs and dashboard); the v1 results in
-the README were measured on it. Its logstream items are the same ids as in EVAL (same
-derived seeds), so logstream results carry over. DEV: 100 items (20 per kind). item_id
+EVAL (v2): 30 items, 10 each of logstream, dialogs and toasts (the control). EVAL_V1 is
+the first evaluation set (10 each of logstream, dialogs and dashboard); the v1 results
+in the README were measured on it. EVAL shares its logstream and dialogs ids with
+EVAL_V1 (same derived seeds; dialogs' answer_format now states the exact alphabet).
+leaderboard is in DEV and TRAIN only. DEV: 100 items (20 per kind). item_id
 is "<kind>-<public_seed:04d>". Public seeds are disjoint between splits (EVAL uses 7xxx,
 DEV uses 3xxx). Do not edit existing entries: results are reported against these ids.
 
@@ -72,6 +73,16 @@ EVAL: tuple[tuple[str, str, int], ...] = (
     ("logstream-7008", "logstream", 7008),
     ("logstream-7009", "logstream", 7009),
     ("logstream-7010", "logstream", 7010),
+    ("dialogs-7101", "dialogs", 7101),
+    ("dialogs-7102", "dialogs", 7102),
+    ("dialogs-7103", "dialogs", 7103),
+    ("dialogs-7104", "dialogs", 7104),
+    ("dialogs-7105", "dialogs", 7105),
+    ("dialogs-7106", "dialogs", 7106),
+    ("dialogs-7107", "dialogs", 7107),
+    ("dialogs-7108", "dialogs", 7108),
+    ("dialogs-7109", "dialogs", 7109),
+    ("dialogs-7110", "dialogs", 7110),
     ("toasts-7401", "toasts", 7401),
     ("toasts-7402", "toasts", 7402),
     ("toasts-7403", "toasts", 7403),
@@ -82,16 +93,6 @@ EVAL: tuple[tuple[str, str, int], ...] = (
     ("toasts-7408", "toasts", 7408),
     ("toasts-7409", "toasts", 7409),
     ("toasts-7410", "toasts", 7410),
-    ("leaderboard-7501", "leaderboard", 7501),
-    ("leaderboard-7502", "leaderboard", 7502),
-    ("leaderboard-7503", "leaderboard", 7503),
-    ("leaderboard-7504", "leaderboard", 7504),
-    ("leaderboard-7505", "leaderboard", 7505),
-    ("leaderboard-7506", "leaderboard", 7506),
-    ("leaderboard-7507", "leaderboard", 7507),
-    ("leaderboard-7508", "leaderboard", 7508),
-    ("leaderboard-7509", "leaderboard", 7509),
-    ("leaderboard-7510", "leaderboard", 7510),
 )
 
 DEV: tuple[tuple[str, str, int], ...] = (
