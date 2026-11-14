@@ -7,49 +7,109 @@ run was charged (budget per item: see each task.toml, default 120000). Generated
 
 | job | agent | model | trials | mean reward | correct | submitted | exceptions | mean px | max px | mean calls | API cost (USD) | wall time (s) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| fh-eval-reference | oracle | - | 30 | 1.000 | 30 | 30 | 0 | 53411 | 58584 | 16.7 | - | 155 |
-| fh-eval-nop | nop | - | 30 | 0.000 | 0 | 0 | 0 | 0 | 0 | 0.0 | - | 311 |
-| fh-eval-stop-early | framehunt.baselines.stop_early:StopEarly | - | 30 | 0.000 | 0 | 30 | 0 | 32400 | 32400 | 3.0 | - | 182 |
+| fh-eval-reference | oracle | - | 30 | 1.000 | 30 | 30 | 0 | 49776 | 58224 | 16.6 | - | 210 |
+| fh-eval-nop | nop | - | 30 | 0.000 | 0 | 0 | 0 | 0 | 0 | 0.0 | - | 189 |
+| fh-eval-stop-early | framehunt.baselines.stop_early:StopEarly | - | 30 | 0.000 | 0 | 30 | 0 | 32400 | 32400 | 3.0 | - | 180 |
+| fh-eval-opencode-run1 | opencode | anthropic/claude-opus-5-5 | 30 | 0.800 | 24 | 30 | 0 | 105315 | 119958 | 10.3 | 4.04 | 448 |
+| fh-eval-opencode-run2 | opencode | anthropic/claude-opus-5-5 | 30 | 0.567 | 17 | 30 | 0 | 107405 | 119976 | 11.3 | 4.33 | 534 |
+| fh-eval-opencode-run3 | opencode | anthropic/claude-opus-5-5 | 30 | 0.733 | 22 | 30 | 0 | 108180 | 120000 | 9.8 | 3.61 | 462 |
+| fh-modal-smoke-opus | opencode | anthropic/claude-opus-5-5 | 2 | 1.000 | 2 | 2 | 0 | 111843 | 113610 | 10.0 | 0.30 | 156 |
+| fh-modal-smoke-oracle | oracle | - | 2 | 1.000 | 2 | 2 | 0 | 43826 | 47323 | 16.5 | - | 93 |
+| fh-pilot-oracle | oracle | - | 12 | 0.917 | 11 | 11 | 1 | 40438 | 47323 | 15.1 | - | 1837 |
+| fh-pilot-oracle-3402 | oracle | - | 1 | 1.000 | 1 | 1 | 0 | 40688 | 40688 | 17.0 | - | 122 |
+| fh-pilot-scenes | opencode | anthropic/claude-opus-5-5 | 12 | 0.667 | 8 | 9 | 0 | 81496 | 119320 | 7.3 | 1.74 | - |
+| fh-pilot-scenes-rest | opencode | anthropic/claude-opus-5-5 | 3 | 0.667 | 2 | 3 | 0 | 97803 | 119574 | 12.3 | 0.49 | 217 |
+| fh-pilot2-oracle | oracle | - | 12 | 1.000 | 12 | 12 | 0 | 43831 | 47323 | 16.5 | - | 352 |
+| fh-pilot2-scenes | opencode | anthropic/claude-opus-5-5 | 12 | 0.667 | 8 | 12 | 0 | 111393 | 119855 | 10.2 | 1.65 | 596 |
+| fh-pilot3-oracle | oracle | - | 6 | 1.000 | 6 | 6 | 0 | 40508 | 40688 | 16.5 | - | 196 |
+| fh-pilot3-oracle-modal | oracle | - | 6 | 1.000 | 6 | 6 | 0 | 40508 | 40688 | 16.5 | - | 105 |
+| fh-pilot3-scenes | opencode | anthropic/claude-opus-5-5 | 6 | 0.833 | 5 | 6 | 0 | 94807 | 116312 | 10.3 | 0.82 | 173 |
+
+Total API cost: $16.97
 
 ## Per kind (mean reward / mean pixels)
 
-| job | logstream | dialogs | dashboard |
-| --- | --- | --- | --- |
-| fh-eval-reference | 1.00 / 50995 | 1.00 / 58152 | 1.00 / 51085 |
-| fh-eval-nop | 0.00 / 0 | 0.00 / 0 | 0.00 / 0 |
-| fh-eval-stop-early | 0.00 / 32400 | 0.00 / 32400 | 0.00 / 32400 |
+| job | logstream | dialogs | toasts | leaderboard |
+| --- | --- | --- | --- | --- |
+| fh-eval-reference | 1.00 / 50776 | 1.00 / 58080 | 1.00 / 40472 | - |
+| fh-eval-nop | 0.00 / 0 | 0.00 / 0 | 0.00 / 0 | - |
+| fh-eval-stop-early | 0.00 / 32400 | 0.00 / 32400 | 0.00 / 32400 | - |
+| fh-eval-opencode-run1 | 0.60 / 115736 | 0.90 / 102757 | 0.90 / 97452 | - |
+| fh-eval-opencode-run2 | 0.10 / 118895 | 0.90 / 105509 | 0.70 / 97812 | - |
+| fh-eval-opencode-run3 | 0.60 / 112452 | 0.80 / 109264 | 0.80 / 102825 | - |
+| fh-modal-smoke-opus | - | - | 1.00 / 110076 | 1.00 / 113610 |
+| fh-modal-smoke-oracle | - | - | 1.00 / 40328 | 1.00 / 47323 |
+| fh-pilot-oracle | - | - | 0.83 / 33607 | 1.00 / 47269 |
+| fh-pilot-oracle-3402 | - | - | 1.00 / 40688 | - |
+| fh-pilot-scenes | - | - | 0.50 / 49084 | 0.83 / 113908 |
+| fh-pilot-scenes-rest | - | - | 0.67 / 97803 | - |
+| fh-pilot2-oracle | - | - | 1.00 / 40448 | 1.00 / 47215 |
+| fh-pilot2-scenes | - | - | 1.00 / 114006 | 0.33 / 108780 |
+| fh-pilot3-oracle | - | - | 1.00 / 40508 | - |
+| fh-pilot3-oracle-modal | - | - | 1.00 / 40508 | - |
+| fh-pilot3-scenes | - | - | 0.83 / 94807 | - |
 
 ## Per item (reward, pixels used, calls; `-` = not submitted)
 
-| item | fh-eval-reference | fh-eval-nop | fh-eval-stop-early |
-| --- | --- | --- | --- |
-| logstream-7001 | 1, 51104 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| logstream-7002 | 1, 51104 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| logstream-7003 | 1, 51104 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| logstream-7004 | 1, 52196 px, 18 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| logstream-7005 | 1, 50012 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| logstream-7006 | 1, 51104 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| logstream-7007 | 1, 50012 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| logstream-7008 | 1, 50012 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| logstream-7009 | 1, 52196 px, 18 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| logstream-7010 | 1, 51104 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| dialogs-7101 | 1, 58224 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| dialogs-7102 | 1, 57864 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| dialogs-7103 | 1, 58224 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| dialogs-7104 | 1, 58584 px, 18 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| dialogs-7105 | 1, 58224 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| dialogs-7106 | 1, 58224 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| dialogs-7107 | 1, 58224 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| dialogs-7108 | 1, 57864 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| dialogs-7109 | 1, 58224 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| dialogs-7110 | 1, 57864 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| dashboard-7201 | 1, 51109 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| dashboard-7202 | 1, 51109 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| dashboard-7203 | 1, 51061 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| dashboard-7204 | 1, 51061 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| dashboard-7205 | 1, 51109 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| dashboard-7206 | 1, 51109 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| dashboard-7207 | 1, 51109 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| dashboard-7208 | 1, 51061 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| dashboard-7209 | 1, 51061 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
-| dashboard-7210 | 1, 51061 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls |
+| item | fh-eval-reference | fh-eval-nop | fh-eval-stop-early | fh-eval-opencode-run1 | fh-eval-opencode-run2 | fh-eval-opencode-run3 | fh-modal-smoke-opus | fh-modal-smoke-oracle | fh-pilot-oracle | fh-pilot-oracle-3402 | fh-pilot-scenes | fh-pilot-scenes-rest | fh-pilot2-oracle | fh-pilot2-scenes | fh-pilot3-oracle | fh-pilot3-oracle-modal | fh-pilot3-scenes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| logstream-7001 | 1, 50012 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 92520 px, 7 calls | 0, 119624 px, 10 calls | 1, 93508 px, 10 calls |  |  |  |  |  |  |  |  |  |  |  |
+| logstream-7002 | 1, 51104 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 0, 119112 px, 8 calls | 0, 119472 px, 9 calls | 1, 102980 px, 8 calls |  |  |  |  |  |  |  |  |  |  |  |
+| logstream-7003 | 1, 50012 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 117475 px, 13 calls | 0, 119640 px, 12 calls | 0, 120000 px, 10 calls |  |  |  |  |  |  |  |  |  |  |  |
+| logstream-7004 | 1, 51104 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 0, 119651 px, 15 calls | 0, 119000 px, 12 calls | 0, 118284 px, 11 calls |  |  |  |  |  |  |  |  |  |  |  |
+| logstream-7005 | 1, 51104 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 0, 119758 px, 17 calls | 0, 119967 px, 10 calls | 1, 104640 px, 9 calls |  |  |  |  |  |  |  |  |  |  |  |
+| logstream-7006 | 1, 51104 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 118890 px, 10 calls | 0, 119976 px, 16 calls | 1, 119968 px, 12 calls |  |  |  |  |  |  |  |  |  |  |  |
+| logstream-7007 | 1, 50012 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 0, 119212 px, 16 calls | 0, 119938 px, 18 calls | 0, 119670 px, 10 calls |  |  |  |  |  |  |  |  |  |  |  |
+| logstream-7008 | 1, 51104 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 118372 px, 12 calls | 1, 111716 px, 8 calls | 0, 119880 px, 11 calls |  |  |  |  |  |  |  |  |  |  |  |
+| logstream-7009 | 1, 51104 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 119372 px, 11 calls | 0, 119710 px, 13 calls | 1, 114105 px, 12 calls |  |  |  |  |  |  |  |  |  |  |  |
+| logstream-7010 | 1, 51104 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 113000 px, 8 calls | 0, 119907 px, 16 calls | 1, 111480 px, 7 calls |  |  |  |  |  |  |  |  |  |  |  |
+| dialogs-7101 | 1, 58224 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 116640 px, 9 calls | 1, 119708 px, 14 calls | 1, 118460 px, 10 calls |  |  |  |  |  |  |  |  |  |  |  |
+| dialogs-7102 | 1, 58224 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 92220 px, 7 calls | 1, 77916 px, 7 calls | 1, 119814 px, 9 calls |  |  |  |  |  |  |  |  |  |  |  |
+| dialogs-7103 | 1, 58224 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 103482 px, 10 calls | 1, 113992 px, 9 calls | 1, 90760 px, 9 calls |  |  |  |  |  |  |  |  |  |  |  |
+| dialogs-7104 | 1, 57864 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 97740 px, 10 calls | 1, 79624 px, 8 calls | 1, 102413 px, 12 calls |  |  |  |  |  |  |  |  |  |  |  |
+| dialogs-7105 | 1, 57864 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 83256 px, 9 calls | 1, 113415 px, 15 calls | 1, 101176 px, 10 calls |  |  |  |  |  |  |  |  |  |  |  |
+| dialogs-7106 | 1, 58224 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 0, 119958 px, 12 calls | 1, 116420 px, 14 calls | 0, 119960 px, 11 calls |  |  |  |  |  |  |  |  |  |  |  |
+| dialogs-7107 | 1, 57864 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 89640 px, 10 calls | 1, 116600 px, 10 calls | 1, 118856 px, 7 calls |  |  |  |  |  |  |  |  |  |  |  |
+| dialogs-7108 | 1, 58224 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 93550 px, 11 calls | 1, 113020 px, 16 calls | 0, 119962 px, 13 calls |  |  |  |  |  |  |  |  |  |  |  |
+| dialogs-7109 | 1, 57864 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 115668 px, 9 calls | 0, 113280 px, 11 calls | 1, 97016 px, 8 calls |  |  |  |  |  |  |  |  |  |  |  |
+| dialogs-7110 | 1, 58224 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 115412 px, 15 calls | 1, 91112 px, 10 calls | 1, 104220 px, 9 calls |  |  |  |  |  |  |  |  |  |  |  |
+| toasts-3401 |  |  |  |  |  |  | 1, 110076 px, 9 calls | 1, 40328 px, 16 calls | 1, 40328 px, 16 calls |  | 1, 104436 px, 11 calls |  |  |  |  |  |  |
+| toasts-3402 |  |  |  |  |  |  |  |  | 0, 0 px, 0 calls, - | 1, 40688 px, 17 calls | 1, 114100 px, 7 calls |  |  |  |  |  |  |
+| toasts-3403 |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls |  | 1, 75968 px, 9 calls |  |  |  |  |  |  |
+| toasts-3404 |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls |  | 0, 0 px, 0 calls, - | 0, 119574 px, 16 calls |  |  |  |  |  |
+| toasts-3405 |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls |  | 0, 0 px, 0 calls, - | 1, 92216 px, 10 calls |  |  |  |  |  |
+| toasts-3406 |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls |  | 0, 0 px, 0 calls, - | 1, 81620 px, 11 calls |  |  |  |  |  |
+| toasts-3407 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls | 1, 116840 px, 13 calls |  |  |  |
+| toasts-3408 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls | 1, 115266 px, 19 calls |  |  |  |
+| toasts-3409 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls | 1, 113036 px, 7 calls |  |  |  |
+| toasts-3410 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40688 px, 17 calls | 1, 116536 px, 11 calls |  |  |  |
+| toasts-3411 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40688 px, 17 calls | 1, 102500 px, 8 calls |  |  |  |
+| toasts-3412 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls | 1, 119855 px, 11 calls |  |  |  |
+| toasts-3413 |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40688 px, 17 calls | 1, 40688 px, 17 calls | 1, 84770 px, 10 calls |
+| toasts-3414 |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls | 1, 40328 px, 16 calls | 1, 68028 px, 8 calls |
+| toasts-3415 |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40688 px, 17 calls | 1, 40688 px, 17 calls | 0, 116312 px, 12 calls |
+| toasts-3416 |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls | 1, 40328 px, 16 calls | 1, 102176 px, 18 calls |
+| toasts-3417 |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40688 px, 17 calls | 1, 40688 px, 17 calls | 1, 109508 px, 7 calls |
+| toasts-3418 |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls | 1, 40328 px, 16 calls | 1, 88050 px, 7 calls |
+| toasts-7401 | 1, 40688 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 109568 px, 13 calls | 1, 109240 px, 10 calls | 1, 84992 px, 10 calls |  |  |  |  |  |  |  |  |  |  |  |
+| toasts-7402 | 1, 40328 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 81268 px, 8 calls | 1, 76648 px, 7 calls | 0, 119890 px, 11 calls |  |  |  |  |  |  |  |  |  |  |  |
+| toasts-7403 | 1, 40688 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 111840 px, 11 calls | 0, 115240 px, 11 calls | 1, 116660 px, 13 calls |  |  |  |  |  |  |  |  |  |  |  |
+| toasts-7404 | 1, 40328 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 101910 px, 8 calls | 0, 84904 px, 12 calls | 0, 117090 px, 13 calls |  |  |  |  |  |  |  |  |  |  |  |
+| toasts-7405 | 1, 40328 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 100736 px, 10 calls | 1, 95115 px, 12 calls | 1, 113420 px, 9 calls |  |  |  |  |  |  |  |  |  |  |  |
+| toasts-7406 | 1, 40328 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 90240 px, 8 calls | 1, 104084 px, 12 calls | 1, 87722 px, 8 calls |  |  |  |  |  |  |  |  |  |  |  |
+| toasts-7407 | 1, 40688 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 95510 px, 10 calls | 1, 86960 px, 10 calls | 1, 77160 px, 8 calls |  |  |  |  |  |  |  |  |  |  |  |
+| toasts-7408 | 1, 40328 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 113448 px, 6 calls | 1, 113436 px, 12 calls | 1, 113908 px, 6 calls |  |  |  |  |  |  |  |  |  |  |  |
+| toasts-7409 | 1, 40328 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 0, 76400 px, 7 calls | 0, 110890 px, 6 calls | 1, 94702 px, 9 calls |  |  |  |  |  |  |  |  |  |  |  |
+| toasts-7410 | 1, 40688 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 93600 px, 8 calls | 1, 81600 px, 8 calls | 1, 102704 px, 8 calls |  |  |  |  |  |  |  |  |  |  |  |
+| leaderboard-3501 |  |  |  |  |  |  | 1, 113610 px, 11 calls | 1, 47323 px, 17 calls | 1, 47323 px, 17 calls |  | 1, 119320 px, 13 calls |  |  |  |  |  |  |
+| leaderboard-3502 |  |  |  |  |  |  |  |  | 1, 47323 px, 17 calls |  | 1, 108790 px, 8 calls |  |  |  |  |  |  |
+| leaderboard-3503 |  |  |  |  |  |  |  |  | 1, 47323 px, 17 calls |  | 1, 109306 px, 10 calls |  |  |  |  |  |  |
+| leaderboard-3504 |  |  |  |  |  |  |  |  | 1, 46998 px, 16 calls |  | 0, 115780 px, 9 calls |  |  |  |  |  |  |
+| leaderboard-3505 |  |  |  |  |  |  |  |  | 1, 47323 px, 17 calls |  | 1, 116065 px, 9 calls |  |  |  |  |  |  |
+| leaderboard-3506 |  |  |  |  |  |  |  |  | 1, 47323 px, 17 calls |  | 1, 114190 px, 12 calls |  |  |  |  |  |  |
+| leaderboard-3507 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 46998 px, 16 calls | 1, 108500 px, 11 calls |  |  |  |
+| leaderboard-3508 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 47323 px, 17 calls | 0, 107280 px, 8 calls |  |  |  |
+| leaderboard-3509 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 46998 px, 16 calls | 1, 105330 px, 8 calls |  |  |  |
+| leaderboard-3510 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 47323 px, 17 calls | 0, 118312 px, 10 calls |  |  |  |
+| leaderboard-3511 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 47323 px, 17 calls | 0, 104570 px, 9 calls |  |  |  |
+| leaderboard-3512 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 47323 px, 17 calls | 0, 108688 px, 8 calls |  |  |  |

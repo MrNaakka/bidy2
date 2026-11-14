@@ -96,7 +96,8 @@ def trial_row(tdir: Path) -> dict | None:
         "trial": res.get("trial_name", tdir.name),
         "reward": float(vr.get("reward", 0.0) or 0.0),
         "submitted": bool(ev.get("submitted", False)),
-        "answer": ev.get("answer"),
+        # No submitted answers here: summary.json is committed, and correct answers would
+        # publish the eval items of the current salt (docs/design.md, "Item secrecy").
         "correct": bool(ev.get("correct", False)),
         "pixels_used": int(ev.get("pixels_used", 0) or 0),
         "n_calls": int(ev.get("n_calls", len(calls)) or 0),
