@@ -157,6 +157,28 @@ truncates `loss.jsonl` to that step and continues; checkpoints are written to a 
 renamed, so a kill mid-save never leaves a half checkpoint. SIGTERM checkpoints at the next
 optimizer step and exits 143. A changed argument in the same `--out` is refused.
 
+**Several GPUs on one box (data parallel).** Each H100 holds a full replica (~70 GB peak), so
+`torchrun` splits every optimizer step's `--grad-accum` conversations across the GPUs:
+
+```bash
+torchrun --standalone --nproc_per_node=4 train/sft_lora.py --model /mnt/fh/models/Qwen3.8-27B \
+    --data /mnt/fh/data/sft-v2 --out /mnt/fh/runs/sft-v2 <the run's other arguments, unchanged>
+# continue a checkpoint written elsewhere (e.g. by the single-GPU run) in a fresh --out:
+torchrun --standalone --nproc_per_node=4 train/sft_lora.py ... --out /mnt/fh/runs/sft-v2-dp \
+    --resume-from /path/to/sft-v2/ckpt-000020
+```
+
+Same optimization as one GPU with the same arguments: step s still trains global micro indices
+`[s*accum, (s+1)*accum)` of the same per-epoch shuffle, rank r takes every K-th of them (accum need not
+divide by K), the step's trained-token total is all-reduced before backward so the token-weighted loss
+normalisation is unchanged, and the LoRA grads are summed with one all_reduce before clipping and AdamW.
+Checkpoints keep only the global step/micro, so they resume on any K, including single-GPU
+checkpoints (`--resume-from` checks the source run's `args.json` for the arguments that fix data order
+and schedule). Rank 0 writes logs and checkpoints; eval is sharded. Only the LoRA dropout masks differ
+(per-rank RNG). `tests/test_sft_ddp.py` checks 2 gloo processes against 1 on the tiny model: same loss,
+grad norm and trained tokens per step, same eval loss and adapter, and a single-process checkpoint
+resumed on 2 ranks ends at the same adapter.
+
 Time and cost estimate (H100 80 GB SXM, 12.9M tokens per epoch): with LoRA and recompute,
 ~6 x 27e9 FLOPs per token, so 2.1e18 FLOPs per epoch; at 25-35 % MFU
 (250-350 TFLOP/s for batch-1 HF training with the fla kernels) that is **1.7-2.4 h per epoch,
