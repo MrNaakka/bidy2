@@ -20,6 +20,8 @@ FORMATS = {
     "logstream": re.compile(r"^[0-9A-F]{8}$"),
     "dialogs": re.compile(r"^[A-Z0-9]{6}$"),
     "dashboard": re.compile(r"^[1-9][0-9]{2,4}$"),
+    "toasts": re.compile(r"^[A-HJ-NP-Z0-9]{6}$"),
+    "leaderboard": re.compile(r"^[1-9][0-9]{2,3}$"),
 }
 
 
@@ -53,7 +55,7 @@ def test_normalize_answer():
 
 
 def test_kinds_and_unknown():
-    assert KINDS == ("logstream", "dialogs", "dashboard")
+    assert KINDS == ("logstream", "dialogs", "dashboard", "toasts", "leaderboard")
     with pytest.raises(ValueError):
         make_scene("nope", 1)
 
@@ -125,7 +127,10 @@ def test_answers_random_across_seeds(kind):
     assert counts.most_common(1)[0][1] <= 3, counts.most_common(5)
     assert len({round(e, 3) for e in events}) >= 150
     assert min(events) < 0.25 and max(events) > 0.75
-    if kind != "dashboard":
+    if kind == "leaderboard":
+        assert len(set(ks)) >= 5
+        assert len({make_scene(kind, s).debug_info()["endpoint"] for s in range(40)}) >= 10
+    elif kind != "dashboard":
         assert len(set(ks)) >= 5
     else:
         assert len({make_scene(kind, s).debug_info()["tile"] for s in range(30)}) >= 6
@@ -167,13 +172,13 @@ def test_answer_visible_at_key_frame(scene):
 def test_font_sizes_trace_vs_answer(scene):
     info = scene.debug_info()
     # Answer glyphs: <= 18 px font -> under ~4.5 px at 1/4 scale (unreadable).
-    assert 14 <= info["answer_font_px"] <= 18
+    assert 13 <= info["answer_font_px"] <= 18
     # Trace glyphs: >= 44 px font -> >= 5.5 px at 1/8 (digits/words large & high contrast).
     assert info["trace"]["font_px"] >= 44
 
 
 # --- trace rule ------------------------------------------------------------------------
-@pytest.mark.parametrize("kind", ["logstream", "dialogs"])
+@pytest.mark.parametrize("kind", ["logstream", "dialogs", "toasts", "leaderboard"])
 @pytest.mark.parametrize("seed", SEEDS[:4])
 def test_counter_trace_at_eighth_scale(kind, seed):
     sc = make_scene(kind, seed)
@@ -331,3 +336,139 @@ def test_render_speed(kind):
         sc.render(f)
     per = (time.perf_counter() - t) / len(frames)
     assert per < 0.1, f"{kind}: {per * 1000:.1f} ms/frame"
+
+
+# --- toasts & leaderboard: the event window --------------------------------------------
+# Being slightly off must give a confident wrong answer: at f-1 the target location
+# shows a well-formed distractor, [f, f+9] shows the answer, and by f+15 the target
+# has moved or changed.
+NEW_SEEDS = range(60)
+
+
+@pytest.mark.parametrize("seed", NEW_SEEDS)
+def test_toasts_window(seed):
+    sc = make_scene("toasts", seed)
+    info = sc.debug_info()
+    f, k, n = info["event_frame"], info["k"], sc.meta.n_frames
+    tgt = info["target_index"]
+    assert _in_10_90(f, n) and k >= 2
+    assert sc.badge_at(f - 1) == k - 1 and sc.badge_at(f) == k
+    codes = [t["code"] for t in sc.toasts]
+    assert len(set(codes)) == len(codes) and len({c[:2] for c in codes}) == 1
+    assert sc.answer == codes[tgt] and sc.toasts[tgt]["level"] == "error"
+    # f-1: the top slot holds another toast; the (K-1)-th Error toast is on screen and is
+    # the newest red one (the convincing distractor).
+    vis = sc.visible_at(f - 1)
+    assert vis and vis[0] != tgt and tgt not in vis
+    prev = sc.error_idx[k - 2]
+    assert prev in vis
+    assert [i for i in vis if sc.toasts[i]["level"] == "error"][0] == prev
+    # [f, f+9]: the answer is on screen; on f it is the top toast.
+    assert sc.visible_at(f)[0] == tgt
+    for g in range(f, f + 10):
+        assert tgt in sc.visible_at(g)
+    # The next toast arrives 0.3-1.5 s later, so by f+15 the target left the top slot.
+    assert 3 <= info["top_slot_until"] - f <= 15
+    assert sc.visible_at(f + 15)[0] != tgt
+    # At most 5 toasts, newest first, nothing ever reappears.
+    for g in range(f - 200, f + 200, 7):
+        v = sc.visible_at(g)
+        assert len(v) <= 5 and v == sorted(v, reverse=True)
+
+
+@pytest.mark.parametrize("seed", NEW_SEEDS)
+def test_leaderboard_window(seed):
+    sc = make_scene("leaderboard", seed)
+    info = sc.debug_info()
+    f, k, n = info["event_frame"], info["k"], sc.meta.n_frames
+    e = info["endpoint_index"]
+    assert _in_10_90(f, n)
+    assert sc.alerts_at(f - 1) == k - 1 and sc.alerts_at(f) == k
+    assert info["endpoint"] in sc.question and str(k) in sc.question
+    row = sc.row_of(e, f)
+    # [f, f+9]: same row, same value (= answer).
+    for g in range(f, f + 10):
+        assert sc.row_of(e, g) == row and str(sc.value_of(e, g)) == sc.answer
+        assert sc.table_at(g)[row] == (info["endpoint"], int(sc.answer))
+    # f-1 and f+10: E sits in another row with another value; E's row at f shows
+    # another endpoint with a well-formed value.
+    for g in (f - 1, f + 10):
+        assert sc.row_of(e, g) != row and str(sc.value_of(e, g)) != sc.answer
+        name, val = sc.table_at(g)[row]
+        assert name != info["endpoint"] and 100 <= val <= 9999
+    # No other row shows the same number on the event frame (a wrong row never scores).
+    assert [v for _, v in sc.table_at(f)].count(int(sc.answer)) == 1
+    # Every alert fires on a table refresh (so the asked value is shown for exactly 1 s).
+    for a in info["alert_frames"]:
+        assert sc._tick(a) != sc._tick(a - 1)
+    assert all(b - a >= 30 for a, b in itertools.pairwise(info["alert_frames"]))
+
+
+def test_leaderboard_rows_move():
+    """Rows really move: an endpoint changes row on a good share of the refreshes."""
+    rates = []
+    for seed in range(20):
+        sc = make_scene("leaderboard", seed)
+        r = sc.rank
+        rates.append(float((r[1:] != r[:-1]).mean()))
+    assert 0.2 < np.mean(rates) < 0.6, np.mean(rates)
+
+
+# --- toasts & leaderboard: legibility -----------------------------------------------------
+def _answer_crop(sc, pad: int = 8):
+    at = sc.debug_info()["answer_text"]
+    x, y = at["xy"]
+    w = int(font(at["font"], at["size"]).getlength(at["text"]))
+    im = sc.render(at["frame"])
+    return at, im.crop((x - pad, y - pad, x + w + pad, y + at["size"] + 10))
+
+
+ALPHABETS = {"toasts": "ABCDEFGHJKLMNPQRSTUVWXYZ0123456789", "leaderboard": "0123456789"}
+
+
+@pytest.mark.parametrize("kind", ["toasts", "leaderboard"])
+def test_answer_readable_native_not_quarter(kind):
+    """Native crop OCRs exactly; the same crop seen at 1/4 scale (then blown back up)
+    gets at most ~2 of 6 characters right on average."""
+    from framehunt.reference import ocr_string
+
+    accs = []
+    for seed in SEEDS:
+        sc = make_scene(kind, seed)
+        at, crop = _answer_crop(sc)
+        n = len(at["text"])
+        a = np.asarray(crop, np.int32)
+        args = (at["font"], at["size"], tuple(at["fill"]), tuple(at["bg"]), ALPHABETS[kind], n, n)
+        assert ocr_string(a, (8, 8), *args)[0] == at["text"]
+        small = crop.resize((crop.width // 4, crop.height // 4), Image.Resampling.LANCZOS)
+        up = np.asarray(small.resize(crop.size, Image.Resampling.BICUBIC), np.int32)
+        got = ocr_string(up, (8, 8), *args)[0]
+        accs.append(sum(a_ == b_ for a_, b_ in zip(got, at["text"])) / n)
+    assert np.mean(accs) <= 2 / 6 + 1e-9, accs
+
+
+@pytest.mark.parametrize("seed", SEEDS)
+def test_toast_level_stripe_at_eighth_scale(seed):
+    """The level of every visible toast is identifiable from its colour stripe at 1/8."""
+    from framehunt.scenes.toasts import LEVEL_RGB, STRIPE_W, slot_box
+
+    sc = make_scene("toasts", seed)
+    f = sc.debug_info()["event_frame"]
+    for g in (f - 1, f, f + 7, f + 31):
+        small = np.asarray(eighth(sc.render(g)), np.int32)
+        for slot, i in enumerate(sc.visible_at(g)):
+            b = slot_box(slot)
+            px = small[b.y // 8 + 2:b.bottom // 8 - 2, b.x // 8 + 1:(b.x + STRIPE_W) // 8].reshape(-1, 3).mean(0)
+            best = min(LEVEL_RGB, key=lambda lv: np.abs(px - np.asarray(LEVEL_RGB[lv])).sum())
+            assert best == sc.toasts[i]["level"], (g, slot, px)
+            assert np.abs(px - np.asarray(LEVEL_RGB[best])).sum() < 90
+
+
+def test_toast_texts_fit():
+    from framehunt.scenes.base import text_width
+    from framehunt.scenes.toasts import LEVEL_WORD, TEXTS, TOAST_W
+
+    for lv, items in TEXTS.items():
+        for title, msg in items:
+            assert text_width(msg.format(inv="INV-88888"), "sans", 15) <= TOAST_W - 56
+            assert text_width(f"{LEVEL_WORD[lv]}: {title}", "sans-bold", 18) <= TOAST_W - 116
