@@ -1034,7 +1034,11 @@ def eval_tick(fleet: dict) -> list[str]:
         if box["state"] not in ("running", "launching"):
             continue
         status = cluster_status(box["cluster"])
-        if status is None and box["state"] == "launching" and time.time() - box["launched_at"] < 1800:
+        if box["state"] == "launching":
+            # eval-up is still submitting (on --resume the box still shows its previous, finished job)
+            if time.time() - box["launched_at"] > 1800:
+                notes.append(f"run {i}: eval-up did not finish launching {box['cluster']} ({status}); "
+                             f"eval-up ... --only {i} --resume, or eval-down --only {i}")
             continue
         if status is None:
             box["state"] = "lost"

@@ -105,7 +105,7 @@ if { [ "$STAGE" = all ] || [ "$STAGE" = agents ]; } && [ "$FLEET" = 1 ]; then
   t0=$SECONDS
   infra/verda/fh eval-up "${UP[@]}"
   # Fetches each run to runs/fh-$SPLIT-$LABEL-run<i>/ as it finishes and deletes its box; reports lost boxes.
-  infra/verda/fh eval-wait --fleet "$SPLIT-$LABEL" || echo "eval-wait: not every run finished (see above)" >&2
+  infra/verda/fh eval-wait --fleet "$SPLIT-$LABEL" || FLEET_RC=$?
   stage_time "fleet-$SPLIT-$LABEL" $((SECONDS - t0))
 elif [ "$STAGE" = all ] || [ "$STAGE" = agents ]; then
   [ -d "$TASKS" ] || uv run python scripts/build_tasks.py --split "$SPLIT"
@@ -135,3 +135,7 @@ fi
 uv run python scripts/summarize.py --runs "$OUT" --out results
 echo
 echo "Full tables: results/summary.md (per item, per kind); raw data: results/summary.json; Harbor jobs: $OUT/"
+if [ "${FLEET_RC:-0}" != 0 ]; then
+  echo "eval-wait: not every fleet run finished and was fetched (see above); the summary may lack runs" >&2
+  exit "$FLEET_RC"
+fi

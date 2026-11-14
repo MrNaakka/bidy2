@@ -279,6 +279,17 @@ def test_new_fleet_keeps_sweeping_the_old_fleets_failed_launches(evalbox, sandbo
     assert "fh-ev-dev-qwen-2" in swept and "fh-ev-dev-qwen-1" in swept
 
 
+def test_tick_leaves_a_box_alone_while_eval_up_is_launching_on_it(evalbox, sandbox, monkeypatch):
+    fleet = fleet_state(evalbox, ["launching"])   # e.g. --resume: the box still shows its old, finished job
+    fleet["boxes"]["1"]["launched_at"] = fh.time.time()
+    monkeypatch.setattr(fh, "cluster_status", lambda n: "UP")
+    monkeypatch.setattr(fh, "last_job_status", lambda n: "SUCCEEDED")
+    monkeypatch.setattr(fh, "cluster_cost_since", lambda n, s: 0.0)
+    monkeypatch.setattr(fh, "fetch_eval", lambda f, b, j: pytest.fail("fetched a box that is being launched"))
+    fh.eval_tick(fleet)
+    assert fleet["boxes"]["1"]["state"] == "launching" and sandbox.down == []
+
+
 def test_probe_parsing():
     p = fh.parse_probe("trials=3\ndone=2\nphase=harbor_start\nvllm:num_requests_running=7\n"
                        "vllm:kv_cache_usage_perc=0.41\n")
