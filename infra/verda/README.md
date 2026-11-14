@@ -25,7 +25,7 @@ infra/verda/fh <command>
 | `download.yaml` | CPU box: downloads both checkpoints at pinned revisions, checks every file with `verify_weights.py`, builds the vLLM venv on the volume. |
 | `serve.yaml` | GPU box with 80 GB or more, spot by default. vLLM picks BF16 or FP8 from the GPU memory it finds. |
 | `train.yaml` | GPU box for `train/sft_lora.py`. |
-| `eval.yaml` | One eval run per box: its own weights, vLLM and Harbor (see Parallel evals). |
+| `eval.yaml`, `eval_job.sh` | One eval run per box: its own weights, vLLM and Harbor (see Parallel evals). |
 | `fh.py` | Lifecycle, tunnel, watchdog steps, `test`, `harbor-agent`. |
 
 ## Commands
