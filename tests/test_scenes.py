@@ -494,6 +494,12 @@ def test_toasts_lookalikes_around_the_event():
         reds = [i for i in sc.visible_at(f + 15) if sc.toasts[i]["level"] == "error"]
         assert reds[0] != t
         many_red += len(reds) >= 2
-        assert all(40 <= tt["end"] - tt["arrive"] <= 60 or tt["end"] - tt["arrive"] < 40
-                   for tt in sc.toasts)                                 # 4-6 s, or evicted
+        ends = [tt["end"] for tt in sc.toasts]
+        assert ends == sorted(ends)                                     # first in, first out
+        arr = [tt["arrive"] for tt in sc.toasts]
+        for i, tt in enumerate(sc.toasts):                              # life <= 6 s unless held by
+            d = tt["end"] - tt["arrive"]                                # an older toast (FIFO);
+            assert d >= 10                                              # 5 arrivals >= 10 frames
+            evicted = i + 5 < len(arr) and tt["end"] == arr[i + 5]
+            assert evicted or 40 <= d or (i > 0 and tt["end"] == ends[i - 1])
     assert many_red >= 80, many_red

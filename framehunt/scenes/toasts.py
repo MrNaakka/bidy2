@@ -134,9 +134,13 @@ class ToastsScene(Scene):
                     burst = not burst
                 f += rr.randint(2, 9) if burst else rr.randint(10, 30)   # 0.2-3 s apart
             n = len(arrivals)
-            # A toast leaves when its life ends or when 5 newer toasts have arrived.
-            ends = [min(a + life, arrivals[i + N_SLOTS] if i + N_SLOTS < n else a + life)
-                    for i, (a, life) in enumerate(zip(arrivals, lives))]
+            # A toast leaves when its life ends or when 5 newer toasts have arrived, and
+            # never before an older one (first in, first out), so the stack only ever
+            # loses its bottom toast and newer toasts stay above older ones.
+            ends, life_end = [], 0
+            for i, (a, life) in enumerate(zip(arrivals, lives)):
+                life_end = max(life_end, a + life)
+                ends.append(min(life_end, arrivals[i + N_SLOTS]) if i + N_SLOTS < n else life_end)
             errs = [i for i, lv in enumerate(levels) if lv == "error"]
             if not 3 <= len(errs) <= MAX_ERRORS:
                 continue
