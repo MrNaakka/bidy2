@@ -18,6 +18,7 @@ import re
 import secrets
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -832,6 +833,15 @@ def launch_eval_boxes(defn: dict, stage: Path, runs: list[int]) -> dict[int, int
     sky_bin = str(Path(sys.executable).parent / "sky")
     env = {**os.environ, "QWEN_API_KEY": api_key()}
     procs, rcs = {}, {}
+    # Ctrl-C must not cut this short: the caller deletes the stage dir the launches sync from
+    old = signal.signal(signal.SIGINT, lambda *_: log("eval: Ctrl-C ignored until the launches return"))
+    try:
+        return _launch_and_wait(defn, stage, runs, sky_bin, env, procs, rcs)
+    finally:
+        signal.signal(signal.SIGINT, old)
+
+
+def _launch_and_wait(defn, stage, runs, sky_bin, env, procs, rcs) -> dict[int, int]:
     for i in runs:
         try:
             logf = (STAGE_DIR / f"eval-{defn['fleet']}-launch-{i}.log").open("w")
@@ -843,19 +853,14 @@ def launch_eval_boxes(defn: dict, stage: Path, runs: list[int]) -> dict[int, int
             continue
         log(f"eval: launching {eval_names(defn['split'], defn['label'], i)[0]} (log {logf.name})")
     for i, (p, logf) in procs.items():
-        while True:
-            try:
-                rcs[i] = p.wait()
-                break
-            except KeyboardInterrupt:   # never leave a launch running against a stage dir we delete
-                log("eval: waiting for the running launches to return before exiting")
+        rcs[i] = p.wait()
         logf.close()
     return rcs
 
 
 def cmd_eval_up(args) -> None:
     defn = eval_definition(args)
-    runs = args.only or list(range(1, args.runs + 1))
+    runs = sorted(set(args.only)) if args.only else list(range(1, args.runs + 1))
     with _eval_lock():
         evals = load_evals()
         fleet = evals.get(defn["fleet"])

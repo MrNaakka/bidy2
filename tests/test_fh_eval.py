@@ -328,6 +328,26 @@ def test_agent_config_is_part_of_comparability(evalbox, monkeypatch):
     assert "agent_cfg_sha" in fh.COMPARABLE_KEYS and a["agent_cfg_sha"] != b["agent_cfg_sha"]
 
 
+def test_launch_waits_for_every_started_launch(evalbox, monkeypatch):
+    started, waited = [], []
+
+    class FakeProc:
+        def __init__(self, args, **kw):
+            if "JOB=fh-dev-qwen-run2" in args:
+                raise OSError("fork failed")
+            started.append(self)
+
+        def wait(self):
+            waited.append(self)
+            return 0
+
+    monkeypatch.setattr(fh.subprocess, "Popen", FakeProc)
+    d = fh.eval_definition(eval_args(evalbox))
+    fh.STAGE_DIR.mkdir(parents=True, exist_ok=True)
+    assert fh.launch_eval_boxes(d, Path("/s"), [1, 2, 3]) == {1: 0, 2: 1, 3: 0}
+    assert waited == started and len(started) == 2
+
+
 def test_probe_parsing():
     p = fh.parse_probe("trials=3\ndone=2\nphase=harbor_start\nvllm:num_requests_running=7\n"
                        "vllm:kv_cache_usage_perc=0.41\n")
