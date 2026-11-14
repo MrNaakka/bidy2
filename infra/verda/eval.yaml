@@ -24,6 +24,7 @@ envs:
   STAGE: null            # local dir from fh eval-up: tasks/, cfg.json, meta.json, eval_job.sh, verify_weights.py, [lora/]
   N_CONCURRENT: "10"
   LORA: "0"              # "1": also serve $STAGE/lora as $LORA_NAME
+  LOG_REQUESTS: "0"      # "1": log_relay.py instead of socat (fh eval-up --log-requests; expert iteration)
   MODEL_REPO: Qwen/Qwen3.8-27B
   MODEL_REV: 37561816e66b5b9153b1b64c10968c18c1e6f4a0
   VLLM_VERSION: 0.33.0

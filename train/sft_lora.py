@@ -27,6 +27,11 @@ checkpointed chunks (~1 GB instead of 15k x 248k x 4 B = 15 GB). Total ~70 GB, s
 bf16 LoRA fits one 80 GB GPU at batch 1 x 15k tokens; --quant 4bit (QLoRA, needs
 bitsandbytes) is the fallback for 40-48 GB GPUs or longer sequences.
 
+Continued training (expert iteration): --init-adapter DIR starts from a trained PEFT adapter (e.g. the
+SFT run's final/) instead of a fresh LoRA. Its rank and alpha must match this run's and it must adapt
+the same modules (every LoRA tensor is loaded, none left over). Optimizer and LR schedule start fresh.
+A resumed run loads its own checkpoint instead.
+
 Logs: <out>/loss.jsonl (one line per optimizer step: step, epoch, loss, lr, tokens,
 grad_norm, seconds), <out>/eval.jsonl (held-out loss at each checkpoint),
 <out>/args.json. Final adapter: <out>/final (PEFT format, loadable by vLLM --lora-modules).
@@ -78,6 +83,9 @@ def parse_args(argv=None):
     ap.add_argument("--lora-linear-attn", action="store_true",
                     help="also adapt the Gated DeltaNet projections (check vLLM loads it before relying on it)")
     ap.add_argument("--quant", choices=["none", "4bit"], default="none", help="4bit = QLoRA via bitsandbytes")
+    ap.add_argument("--init-adapter", type=Path, default=None,
+                    help="start from this PEFT adapter dir (adapter_config.json + adapter_model.safetensors), "
+                         "e.g. the SFT run's final/; same --lora-r/--lora-alpha/targets required")
     ap.add_argument("--dtype", choices=["bf16", "fp32"], default="bf16")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--no-grad-ckpt", action="store_true")
@@ -135,6 +143,26 @@ def load_model(a):
     log(f"model {type(core).__name__}: {n_all / 1e6:.1f}M params, LoRA trainable {n_train / 1e6:.2f}M "
         f"({len(names)} tensors), target={target}")
     return model, core, processor
+
+
+def init_from_adapter(model, d: Path, a) -> None:
+    """Load a trained adapter's LoRA weights into the fresh LoRA layers (continued training)."""
+    from peft import set_peft_model_state_dict
+    from safetensors.torch import load_file
+
+    cfg = json.loads((d / "adapter_config.json").read_text())
+    ours = model.peft_config["default"]
+    # rank and alpha set the scale; the target modules are checked by the loaded keys below
+    mismatch = {k: (cfg.get(k), v) for k, v in (("r", ours.r), ("lora_alpha", ours.lora_alpha)) if cfg.get(k) != v}
+    if mismatch:
+        raise SystemExit(f"--init-adapter {d}: config differs from this run (adapter, run): {mismatch}")
+    sd = load_file(str(d / "adapter_model.safetensors"))
+    res = set_peft_model_state_dict(model, sd)
+    unexpected = list(getattr(res, "unexpected_keys", []))
+    missing = [k for k in getattr(res, "missing_keys", []) if "lora_" in k]
+    if unexpected or missing:
+        raise SystemExit(f"--init-adapter {d}: unexpected keys {unexpected[:5]}, missing LoRA keys {missing[:5]}")
+    log(f"initialized LoRA from {d} ({len(sd)} tensors)")
 
 
 # ---------------------------------------------------------------------- loss
@@ -287,6 +315,8 @@ def main(argv=None) -> int:
     if cks:
         state = load_ckpt(cks[-1], model, opt, sched)
         log(f"resumed from {cks[-1].name}: step {state['step']}, micro {state['micro']}")
+    elif a.init_adapter is not None:
+        init_from_adapter(model, a.init_adapter, a)
     truncate_jsonl(a.out / "loss.jsonl", state["step"])
     truncate_jsonl(a.out / "eval.jsonl", state["step"])
     if state["step"] >= total_steps:
