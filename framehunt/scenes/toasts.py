@@ -130,7 +130,7 @@ class ToastsScene(Scene):
             ends = [min(a + life, arrivals[i + N_SLOTS] if i + N_SLOTS < n else a + life)
                     for i, (a, life) in enumerate(zip(arrivals, lives))]
             errs = [i for i, lv in enumerate(levels) if lv == "error"]
-            if not 2 <= len(errs) <= MAX_ERRORS:
+            if not 2 <= len(errs) <= MAX_ERRORS - 1:   # room to promote the successor
                 continue
             cands = []
             for k in range(2, len(errs) + 1):
@@ -152,8 +152,6 @@ class ToastsScene(Scene):
         if levels[nxt] != "error" and rr.random() < 0.5:   # half the time the next one is an Error
             levels[nxt] = "error"
             errs = [i for i, lv in enumerate(levels) if lv == "error"]
-        if len(errs) > MAX_ERRORS:  # pragma: no cover (~40 errors per scene)
-            raise RuntimeError("too many Error toasts for a 2-digit badge")
         prefix = "".join(rr.choice(CODE_ALPHABET) for _ in range(2))
         codes: list[str] = []
         seen: set[str] = set()
