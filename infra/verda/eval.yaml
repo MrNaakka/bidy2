@@ -127,7 +127,7 @@ run: |
   done
   mark vllm_healthy
   # the relay as a trial container sees it
-  timeout 300 docker run --rm -v "$FH/auth.hdr:/auth.hdr:ro" curlimages/curl:8.10.1 -sf -m 10 -o /dev/null \
+  timeout 300 docker run --rm --user 0:0 -v "$FH/auth.hdr:/auth.hdr:ro" curlimages/curl:8.10.1 -sf -m 10 -o /dev/null \
     -H @/auth.hdr http://172.17.0.1:18000/v1/models
 
   # --- Harbor ---
