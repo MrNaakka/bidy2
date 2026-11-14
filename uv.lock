@@ -223,11 +223,11 @@ wheels = [
 
 [[package]]
 name = "attrs"
-version = "26.1.0"
+version = "25.4.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/9a/8e/82a0fe20a541c03148528be8cac2408564a6c9a0cc7e9171802bc1d26985/attrs-26.1.0.tar.gz", hash = "sha256:d03ceb89cb322a8fd706d4fb91940737b6642aa36998fe130a9bc96c985eff32", size = 952055, upload-time = "2026-03-19T14:22:25.026Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6b/5c/685e6633917e101e5dcb62b9dd76946cbb57c26e133bae9e0cd36033c0a9/attrs-25.4.0.tar.gz", hash = "sha256:16d5969b87f0859ef33a48b35d55ac1be6e42ae49d5e853b597db70c35c57e11", size = 934251, upload-time = "2025-10-06T13:54:44.725Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/64/b4/17d4b0b2a2dc85a6df63d1157e028ed19f90d4cd97c36717afef2bc2f395/attrs-26.1.0-py3-none-any.whl", hash = "sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309", size = 67548, upload-time = "2026-03-19T14:22:23.645Z" },
+    { url = "https://files.pythonhosted.org/packages/3a/2a/7cc015f5b9f5db42b7d48157e23356022889fc354a2813c15934b7cb5c0e/attrs-25.4.0-py3-none-any.whl", hash = "sha256:adcf7e2a1fb3b36ac48d97835bb6d8ade15b8dcce26aba8bf1d14847b57a3373", size = 67615, upload-time = "2025-10-06T13:54:43.17Z" },
 ]
 
 [[package]]
@@ -787,6 +787,7 @@ dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pillow" },
+    { name = "stretchable" },
     { name = "verda" },
 ]
 
@@ -803,6 +804,7 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.20,<2" },
     { name = "numpy", specifier = ">=2" },
     { name = "pillow", specifier = ">=11" },
+    { name = "stretchable", specifier = ">=1.1.8" },
     { name = "verda", specifier = ">=1.25.0" },
 ]
 
@@ -2908,6 +2910,25 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e8/b2/1fdee833f9d3db231feda833c6969b876ac31e64bcd42cb2cd102596c3f7/storage3-2.34.1.tar.gz", hash = "sha256:e5462b05f095ba6ea59d95f70c5841dfc67922401aa7f9570e151e9df96c05bd", size = 20483, upload-time = "2026-11-06T15:23:05.552Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b2/fa/194142a00be8cc39329991d648d3418e12a8939296366164dab7424d0931/storage3-2.34.1-py3-none-any.whl", hash = "sha256:0f2615d75bd9415b804274a430bb89ee0bead1bec0c0a26717aecbdb0ee05b30", size = 28641, upload-time = "2026-11-06T15:22:59.529Z" },
+]
+
+[[package]]
+name = "stretchable"
+version = "1.1.8"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5e/a3/e4c2b5420e4618550ea3153cd55921564c87aeb9206007c972c6512334dd/stretchable-1.1.8-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:e34e7988129b877bed1f9a247deed174ffed8066ab5b9a3178f18f1102836468", size = 486719, upload-time = "2025-10-29T22:14:26.397Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/4d/add8d6cbf3d64dc1ecc2e57d803063d618b623919391f07dd80b06710d40/stretchable-1.1.8-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:a9160a4013a1e37bd4c5dd4a6ea252cec2923cc91ba6bd68b20e7a1a8bfee8be", size = 467957, upload-time = "2025-10-29T22:14:28.388Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/0b/7b3fbb028d6e82d624b72f9f3cae6a2fd753c994b405d479338a0f0da073/stretchable-1.1.8-cp38-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:173b02e696763d1a1b922c9930d55740940c4a22290e11ae564a7574d175c54b", size = 506173, upload-time = "2025-10-29T22:14:30.269Z" },
+    { url = "https://files.pythonhosted.org/packages/c8/b6/bf0bff56102d87f16cf953bf1bef64fd7682fa1533bea9fc42f2e863a9c5/stretchable-1.1.8-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:1710c748f49c969fb067679847b371f49c1bc9923477a4f8d209029aee485809", size = 530062, upload-time = "2025-10-29T22:14:31.837Z" },
+    { url = "https://files.pythonhosted.org/packages/c5/fe/5201813989cf8c1c21692ac5afd1a2d36e11741325a46fd6bb1a768452f8/stretchable-1.1.8-cp38-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:7379be3622844bea7356fab3c83b0b46c10b3b8f5cabc7b2071134f7169c1226", size = 686437, upload-time = "2025-10-29T22:14:33.429Z" },
+    { url = "https://files.pythonhosted.org/packages/13/b6/008bebdd0edbb320bc50a1cee93db1fb527b4381005ed3bed08c00d7bbe5/stretchable-1.1.8-cp38-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:b031ba4e400599c87ffcb9cd818f3939db6f5434aae49533481842939d507ba8", size = 697126, upload-time = "2025-10-29T22:14:34.891Z" },
+    { url = "https://files.pythonhosted.org/packages/a9/99/e58bb54055265fb01e387d414c33a62733821290cfa266509edb21d6446b/stretchable-1.1.8-cp38-abi3-win32.whl", hash = "sha256:642c8025ec7ea12d37a66fb4cdd5619513efc6f1617cf1cafdb01d49c18a2dc3", size = 347431, upload-time = "2025-10-29T22:14:36.721Z" },
+    { url = "https://files.pythonhosted.org/packages/93/82/f632174499bf13fec72e58872d1df56abedb8ab36b9a9c4d2940f73a5f0c/stretchable-1.1.8-cp38-abi3-win_amd64.whl", hash = "sha256:42c10d864b3e8b2cb0ce16a64df6905318c6a78c6269041b1532c606bf6158c3", size = 356752, upload-time = "2025-10-29T22:14:38.445Z" },
+    { url = "https://files.pythonhosted.org/packages/b8/68/99d5ccda98a60954095f60a49287384d1105cc2ee1d0fec7692f72e549b5/stretchable-1.1.8-cp38-abi3-win_arm64.whl", hash = "sha256:fec7556c160f73bd200af15570e6d219612499760172cb3485680e1286a7a316", size = 334560, upload-time = "2025-10-29T22:14:39.985Z" },
 ]
 
 [[package]]

@@ -54,7 +54,7 @@ from framehunt.server import (
 from framehunt.splits import SPLITS, derive_seed, load_salt, salt_path
 
 # Pinned to uv.lock (Python 3.12 resolution).
-SIDECAR_PIP = ["mcp==1.30.0", "pillow==13.0.0", "numpy==2.5.4"]
+SIDECAR_PIP = ["mcp==1.30.0", "pillow==13.0.0", "numpy==2.5.4", "stretchable==1.1.8", "attrs==25.4.0"]
 MAIN_PIP = ["pillow==13.0.0", "numpy==2.5.4"]  # for the reference solution
 MCP_HOST = "fh-mcp"
 AGENT_TIMEOUT_SEC = 1800.0

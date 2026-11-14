@@ -11,12 +11,13 @@ from __future__ import annotations
 import random
 import threading
 from abc import ABC, abstractmethod
-from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal, NamedTuple
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+from stretchable import Node, Style
 
 FONT_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 FONT_FILES = {
@@ -41,13 +42,72 @@ def font(name: str, size: int) -> ImageFont.FreeTypeFont:
     return f
 
 
-def draw_text(d: ImageDraw.ImageDraw, xy, text: str, font_name: str, size: int, fill) -> None:
+def draw_text(d: ImageDraw.ImageDraw, xy, text: str, font_name: str, size: int, fill,
+              align: Literal["left", "center", "right"] = "left") -> None:
     """The one way scenes draw text (default 'la' anchor), so tests/OCR can reproduce it."""
-    d.text(xy, text, font=font(font_name, size), fill=fill)
+    x, y = xy
+    if align != "left":
+        tw = text_width(text, font_name, size)
+        x -= tw / 2 if align == "center" else tw
+    d.text((x, y), text, font=font(font_name, size), fill=fill)
 
 
 def text_width(text: str, font_name: str, size: int) -> float:
     return font(font_name, size).getlength(text)
+
+
+class Box(NamedTuple):
+    x: int
+    y: int
+    w: int
+    h: int
+
+    @property
+    def right(self):
+        return self.x + self.w
+
+    @property
+    def bottom(self):
+        return self.y + self.h
+
+    @property
+    def center_x(self):
+        return self.x + self.w / 2
+
+    @property
+    def xyxy(self):
+        return self.x, self.y, self.right - 1, self.bottom - 1
+
+    @property
+    def edges(self):
+        return self.x, self.y, self.right, self.bottom
+
+    def at(self, dx: float, dy: float):
+        return self.x + dx, self.y + dy
+
+
+def node(*children: Node, key: str | None = None, **style) -> Node:
+    return Node(*children, key=key, style=Style(**style))
+
+
+def _px(v: float) -> int:
+    if not float(v).is_integer():
+        raise ValueError(f"layout gave a fractional pixel position {v}")
+    return int(v)
+
+
+def layout(root: Node) -> dict[str, Box]:
+    """Flexbox layout of `root`; absolute pixel boxes of every keyed node."""
+    root.compute_layout()
+    boxes = {}
+    stack = [root]
+    while stack:
+        n = stack.pop()
+        if n.key:
+            b = n.get_box(relative=False)
+            boxes[n.key] = Box(_px(b.x), _px(b.y), _px(b.width), _px(b.height))
+        stack.extend(n)
+    return boxes
 
 
 @dataclass(frozen=True)
@@ -60,29 +120,6 @@ class SceneMeta:
     @property
     def duration_s(self) -> float:
         return self.n_frames / self.fps
-
-
-class _LRU:
-    """Small thread-safe LRU for pure intermediate results (e.g. rendered text strips)."""
-
-    def __init__(self, maxsize: int):
-        self.maxsize = maxsize
-        self._d: OrderedDict = OrderedDict()
-        self._lock = threading.Lock()
-
-    def get(self, key, make):
-        with self._lock:
-            v = self._d.get(key)
-            if v is not None:
-                self._d.move_to_end(key)
-                return v
-        v = make()
-        with self._lock:
-            self._d[key] = v
-            self._d.move_to_end(key)
-            while len(self._d) > self.maxsize:
-                self._d.popitem(last=False)
-        return v
 
 
 class Scene(ABC):
@@ -99,9 +136,6 @@ class Scene(ABC):
 
     def __init__(self, seed: int):
         self.seed = int(seed)
-        self._cache = _LRU(256)
-        self._static_lock = threading.RLock()
-        self._static: dict = {}
 
     def rng(self, purpose: str) -> random.Random:
         """Independent deterministic stream per purpose (str seeds hash with SHA-512)."""
@@ -109,14 +143,6 @@ class Scene(ABC):
 
     def np_seed(self, purpose: str) -> int:
         return self.rng(purpose).getrandbits(63)
-
-    def static(self, name: str, make):
-        """Lazily built, immutable per-scene layer (e.g. the background image)."""
-        with self._static_lock:
-            v = self._static.get(name)
-            if v is None:
-                v = self._static[name] = make()
-            return v
 
     def frame_time_s(self, frame: int) -> float:
         return frame / self.meta.fps

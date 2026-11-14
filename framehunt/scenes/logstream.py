@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import bisect
 import datetime as dt
+from functools import cached_property
 
 import numpy as np
 from PIL import Image, ImageDraw
+from stretchable.style import FlexDirection
 
-from .base import GlyphAtlas, Scene, SceneMeta, draw_text, pick_event_frames, text_width
+from .base import GlyphAtlas, Scene, SceneMeta, draw_text, layout, node, pick_event_frames
 
 W, H = 1920, 1080
 TITLE_H = 36
@@ -21,12 +23,17 @@ LINE_FONT = ("mono", 16)          # answer text: glyphs ~12 px tall native, ~3 p
 LINE_H = 20                       # terminal cell 10 x 20 px
 CELL_W = 10
 GLYPH_Y_OFF = 1
-TEXT_X = 8
-TOP_PAD = 8
 N_COLS = 128
-N_VISIBLE = (H - STATUS_H - TITLE_H - TOP_PAD) // LINE_H   # 45 rows
 COUNTER_FONT = ("mono-bold", 80)  # trace: digits ~58 px native, ~7 px at 1/8
-COUNTER_BOX = (1180, H - STATUS_H + 10, 1910 - 1180, STATUS_H - 20)  # x, y, w, h
+
+L = layout(node(
+    node(key="title", size=(W, TITLE_H)),
+    node(node(key="text", flex_grow=1), key="term", flex_grow=1, padding=(8, 0, 0, 8)),
+    node(node(key="counter", size=(730, STATUS_H - 20)),
+         key="status", size=(W, STATUS_H), padding=(10, 10, 10, 1180)),
+    size=(W, H), flex_direction=FlexDirection.COLUMN))
+N_VISIBLE = L["text"].h // LINE_H   # 45 rows
+COUNTER_BOX = L["counter"]
 
 BG = (16, 18, 22)
 FG = (204, 208, 214)
@@ -161,7 +168,8 @@ class LogStreamScene(Scene):
         self._rid_col = len("2026-01-01T00:00:00.000Z ") + len("ERROR ") + len("[scheduler] req=")
         self._atlas = GlyphAtlas.get(*LINE_FONT, CELL_W, LINE_H, GLYPH_Y_OFF)
 
-    def _encode(self) -> tuple[np.ndarray, np.ndarray]:
+    @cached_property
+    def _grid(self) -> tuple[np.ndarray, np.ndarray]:
         """Every line as fixed-width char codes + per-char colour index (built lazily)."""
         n = len(self.lines)
         codes = np.full((n, N_COLS), 32, np.uint8)
@@ -188,18 +196,19 @@ class LogStreamScene(Scene):
         return codes, cidx
 
     # --- rendering ---------------------------------------------------------------
+    @cached_property
     def _background(self) -> Image.Image:
         im = Image.new("RGB", (W, H), BG)
         d = ImageDraw.Draw(im)
-        d.rectangle((0, 0, W, TITLE_H - 1), fill=(44, 46, 52))
+        title_bar, status = L["title"], L["status"]
+        d.rectangle(title_bar.xyxy, fill=(44, 46, 52))
         for k, c in enumerate([(255, 95, 86), (255, 189, 46), (39, 201, 63)]):
             d.ellipse((14 + k * 24, 11, 28 + k * 24, 25), fill=c)
         title = f"deploy@{self.host}: ~ - tail -F /var/log/{self.service}/{self.service}.log"
-        tw = text_width(title, "sans", 15)
-        draw_text(d, ((W - tw) / 2, 9), title, "sans", 15, (200, 200, 205))
-        d.rectangle((0, H - STATUS_H, W, H), fill=(30, 33, 40))
-        d.line((0, H - STATUS_H, W, H - STATUS_H), fill=(70, 74, 84), width=2)
-        draw_text(d, (20, H - STATUS_H + 18), f"[{self.service}] 0:tail*  1:bash  2:htop",
+        draw_text(d, (title_bar.center_x, 9), title, "sans", 15, (200, 200, 205), "center")
+        d.rectangle(status.edges, fill=(30, 33, 40))
+        d.line((status.x, status.y, status.right, status.y), fill=(70, 74, 84), width=2)
+        draw_text(d, status.at(20, 18), f"[{self.service}] 0:tail*  1:bash  2:htop",
                   "mono", 18, (150, 200, 150))
         return im
 
@@ -211,28 +220,26 @@ class LogStreamScene(Scene):
         return range(max(0, last - N_VISIBLE), last)
 
     def _row_xy(self, row: int, col: int) -> tuple[int, int]:
-        return TEXT_X + col * CELL_W, TITLE_H + TOP_PAD + row * LINE_H
+        return L["text"].at(col * CELL_W, row * LINE_H)
 
     def render(self, frame: int) -> Image.Image:
         frame = self._check_frame(frame)
-        im = self.static("bg", self._background).copy()
+        im = self._background.copy()
         vis = self.visible_lines(frame)
-        codes, cidx = self.static("lines", self._encode)
+        codes, cidx = self._grid
         block = self._atlas.compose(codes[vis.start:vis.stop], cidx[vis.start:vis.stop],
                                     PALETTE, BG)
         im.paste(Image.fromarray(block), self._row_xy(0, 0))
         d = ImageDraw.Draw(im)
         now = self.base_time + dt.timedelta(seconds=frame / self.FPS)
-        draw_text(d, (20, H - STATUS_H + 62),
+        draw_text(d, L["status"].at(20, 62),
                   f"{self.host}  lines: {vis.stop:6d}  {now.strftime('%H:%M:%S')}",
                   "mono", 18, (170, 175, 185))
         # The trace: big, high-contrast error counter (bottom right).
         n = self.errors_at(frame)
-        x, y, w, h = COUNTER_BOX
-        d.rectangle((x, y, x + w - 1, y + h - 1), fill=(170, 20, 20) if n else (25, 95, 45))
-        txt = f"errors: {n}"
-        tw = text_width(txt, *COUNTER_FONT)
-        draw_text(d, (x + w - 24 - tw, y - 4), txt, *COUNTER_FONT, (255, 255, 255))
+        d.rectangle(COUNTER_BOX.xyxy, fill=(170, 20, 20) if n else (25, 95, 45))
+        draw_text(d, (COUNTER_BOX.right - 24, COUNTER_BOX.y - 4), f"errors: {n}", *COUNTER_FONT,
+                  (255, 255, 255), "right")
         return im
 
     def debug_info(self) -> dict:

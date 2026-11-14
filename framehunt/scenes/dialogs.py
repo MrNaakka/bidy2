@@ -7,10 +7,12 @@ share the same 2-character prefix, so they only differ in fine detail.
 from __future__ import annotations
 
 import datetime as dt
+from functools import cached_property
 
 from PIL import Image, ImageDraw, ImageFilter
+from stretchable.style import FlexDirection, JustifyContent
 
-from .base import Scene, SceneMeta, draw_text, pick_event_frames, text_width
+from .base import Scene, SceneMeta, draw_text, layout, node, pick_event_frames, text_width
 
 W, H = 1920, 1080
 TOP_H = 112
@@ -21,6 +23,7 @@ BADGE_FONT = ("sans-bold", 76)       # trace: digits ~55 px native, ~7 px at 1/8
 TRACE_BOX = (1560, 8, 1800 - 1560, 96)   # bell + badge region (x, y, w, h)
 DLG_W, DLG_H = 700, 300
 SHADOW = 18
+CODE_TEXT = (10, 6)
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ0123456789"   # no I/O (vs 1/0)
 
 NAVY = (32, 39, 56)
@@ -30,6 +33,44 @@ MUTED = (108, 117, 125)
 LINE = (222, 226, 230)
 BLUE = (13, 110, 253)
 RED = (214, 40, 40)
+
+NAV_ITEMS = ["Dashboard", "Invoices", "Customers", "Payments", "Ledger", "Reports", "Settings"]
+N_ROWS = 19
+TABLE_COLS = [("Invoice", 0), ("Customer", 200), ("Due date", 560), ("Amount", 780),
+              ("Status", 1060), ("Owner", 1260)]
+STATUS_COLS = {"Paid": ((220, 245, 228), (25, 135, 84)),
+               "Pending": ((255, 243, 205), (150, 110, 0)),
+               "Overdue": ((255, 229, 208), (190, 90, 20)),
+               "Draft": ((233, 236, 239), MUTED)}
+
+COL = FlexDirection.COLUMN
+
+L = layout(node(
+    node(size=(W, TOP_H)),
+    node(
+        node(*(node(key=f"nav{i}", size=(None, 42), margin=(0, 14, 0, 14))
+               for i in range(len(NAV_ITEMS))),
+             key="side", size=(SIDE_W, None), flex_direction=COL, gap=10, padding=(22, 0, 0, 0)),
+        node(
+            node(node(key="heading"), node(key="new", size=(220, 44), margin=(2, 0, 0, 0)),
+                 size=(None, 94), justify_content=JustifyContent.SPACE_BETWEEN),
+            node(key="thead", size=(None, 44)),
+            *(node(key=f"row{i}", size=(None, 40)) for i in range(N_ROWS)),
+            key="main", flex_grow=1, flex_direction=COL, padding=(26, 40, 0, 40)),
+        flex_grow=1),
+    node(key="status", size=(W, STATUS_H)),
+    size=(W, H), flex_direction=COL))
+NAV = [L[f"nav{i}"] for i in range(len(NAV_ITEMS))]
+ROWS = [L[f"row{i}"] for i in range(N_ROWS)]
+
+CARD = layout(node(
+    node(
+        node(node(key="code_label", size=(104, 31)), node(key="code", size=(74, 31))),
+        node(flex_grow=1),
+        node(node(key="copy", size=(130, 40)), node(key="ok", size=(88, 40)),
+             justify_content=JustifyContent.END, gap=16),
+        key="card", size=(DLG_W, DLG_H), flex_direction=COL, padding=(178, 26, 22, 28)),
+    padding=SHADOW))
 
 CUSTOMERS = ["Northwind Traders", "Contoso Ltd", "Fabrikam Inc", "Tailspin Toys",
              "Wide World Importers", "Adventure Works", "Litware Inc", "Proseware",
@@ -92,7 +133,7 @@ class DialogsScene(Scene):
             f"in the top bar counts the error dialogs shown so far."
         )
         self.answer_format = "6 characters, A-Z and 0-9"
-        self._rows = self._table_rows(self.rng("table"))
+        self._rows = self._table_rows(self.rng("table"))[:N_ROWS]
 
     # --- static layers -------------------------------------------------------------
     @staticmethod
@@ -106,6 +147,7 @@ class DialogsScene(Scene):
                          status))
         return rows
 
+    @cached_property
     def _background(self) -> Image.Image:
         im = Image.new("RGB", (W, H), WHITE)
         d = ImageDraw.Draw(im)
@@ -121,95 +163,88 @@ class DialogsScene(Scene):
         initials = "".join(p[0] for p in self.user.replace(".", "").split())
         draw_text(d, (1838, 42), initials[:2], "sans-bold", 22, WHITE)
         # Sidebar.
-        d.rectangle((0, TOP_H, SIDE_W, H), fill=(245, 247, 250))
-        d.line((SIDE_W, TOP_H, SIDE_W, H), fill=LINE)
-        for i, item in enumerate(["Dashboard", "Invoices", "Customers", "Payments",
-                                  "Ledger", "Reports", "Settings"]):
-            y = TOP_H + 30 + i * 52
-            if item == "Invoices":
-                d.rounded_rectangle((14, y - 8, SIDE_W - 14, y + 34), 8, fill=(225, 236, 255))
-            draw_text(d, (40, y), item, "sans-bold" if item == "Invoices" else "sans", 19,
-                      BLUE if item == "Invoices" else INK)
+        side = L["side"]
+        d.rectangle(side.edges, fill=(245, 247, 250))
+        d.line((side.right, side.y, side.right, side.bottom), fill=LINE)
+        for item, box in zip(NAV_ITEMS, NAV):
+            active = item == "Invoices"
+            if active:
+                d.rounded_rectangle(box.edges, 8, fill=(225, 236, 255))
+            draw_text(d, box.at(26, 8), item, "sans-bold" if active else "sans", 19,
+                      BLUE if active else INK)
         # Main content: invoice table.
-        x0 = SIDE_W + 40
-        draw_text(d, (x0, TOP_H + 26), "Invoices", "sans-bold", 30, INK)
-        draw_text(d, (x0, TOP_H + 70), "All invoices · Q4 2026", "sans", 17, MUTED)
-        d.rounded_rectangle((W - 260, TOP_H + 28, W - 40, TOP_H + 72), 8, fill=BLUE)
-        draw_text(d, (W - 232, TOP_H + 39), "+ New invoice", "sans-bold", 18, WHITE)
-        cols = [("Invoice", 0), ("Customer", 200), ("Due date", 560), ("Amount", 780),
-                ("Status", 1060), ("Owner", 1260)]
-        ty = TOP_H + 120
-        d.rectangle((x0, ty, W - 40, ty + 44), fill=(248, 249, 250))
-        for name, cx in cols:
-            draw_text(d, (x0 + 16 + cx, ty + 12), name, "sans-bold", 16, MUTED)
-        for i, (inv, cust, due, amt, status) in enumerate(self._rows[:19]):
-            y = ty + 44 + i * 40
-            d.line((x0, y, W - 40, y), fill=LINE)
-            draw_text(d, (x0 + 16, y + 10), inv, "sans", 16, BLUE)
-            draw_text(d, (x0 + 216, y + 10), cust, "sans", 16, INK)
-            draw_text(d, (x0 + 576, y + 10), due, "sans", 16, INK)
-            draw_text(d, (x0 + 796, y + 10), amt, "sans", 16, INK)
-            fill, ink = {"Paid": ((220, 245, 228), (25, 135, 84)),
-                         "Pending": ((255, 243, 205), (150, 110, 0)),
-                         "Overdue": ((255, 229, 208), (190, 90, 20)),
-                         "Draft": ((233, 236, 239), MUTED)}[status]
-            d.rounded_rectangle((x0 + 1076, y + 7, x0 + 1076 + 96, y + 33), 12, fill=fill)
-            draw_text(d, (x0 + 1092, y + 10), status, "sans", 15, ink)
-            draw_text(d, (x0 + 1276, y + 10), self.user, "sans", 16, MUTED)
+        heading, new = L["heading"], L["new"]
+        draw_text(d, heading.at(0, 0), "Invoices", "sans-bold", 30, INK)
+        draw_text(d, heading.at(0, 44), "All invoices · Q4 2026", "sans", 17, MUTED)
+        d.rounded_rectangle(new.edges, 8, fill=BLUE)
+        draw_text(d, new.at(28, 11), "+ New invoice", "sans-bold", 18, WHITE)
+        thead = L["thead"]
+        d.rectangle(thead.edges, fill=(248, 249, 250))
+        for name, cx in TABLE_COLS:
+            draw_text(d, thead.at(16 + cx, 12), name, "sans-bold", 16, MUTED)
+        for row, (inv, cust, due, amt, status) in zip(ROWS, self._rows):
+            d.line((row.x, row.y, row.right, row.y), fill=LINE)
+            cells = [(inv, BLUE), (cust, INK), (due, INK), (amt, INK)]
+            for (text, ink), (_, cx) in zip(cells, TABLE_COLS):
+                draw_text(d, row.at(16 + cx, 10), text, "sans", 16, ink)
+            fill, ink = STATUS_COLS[status]
+            pill_x = row.x + 16 + TABLE_COLS[4][1]
+            d.rounded_rectangle((pill_x, row.y + 7, pill_x + 96, row.y + 33), 12, fill=fill)
+            draw_text(d, (pill_x + 16, row.y + 10), status, "sans", 15, ink)
+            draw_text(d, row.at(16 + TABLE_COLS[5][1], 10), self.user, "sans", 16, MUTED)
         # Status bar.
-        d.rectangle((0, H - STATUS_H, W, H), fill=(233, 236, 239))
-        draw_text(d, (16, H - STATUS_H + 6), "Connected to ledger.prod  ·  v4.12.3",
+        status_bar = L["status"]
+        d.rectangle(status_bar.edges, fill=(233, 236, 239))
+        draw_text(d, status_bar.at(16, 6), "Connected to ledger.prod  ·  v4.12.3",
                   "sans", 14, MUTED)
         return im
 
+    @cached_property
     def _background_dim(self) -> Image.Image:
-        im = self.static("bg", self._background).copy()
+        im = self._background.copy()
         body = im.crop((0, TOP_H, W, H))
         im.paste(Image.blend(body, Image.new("RGB", body.size, (0, 0, 0)), 0.35), (0, TOP_H))
         return im
 
+    @cached_property
+    def _cards(self):
+        return [self._dialog_image(i) for i in range(len(self.dialogs))]
+
     def _dialog_image(self, i: int) -> Image.Image:
         """RGBA dialog card with its drop shadow (size DLG + 2*SHADOW)."""
         dl = self.dialogs[i]
-        S = SHADOW
-        im = Image.new("RGBA", (DLG_W + 2 * S, DLG_H + 2 * S), (0, 0, 0, 0))
+        card = CARD["card"]
+        im = Image.new("RGBA", (card.right + SHADOW, card.bottom + SHADOW), (0, 0, 0, 0))
         sh = Image.new("L", im.size, 0)
-        ImageDraw.Draw(sh).rounded_rectangle((S, S + 6, S + DLG_W, S + DLG_H + 6), 10, fill=110)
+        ImageDraw.Draw(sh).rounded_rectangle((card.x, card.y + 6, card.right, card.bottom + 6),
+                                             10, fill=110)
         im.putalpha(sh.filter(ImageFilter.GaussianBlur(9)))
         d = ImageDraw.Draw(im)
-        x0, y0 = S, S
-        d.rounded_rectangle((x0, y0, x0 + DLG_W, y0 + DLG_H), 10, fill=WHITE + (255,),
-                            outline=(200, 205, 210, 255))
-        d.rectangle((x0 + 1, y0 + 56, x0 + DLG_W - 1, y0 + 57), fill=LINE + (255,))
-        d.ellipse((x0 + 22, y0 + 14, x0 + 52, y0 + 44), fill=RED + (255,))
-        draw_text(d, (x0 + 33, y0 + 15), "!", "sans-bold", 22, WHITE)
-        draw_text(d, (x0 + 66, y0 + 16), dl["title"], "sans-bold", 21, INK)
-        draw_text(d, (x0 + DLG_W - 40, y0 + 14), "×", "sans", 26, MUTED)
-        draw_text(d, (x0 + 28, y0 + 80), dl["msg"], "sans", 17, INK)
-        draw_text(d, (x0 + 28, y0 + 110), "Please try again. If the problem persists, contact "
+        d.rounded_rectangle(card.edges, 10, fill=WHITE + (255,), outline=(200, 205, 210, 255))
+        d.rectangle((card.x + 1, card.y + 56, card.right - 1, card.y + 57), fill=LINE + (255,))
+        d.ellipse((*card.at(22, 14), *card.at(52, 44)), fill=RED + (255,))
+        draw_text(d, card.at(33, 15), "!", "sans-bold", 22, WHITE)
+        draw_text(d, card.at(66, 16), dl["title"], "sans-bold", 21, INK)
+        draw_text(d, (card.right - 40, card.y + 14), "×", "sans", 26, MUTED)
+        draw_text(d, card.at(28, 80), dl["msg"], "sans", 17, INK)
+        draw_text(d, card.at(28, 110), "Please try again. If the problem persists, contact "
                   "support", "sans", 17, MUTED)
-        draw_text(d, (x0 + 28, y0 + 134), "and quote the error code below.", "sans", 17, MUTED)
-        draw_text(d, (x0 + 28, y0 + 182), "Error code:", "sans", 17, INK)
-        cx, cy = self._code_xy_rel()
-        d.rounded_rectangle((x0 + cx - 10, y0 + cy - 6, x0 + cx + 64, y0 + cy + 25), 6,
-                            fill=(241, 243, 245, 255), outline=LINE + (255,))
-        draw_text(d, (x0 + cx, y0 + cy), dl["code"], *CODE_FONT, INK)
-        d.rounded_rectangle((x0 + DLG_W - 260, y0 + DLG_H - 62, x0 + DLG_W - 130,
-                             y0 + DLG_H - 22), 8, outline=(180, 186, 192, 255), fill=WHITE + (255,))
-        draw_text(d, (x0 + DLG_W - 240, y0 + DLG_H - 52), "Copy code", "sans", 17, INK)
-        d.rounded_rectangle((x0 + DLG_W - 114, y0 + DLG_H - 62, x0 + DLG_W - 26,
-                             y0 + DLG_H - 22), 8, fill=BLUE + (255,))
-        draw_text(d, (x0 + DLG_W - 84, y0 + DLG_H - 52), "OK", "sans-bold", 17, WHITE)
+        draw_text(d, card.at(28, 134), "and quote the error code below.", "sans", 17, MUTED)
+        draw_text(d, CARD["code_label"].at(0, 4), "Error code:", "sans", 17, INK)
+        code = CARD["code"]
+        d.rounded_rectangle(code.edges, 6, fill=(241, 243, 245, 255), outline=LINE + (255,))
+        draw_text(d, code.at(*CODE_TEXT), dl["code"], *CODE_FONT, INK)
+        copy, ok = CARD["copy"], CARD["ok"]
+        d.rounded_rectangle(copy.edges, 8, outline=(180, 186, 192, 255), fill=WHITE + (255,))
+        draw_text(d, copy.at(20, 10), "Copy code", "sans", 17, INK)
+        d.rounded_rectangle(ok.edges, 8, fill=BLUE + (255,))
+        draw_text(d, ok.at(30, 10), "OK", "sans-bold", 17, WHITE)
         return im
 
-    @staticmethod
-    def _code_xy_rel() -> tuple[int, int]:
-        return 142, 184
-
-    def _code_xy(self, i: int) -> tuple[int, int]:
+    def _code_xy(self, i: int):
         dl = self.dialogs[i]
-        cx, cy = self._code_xy_rel()
-        return dl["x"] + cx, dl["y"] + cy
+        cx, cy = CARD["code"].at(*CODE_TEXT)
+        return dl["x"] + cx - SHADOW, dl["y"] + cy - SHADOW
 
     # --- per frame ---------------------------------------------------------------
     def badge_at(self, frame: int) -> int:
@@ -225,10 +260,10 @@ class DialogsScene(Scene):
         frame = self._check_frame(frame)
         i = self.open_dialog_at(frame)
         if i is None:
-            im = self.static("bg", self._background).copy()
+            im = self._background.copy()
         else:
-            im = self.static("bg_dim", self._background_dim).copy()
-            card = self._cache.get(("dialog", i), lambda: self._dialog_image(i))
+            im = self._background_dim.copy()
+            card = self._cards[i]
             dl = self.dialogs[i]
             im.paste(card, (dl["x"] - SHADOW, dl["y"] - SHADOW), card)
         d = ImageDraw.Draw(im)
@@ -256,7 +291,7 @@ class DialogsScene(Scene):
         px0 = x + 72
         d.rounded_rectangle((px0, y + 2, px0 + pw, y + 94), 46,
                             fill=RED if n else (90, 98, 115))
-        draw_text(d, (px0 + (pw - tw) / 2, y - 1), txt, *BADGE_FONT, WHITE)
+        draw_text(d, (px0 + pw / 2, y - 1), txt, *BADGE_FONT, WHITE, "center")
 
     def debug_info(self) -> dict:
         dls = [{"k": i + 1, "open_frame": dl["open"], "close_frame": dl["close"],

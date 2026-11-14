@@ -8,25 +8,29 @@ change every 2 s, and big stat panels show other changing numbers.
 from __future__ import annotations
 
 import datetime as dt
+from functools import cached_property
 
 import numpy as np
 from PIL import Image, ImageDraw
+from stretchable.style import AUTO, FlexDirection, FlexWrap
 
-from .base import Scene, SceneMeta, draw_text, text_width
+from .base import Box, Scene, SceneMeta, draw_text, layout, node
 
 W, H = 1920, 1080
 NAV_H = 52
+PAD = 16
 TICK = 20                       # KPI update period in frames (2 s)
 N_TILES = 6
-TILE_Y, TILE_H = 92, 170
+TILE_H = 170
 TILE_GAP = 12
-TILE_W = (W - 32 - (N_TILES - 1) * TILE_GAP) // N_TILES
+TILE_W = (W - 2 * PAD - (N_TILES - 1) * TILE_GAP) // N_TILES
 TILE_NAME_FONT = ("sans-bold", 30)
 TILE_STATUS_FONT = ("sans-bold", 44)
 VALUE_FONT = ("mono", 14)       # answer text: digits ~10 px native, <3 px at 1/4
-TABLE = (16, 290, 640, 410)     # x, y, w, h of the Key metrics panel
+N_KPIS = 8
 ROW_H = 40
-VALUE_X = TABLE[0] + 380
+TEXT_DY = 11
+NAME_DX, VALUE_DX, UNIT_DX = 16, 380, 460
 
 BG = (17, 18, 23)
 PANEL = (24, 27, 31)
@@ -36,6 +40,9 @@ MUTED = (140, 145, 160)
 GREEN = (55, 135, 45)
 AMBER = (224, 155, 0)
 RED = (212, 34, 50)
+WHITE = (255, 255, 255)
+ROW_ALT = (29, 32, 37)
+GRID = (36, 39, 46)
 SERIES = [(115, 191, 105), (87, 148, 242), (255, 152, 48), (184, 119, 217)]
 
 SERVICES = ["checkout", "payments", "search", "auth", "inventory", "shipping", "catalog",
@@ -45,6 +52,38 @@ KPIS = [("Requests / s", "req/s"), ("p95 latency", "ms"), ("Active sessions", ""
         ("Queue depth", "msgs"), ("Orders / min", ""), ("DB connections", ""),
         ("Cache entries", "k"), ("Payments / min", ""), ("Open carts", ""),
         ("Kafka lag", "msgs"), ("Worker threads", ""), ("Bytes out", "KB/s")]
+CHARTS = [("Request rate", (0, 1)), ("Latency p95 / p99", (2, 3)),
+          ("Errors / s by service", (4,))]
+STATS = [("CPU usage", 20, 95, "%"), ("Pods running", 80, 240, ""),
+         ("Memory", 30, 90, "%"), ("Nodes ready", 8, 40, "")]
+
+COL = FlexDirection.COLUMN
+
+
+def _chart(j: int, **style):
+    return node(node(key=f"plot{j}", flex_grow=1, margin=(44, 14, 36, 50)),
+                key=f"chart{j}", flex_direction=COL, **style)
+
+
+L = layout(node(
+    node(size=(W, NAV_H)),
+    node(
+        node(key="status_label", size=(AUTO, 28)),
+        node(*(node(key=f"tile{i}", size=(TILE_W, TILE_H)) for i in range(N_TILES)),
+             gap=TILE_GAP),
+        node(node(*(node(key=f"kpi{k}", size=(AUTO, ROW_H)) for k in range(N_KPIS)),
+                  key="kpis", size=(640, AUTO), flex_direction=COL, padding=(44, 0, 0, 0)),
+             _chart(0, flex_grow=1), _chart(1, flex_grow=1),
+             size=(AUTO, 410), gap=PAD, margin=(28, 0, 0, 0)),
+        node(_chart(2, size=(1050, AUTO)),
+             node(*(node(key=f"stat{i}", size=(404, 168)) for i in range(len(STATS))),
+                  size=(820, AUTO), flex_wrap=FlexWrap.WRAP, gap=12),
+             flex_grow=1, gap=PAD, margin=(PAD, 0, 0, 0)),
+        flex_grow=1, flex_direction=COL, padding=(12, PAD, PAD, PAD)),
+    size=(W, H), flex_direction=COL))
+TILES = [L[f"tile{i}"] for i in range(N_TILES)]
+KPI_ROWS = [L[f"kpi{k}"] for k in range(N_KPIS)]
+STAT_BOXES = [L[f"stat{i}"] for i in range(len(STATS))]
 
 
 def _walk(rng: np.random.Generator, n: int, lo: int, hi: int) -> np.ndarray:
@@ -75,7 +114,7 @@ class DashboardScene(Scene):
         self.base_time = dt.datetime(2026, r.randint(1, 12), r.randint(1, 28),
                                      r.randint(0, 23), r.randint(0, 59), r.randint(0, 59))
         self.tiles = r.sample(SERVICES, N_TILES)
-        self.kpis = r.sample(KPIS, 8)
+        self.kpis = r.sample(KPIS, N_KPIS)
         nrng = np.random.default_rng(self.np_seed("values"))
 
         # --- event: tile S goes red at f_red ------------------------------------------
@@ -121,12 +160,7 @@ class DashboardScene(Scene):
         hist = 120
         self.g_phase = rt.randrange(TICK)
         self.series = [nrng.normal(0, 1, n_ticks + hist).cumsum() for _ in range(5)]
-        self.stats = [
-            ("CPU usage", _walk(nrng, n_ticks, 20, 95), "%"),
-            ("Pods running", _walk(nrng, n_ticks, 80, 240), ""),
-            ("Memory", _walk(nrng, n_ticks, 30, 90), "%"),
-            ("Nodes ready", _walk(nrng, n_ticks, 8, 40), ""),
-        ]
+        self.stats = [(name, _walk(nrng, n_ticks, lo, hi), unit) for name, lo, hi, unit in STATS]
         self.hist = hist
 
         S_name, X_name = self.tiles[self.s_idx], self.kpis[self.x_idx][0]
@@ -150,26 +184,21 @@ class DashboardScene(Scene):
             return 2
         return 1 if any(a <= frame < b for a, b in self.amber[i]) else 0
 
-    def tile_box(self, i: int) -> tuple[int, int, int, int]:
-        return 16 + i * (TILE_W + TILE_GAP), TILE_Y, TILE_W, TILE_H
+    @staticmethod
+    def _value_xy(k: int):
+        return KPI_ROWS[k].at(VALUE_DX, TEXT_DY)
 
-    def _value_xy(self, k: int) -> tuple[int, int]:
-        return VALUE_X, TABLE[1] + 44 + k * ROW_H + 11
+    @staticmethod
+    def _row_bg(k: int):
+        return ROW_ALT if k % 2 else PANEL
 
     # --- rendering ----------------------------------------------------------------
-    def _panel(self, d, box, title):
-        x, y, w, h = box
-        d.rounded_rectangle((x, y, x + w - 1, y + h - 1), 4, fill=PANEL, outline=BORDER)
-        draw_text(d, (x + 12, y + 9), title, "sans-bold", 15, TEXT)
+    @staticmethod
+    def _panel(d, box: Box, title):
+        d.rounded_rectangle(box.xyxy, 4, fill=PANEL, outline=BORDER)
+        draw_text(d, box.at(12, 9), title, "sans-bold", 15, TEXT)
 
-    def _chart_boxes(self):
-        return [((672, 290, 608, 410), "Request rate", (0, 1)),
-                ((1296, 290, 608, 410), "Latency p95 / p99", (2, 3)),
-                ((16, 716, 1050, 348), "Errors / s by service", (4,))]
-
-    def _stat_boxes(self):
-        return [(1082 + (i % 2) * 416, 716 + (i // 2) * 180, 404, 168) for i in range(4)]
-
+    @cached_property
     def _background(self) -> Image.Image:
         im = Image.new("RGB", (W, H), BG)
         d = ImageDraw.Draw(im)
@@ -182,58 +211,49 @@ class DashboardScene(Scene):
         draw_text(d, (1516, 16), "Last 15 minutes", "sans", 16, TEXT)
         d.rounded_rectangle((1712, 10, 1800, 42), 4, outline=BORDER, fill=BG)
         draw_text(d, (1726, 16), "⟳  2s", "sans", 16, TEXT)
-        draw_text(d, (16, 64), "Service status", "sans-bold", 17, TEXT)
+        draw_text(d, L["status_label"].at(0, 0), "Service status", "sans-bold", 17, TEXT)
         # Key metrics table (static parts).
-        self._panel(d, TABLE, "Key metrics")
-        x, y, w, _h = TABLE
-        d.line((x + 1, y + 40, x + w - 2, y + 40), fill=BORDER)
-        for k, (name, unit) in enumerate(self.kpis):
-            ry = y + 44 + k * ROW_H
+        table = L["kpis"]
+        self._panel(d, table, "Key metrics")
+        d.line((table.x + 1, table.y + 40, table.right - 2, table.y + 40), fill=BORDER)
+        for k, ((name, unit), row) in enumerate(zip(self.kpis, KPI_ROWS)):
             if k % 2:
-                d.rectangle((x + 1, ry, x + w - 2, ry + ROW_H - 1), fill=(29, 32, 37))
-            draw_text(d, (x + 16, ry + 11), name, "sans", 16, TEXT)
-            draw_text(d, (VALUE_X + 80, ry + 11), unit, "sans", 15, MUTED)
-        for box, title, _ in self._chart_boxes():
-            self._panel(d, box, title)
-            bx, by, bw, bh = box
+                d.rectangle((row.x + 1, row.y, row.right - 2, row.bottom - 1), fill=ROW_ALT)
+            draw_text(d, row.at(NAME_DX, TEXT_DY), name, "sans", 16, TEXT)
+            draw_text(d, row.at(UNIT_DX, TEXT_DY), unit, "sans", 15, MUTED)
+        for j, (title, _) in enumerate(CHARTS):
+            self._panel(d, L[f"chart{j}"], title)
+            plot = L[f"plot{j}"]
             for g in range(5):
-                gy = by + 44 + g * (bh - 80) // 4
-                d.line((bx + 50, gy, bx + bw - 14, gy), fill=(36, 39, 46))
-        for i, box in enumerate(self._stat_boxes()):
-            self._panel(d, box, self.stats[i][0])
+                gy = plot.y + g * plot.h // 4
+                d.line((plot.x, gy, plot.right, gy), fill=GRID)
+        for (name, *_), box in zip(STATS, STAT_BOXES):
+            self._panel(d, box, name)
         return im
-
-    def _row_bgs(self):
-        _x, _y, _w, _h = TABLE
-        return [(29, 32, 37) if k % 2 else PANEL for k in range(len(self.kpis))]
 
     def render(self, frame: int) -> Image.Image:
         frame = self._check_frame(frame)
-        im = self.static("bg", self._background).copy()
+        im = self._background.copy()
         d = ImageDraw.Draw(im)
         now = self.base_time + dt.timedelta(seconds=frame / self.FPS)
         draw_text(d, (1820, 16), now.strftime("%H:%M:%S"), "sans", 16, MUTED)
         # Service tiles (the trace).
-        for i, name in enumerate(self.tiles):
+        for i, (name, box) in enumerate(zip(self.tiles, TILES)):
             st = self.tile_state(i, frame)
-            x, y, w, h = self.tile_box(i)
-            d.rounded_rectangle((x, y, x + w - 1, y + h - 1), 6, fill=(GREEN, AMBER, RED)[st])
-            tw = text_width(name, *TILE_NAME_FONT)
-            draw_text(d, (x + (w - tw) / 2, y + 22), name, *TILE_NAME_FONT, (255, 255, 255))
+            d.rounded_rectangle(box.xyxy, 6, fill=(GREEN, AMBER, RED)[st])
+            draw_text(d, (box.center_x, box.y + 22), name, *TILE_NAME_FONT, WHITE, "center")
             label = ("UP", "DEGRADED", "DOWN")[st]
-            tw = text_width(label, *TILE_STATUS_FONT)
-            draw_text(d, (x + (w - tw) / 2, y + 82), label, *TILE_STATUS_FONT, (255, 255, 255))
+            draw_text(d, (box.center_x, box.y + 82), label, *TILE_STATUS_FONT, WHITE, "center")
         # KPI values (the answer lives here).
-        bgs = self._row_bgs()
         for k in range(len(self.kpis)):
             vx, vy = self._value_xy(k)
-            d.rectangle((vx - 4, vy - 4, vx + 74, vy + 22), fill=bgs[k])
+            d.rectangle((vx - 4, vy - 4, vx + 74, vy + 22), fill=self._row_bg(k))
             draw_text(d, (vx, vy), str(self.kpi_value(k, frame)), *VALUE_FONT, TEXT)
         # Charts: last `hist` global ticks.
         gt = 0 if frame < self.g_phase else (frame - self.g_phase) // TICK + 1
-        for box, _, idxs in self._chart_boxes():
-            bx, by, bw, bh = box
-            x0, x1, y0, y1 = bx + 50, bx + bw - 14, by + 44, by + bh - 36
+        for j, (_, idxs) in enumerate(CHARTS):
+            plot = L[f"plot{j}"]
+            x0, y0, x1, y1 = plot.edges
             for c, si in enumerate(idxs):
                 seg = self.series[si][gt:gt + self.hist]
                 lo, hi = float(seg.min()), float(seg.max())
@@ -246,12 +266,9 @@ class DashboardScene(Scene):
                 draw_text(d, (x0 + g * (x1 - x0) / 2 - 22, y1 + 10), t.strftime("%H:%M"),
                           "sans", 13, MUTED)
         # Big stat panels (distractor numbers).
-        for i, box in enumerate(self._stat_boxes()):
-            name, vals, unit = self.stats[i]
-            txt = f"{int(vals[gt])}{unit}"
-            tw = text_width(txt, "sans-bold", 64)
-            bx, by, bw, bh = box
-            draw_text(d, (bx + (bw - tw) / 2, by + 50), txt, "sans-bold", 64, SERIES[i % 4])
+        for i, ((_, vals, unit), box) in enumerate(zip(self.stats, STAT_BOXES)):
+            draw_text(d, (box.center_x, box.y + 50), f"{int(vals[gt])}{unit}", "sans-bold", 64,
+                      SERIES[i % 4], "center")
         return im
 
     def debug_info(self) -> dict:
@@ -266,9 +283,9 @@ class DashboardScene(Scene):
             "amber_intervals": {self.tiles[i]: list(v) for i, v in enumerate(self.amber) if v},
             "answer_text": {"frame": self.f_red, "xy": self._value_xy(self.x_idx),
                             "text": self.answer, "font": VALUE_FONT[0], "size": VALUE_FONT[1],
-                            "fill": TEXT, "bg": self._row_bgs()[self.x_idx]},
-            "trace": {"box": self.tile_box(self.s_idx), "font_px": TILE_STATUS_FONT[1],
+                            "fill": TEXT, "bg": self._row_bg(self.x_idx)},
+            "trace": {"box": TILES[self.s_idx], "font_px": TILE_STATUS_FONT[1],
                       "change_frames": [self.f_red], "red_rgb": RED},
-            "tile_boxes": [self.tile_box(i) for i in range(N_TILES)],
+            "tile_boxes": TILES,
             "answer_font_px": VALUE_FONT[1],
         }
