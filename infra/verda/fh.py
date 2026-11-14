@@ -856,7 +856,8 @@ def cmd_eval_up(args) -> None:
                                  f"comparable. Use --new to start over (old results in runs/ are replaced).")
             if args.new:
                 live = [b["cluster"] for b in fleet["boxes"].values()
-                        if b["state"] in ("running", "launching") or cluster_status(b["cluster"]) is not None]
+                        if b["state"] in ("running", "launching") or launch_pending(b)
+                        or cluster_status(b["cluster"]) is not None]
                 if live:
                     raise SystemExit(f"--new: fleet {defn['fleet']} still has {live}; eval-down first")
                 for note in sweep_leaks([b["cluster"] for b in fleet["boxes"].values()]):
@@ -873,6 +874,8 @@ def cmd_eval_up(args) -> None:
         for i in runs:
             cluster, _ = eval_names(defn["split"], defn["label"], i)
             box = fleet["boxes"].get(str(i))
+            if box and launch_pending(box):   # another eval-up is still launching this cluster name
+                raise SystemExit(f"{cluster}: an earlier eval-up is still launching it; wait for it to return")
             if cluster_status(cluster) is None:
                 continue
             if not box:   # not launched from this state file: leave it alone
@@ -892,7 +895,7 @@ def cmd_eval_up(args) -> None:
         attempt = secrets.token_hex(6)
         for i in runs:
             cluster, job = eval_names(defn["split"], defn["label"], i)
-            fleet["boxes"][str(i)] = {"cluster": cluster, "job": job, "state": "launching", "attempt": attempt,
+            fleet["boxes"][str(i)] = {"cluster": cluster, "job": job, "state": "launching", "pending": attempt,
                                       "launched_at": time.time(),
                                       "launches": fleet["boxes"].get(str(i), {}).get("launches", 0) + 1}
         save_evals(evals)
@@ -902,12 +905,15 @@ def cmd_eval_up(args) -> None:
         fleet = evals.get(defn["fleet"], {"boxes": {}})
         for i, rc in rcs.items():
             box = fleet["boxes"].get(str(i))
-            if not box or box.get("attempt") != attempt or box["state"] != "launching":
-                # eval-down (or --new) took this box over while we launched: do not bring it back
-                cluster = eval_names(defn["split"], defn["label"], i)[0]
-                if cluster_status(cluster) is not None:
-                    down(cluster)
-                log(f"eval: run {i} was stopped while launching; deleted {cluster}")
+            if not box or box.get("pending") != attempt:   # cannot happen while the guards above hold
+                log(f"eval: run {i}: state changed under this launch; leaving it to eval-wait/eval-down")
+                continue
+            box.pop("pending")
+            if box["state"] != "launching":
+                # eval-down stopped this box while we launched it: do not bring it back
+                if cluster_status(box["cluster"]) is not None:
+                    down(box["cluster"])
+                log(f"eval: run {i} was stopped while launching; deleted {box['cluster']}")
                 continue
             if rc == 0:
                 box["state"] = "running"
@@ -933,6 +939,11 @@ def cmd_eval_up(args) -> None:
         log(f"eval: some launches failed (no capacity?); see the launch logs in {STAGE_DIR}; "
             f"retry with eval-up ... --only N. Run eval-wait (or eval-down): it keeps deleting instances a "
             f"timed-out launch leaves behind for {LEAK_WINDOW_S // 60} minutes.")
+
+
+def launch_pending(box: dict) -> bool:
+    """An eval-up has not returned for this box yet (bounded, in case that eval-up died)."""
+    return bool(box.get("pending")) and time.time() - box.get("launched_at", 0) < LEAK_WINDOW_S
 
 
 def sky_user_hash() -> str:

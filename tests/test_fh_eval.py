@@ -306,6 +306,21 @@ def test_eval_down_during_a_launch_wins(evalbox, sandbox, monkeypatch):
     assert sandbox.down == ["fh-ev-dev-qwen-1"]
 
 
+def test_no_second_launch_of_a_cluster_name_until_the_first_returns(evalbox, sandbox, monkeypatch):
+    monkeypatch.setattr(fh, "cluster_status", lambda n: None)
+
+    def launch_while_someone_relaunches(defn, stage, runs):
+        fh.cmd_eval_down(SimpleNamespace(fleet="dev-qwen", only=None, no_fetch=True))
+        with pytest.raises(SystemExit, match="still launching"):
+            fh.cmd_eval_up(eval_args(evalbox, runs=1))
+        return {i: 0 for i in runs}
+
+    monkeypatch.setattr(fh, "launch_eval_boxes", launch_while_someone_relaunches)
+    fh.cmd_eval_up(eval_args(evalbox, runs=1))
+    box = fh.load_evals()["dev-qwen"]["boxes"]["1"]
+    assert box["state"] == "stopped" and "pending" not in box
+
+
 def test_agent_config_is_part_of_comparability(evalbox, monkeypatch):
     a = fh.eval_definition(eval_args(evalbox))
     monkeypatch.setattr(fh, "OPENCODE_VERSION", "9.9.9")
