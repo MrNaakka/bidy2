@@ -1,0 +1,6 @@
+1. **High — Shutdown leaves late creations running.** [infra/verda/verda_cli.py:1227](/home/user/bidy2/infra/verda/verda_cli.py:1227), [reconcile:686](/home/user/bidy2/infra/verda/verda_cli.py:686)  
+   `serve-down` ignores unresolved creation intents and can report success before an accepted GPU appears. **Scenario:** a creation response is lost, cleanup lists nothing, and `serve-down` also lists nothing. The GPU subsequently appears; running `instances` reconciles it by adopting it, leaving it billing. Reproduced with mocks. **Fix:** persist cancellation of pending serving creates during shutdown and delete their late arrivals instead of adopting them; report unresolved shutdown explicitly.
+
+Validation: `bash -n` and 14 file-free existing tests passed. Full pytest was blocked by the read-only filesystem. Harbor’s current retry allowlist permits only setup failures before execution, so `-r 2` does **not** grant another attempt after pixel use. No files edited.
+
+Verdict: Changes required for reliable shutdown cleanup.

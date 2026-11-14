@@ -631,8 +631,8 @@ def reconcile(c) -> dict:
     matches OWN_HOSTNAME_RE (fhbot-<role>-<12 hex>) is ours. Such an instance that is neither the tracked
     serve/download box nor being created by a live process is an orphan: it is adopted
     as the serving box (with the config from its intent, if any) when it is a serve box
-    and none is tracked, and deleted otherwise. Instances without the prefix are only
-    reported, never touched.
+    and none is tracked and serving is wanted (serve_desired, not cancelled by serve-down),
+    and deleted otherwise. Instances without the prefix are only reported, never touched.
 
     Also: tracked records whose instance is gone are dropped (closing the ledger row);
     a tracked download box whose owner died (and not --keep) is deleted; an intent is
@@ -683,7 +683,9 @@ def reconcile(c) -> dict:
                 ledger_append(event="create", kind="instance", id=i.id, type=i.instance_type, hostname=i.hostname,
                               location=i.location, spot=i.is_spot, price_per_hour=float(i.price_per_hour or 0),
                               currency="eur", note="found by reconcile")
-            if _role_of(i.hostname) == "serve" and not (st.get("serve") or {}).get("id"):
+            intent = pend.get(i.hostname) or {}
+            if (_role_of(i.hostname) == "serve" and not (st.get("serve") or {}).get("id")
+                    and st.get("serve_desired", True) and not intent.get("cancelled")):
                 cfg = (pend.get(i.hostname) or {}).get("record") or {}
                 st["serve"] = {"id": i.id, "hostname": i.hostname, "type": i.instance_type, "spot": i.is_spot,
                                "created": (pend.get(i.hostname) or {}).get("ts", t_list), "adopted": True, **cfg}
@@ -1112,6 +1114,7 @@ def _write_base_url() -> str:
 
 def cmd_serve_up(args) -> None:
     with lifecycle_lock(args, busy_code=1):
+        update_state(lambda st: st.__setitem__("serve_desired", True))
         c = client()
         reconcile(c)
         _serve_up(c, args)
@@ -1219,9 +1222,22 @@ def wait_healthy(c, inst_id: str, timeout_min: float) -> None:
 
 def cmd_serve_down(args) -> None:
     with lifecycle_lock(args, busy_code=1):
+        # Persist the shutdown before deleting anything: from now on reconcile deletes any
+        # late-arriving serve box instead of adopting it, and serve-ensure stays idle.
+        def cancel(st):
+            st["serve_desired"] = False
+            for rec in (st.get("pending_creates") or {}).values():
+                if rec.get("role") == "serve":
+                    rec["cancelled"] = True
+        update_state(cancel)
         c = client()
         reconcile(c)
         _serve_down(c)
+        unresolved = [hn for hn, rec in (load_state().get("pending_creates") or {}).items()
+                      if rec.get("role") == "serve"]
+        if unresolved:
+            log(f"{len(unresolved)} creates unresolved ({', '.join(unresolved)}); "
+                "will be deleted when they appear (by any later command's reconcile)")
 
 
 def _serve_down(c) -> None:
@@ -1361,6 +1377,9 @@ def cmd_serve_ensure(args) -> None:
         c = client()
         reconcile(c)  # also drops the record of a preempted box and sweeps orphans
         state = load_state()
+        if not state.get("serve_desired", True):
+            log("serving is switched off (serve-down); nothing to ensure. Run serve-up to start again.")
+            return
         key = load_env().get("QWEN_API_KEY", "")
         creating = live_creating_hostnames(state)
         insts = [i for i in role_instances(c, "serve") if i.status not in GONE_STATUSES]

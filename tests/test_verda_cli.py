@@ -1073,3 +1073,50 @@ def test_r7_2_serve_ensure_handles_tracked_legacy_box(sandbox, cloud, monkeypatc
     monkeypatch.setattr(vc, "_serve_up", up)
     vc.cmd_serve_ensure(_serve_args(wait=False))
     assert up.call_count == 0 and cloud.deleted == []  # recognised as the healthy serving box
+
+
+# ---- r8: shutdown cancels pending serve creates; late arrivals are deleted ----------------
+def test_r8_late_serve_box_after_serve_down_is_deleted_not_adopted(sandbox, monkeypatch, capsys):
+    hn = "fhbot-serve-0123456789ab"
+    # a serve-up lost its create response and died; cleanup and serve-down list nothing
+    vc.save_state({"pending_creates": {hn: {"role": "serve", "ts": vc.time.time(),
+                                            "record": {"lora": "/x"}, **_dead_owner()}}})
+    c = mock.Mock()
+    late = []
+    c.instances.get.side_effect = lambda: list(late)
+    c.startup_scripts.get.return_value = []
+    monkeypatch.setattr(vc, "client", lambda: c)
+    monkeypatch.setattr(vc, "stop_tunnel", mock.Mock())
+    vc.cmd_serve_down(SimpleNamespace())
+    st = vc.load_state()
+    assert st["serve_desired"] is False and st["pending_creates"][hn]["cancelled"] is True
+    assert "1 creates unresolved" in capsys.readouterr().out
+    # the GPU shows up later; any command's reconcile must delete it, not adopt it
+    late.append(inst("gpu", hostname=hn))
+    deleted = []
+    monkeypatch.setattr(vc, "delete_instance", lambda c, i, reason="": deleted.append(i))
+    out = vc.reconcile(c)
+    assert deleted == ["gpu"] and out["adopted"] == [] and "serve" not in vc.load_state()
+
+
+def test_r8_orphan_without_intent_not_adopted_while_serving_off(sandbox, recon):
+    vc.save_state({"serve_desired": False})
+    recon.instances.get.return_value = [inst("gpu", hostname="fhbot-serve-abcdefabcdef")]
+    out = vc.reconcile(recon)
+    assert recon.deleted == ["gpu"] and out["adopted"] == []
+
+
+def test_r8_serve_ensure_idle_while_serving_off(sandbox, cloud, monkeypatch):
+    vc.save_state(_vol_state() | {"serve_desired": False})
+    up = mock.Mock()
+    monkeypatch.setattr(vc, "_serve_up", up)
+    vc.cmd_serve_ensure(_serve_args(wait=False))
+    up.assert_not_called()
+
+
+def test_r8_serve_up_switches_serving_back_on(sandbox, cloud, monkeypatch):
+    vc.save_state(_vol_state() | {"serve_desired": False})
+    seen = []
+    monkeypatch.setattr(vc, "_serve_up", lambda c, a: seen.append(vc.load_state()["serve_desired"]))
+    vc.cmd_serve_up(_serve_args(no_wait=True))
+    assert seen == [True]
