@@ -34,7 +34,7 @@ sleep 5
 stamp "GPUs free; starting async"
 ROOT=$ROOT MODEL=/root/fhdata/models/Qwen3.8-27B INIT=$INIT POOL=/root/fh/tasks/agrpo-pool INFER_GPUS="$INFER_GPUS" \
   TRAIN_GPUS=$TRAIN_GPUS DEADLINE=$END SCHED_ARGS="${SCHED_ARGS:---inflight 24 --agent-timeout-min 8}" \
-  TRAIN_ARGS="${TRAIN_ARGS:---min-groups 4 --max-groups 12 --max-stale 2 --lr 2e-5 --clip 0.2 --max-len 24576}" \
+  TRAIN_ARGS="${TRAIN_ARGS:---min-groups 4 --max-groups 12 --max-stale 2 --lr 2e-5 --clip 0.2 --max-len 18432}" \
   $CODE/infra/verda/grpo_async/start.sh >> $ROOT/times.txt 2>&1 || { stamp "start failed"; exit 1; }
 stamp "async running"
 

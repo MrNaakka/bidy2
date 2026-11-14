@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -78,6 +79,53 @@ def item_order(pool: Path) -> list[str]:
     return out
 
 
+class Adopted:
+    """A Harbor job started by an earlier scheduler process (not our child): polled through /proc."""
+
+    def __init__(self, pid: int):
+        self.pid, self.returncode = pid, None
+
+    def poll(self):
+        if self.returncode is None and not Path(f"/proc/{self.pid}").exists():
+            self.returncode = 0
+        return self.returncode
+
+    def send_signal(self, sig):
+        os.kill(self.pid, sig)
+
+    def kill(self):
+        self.send_signal(signal.SIGKILL)
+
+    def wait(self, timeout=None):
+        end = time.time() + (timeout or 1e9)
+        while self.poll() is None:
+            if time.time() > end:
+                raise subprocess.TimeoutExpired("harbor", timeout)
+            time.sleep(1)
+
+
+def harbor_pids() -> dict[str, tuple[int, int | None]]:
+    """job name -> (pid, gpu) of running `harbor run --job-name ag-...` processes."""
+    out = {}
+    for d in Path("/proc").iterdir():
+        if not d.name.isdigit():
+            continue
+        try:
+            argv = (d / "cmdline").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        # `harbor` is a Python entry point: argv[0] is the interpreter, argv[1] the script
+        if b"--job-name" not in argv or b"run" not in argv or not any(x.endswith(b"/harbor") for x in argv[:2]):
+            continue
+        name = argv[argv.index(b"--job-name") + 1].decode()
+        g = None
+        if b"-c" in argv:
+            m = re.search(r"cfg-g(\d+)\.json$", argv[argv.index(b"-c") + 1].decode())
+            g = int(m.group(1)) if m else None
+        out[name] = (int(d.name), g)
+    return out
+
+
 class Job:
     def __init__(self, name, item, gpu, proc, version):
         self.name, self.item, self.gpu, self.proc, self.launch_version = name, item, gpu, proc, version
@@ -99,6 +147,10 @@ def main(argv=None) -> int:
     ap.add_argument("--synthetic", action="store_true", help="pipeline test: synthetic rewards, no call-log check")
     ap.add_argument("--python", default="/root/fhdata/envs/train/bin/python")
     ap.add_argument("--cfg", type=Path, default=FH / "cfg-ft-g0.json")
+    ap.add_argument("--launch-gap-s", type=float, default=0.0,
+                    help="at least this long between two job launches box-wide (staggers environment starts)")
+    ap.add_argument("--adopt", action="store_true",
+                    help="take over the jobs of a previous scheduler process that are still running or unconverted")
     a = ap.parse_args(argv)
     R = a.root
     for sub in ("queue", "jobs", "runs", "convert", "nosignal", "adapters"):
@@ -130,6 +182,28 @@ def main(argv=None) -> int:
     running: list[Job] = []
     converting: list[Job] = []
     stopping = False
+    last_launch = 0.0
+    if a.adopt:
+        done = set()
+        if (R / "events.jsonl").exists():
+            done = {json.loads(l)["job"] for l in (R / "events.jsonl").read_text().splitlines() if l.strip()}
+        live = harbor_pids()
+        for jd in sorted((R / "jobs").iterdir()):
+            name = jd.name
+            if name in done or not name.startswith("ag-"):
+                continue
+            item = name[3:]
+            gf = jd / "gpu"
+            g = int(gf.read_text()) if gf.exists() else live.get(name, (None, None))[1]
+            if g is None:   # finished before we looked: find the relay that logged its trials
+                g = next((x for x in a.gpus if any((R / f"requests-g{x}").glob(f"{item}__*"))), a.gpus[0])
+            pid = live.get(name, (None, None))[0]
+            proc = Adopted(pid) if pid else Adopted(-1)
+            if not pid:
+                proc.returncode = 0
+            j = Job(name, item, g, proc, 0)     # launch version unknown: 0 keeps every version loaded
+            running.append(j)
+            log(f"adopted {name} on gpu {g} ({'running, pid %d' % pid if pid else 'finished'})")
 
     abort = {"t": None}
 
@@ -240,10 +314,13 @@ def main(argv=None) -> int:
                 f"rollout {ev['rollout_s']:.0f}s")
         # ---- launch
         if (deadline and time.time() > deadline) or (R / "STOP").exists():
+            if (R / "STOP").exists() and abort["t"] is None:
+                on_term(signal.SIGTERM, None)       # the end of the run: interrupt the running jobs too
             stopping = True
         if not stopping:
             for g in a.gpus:
-                while sum(a.k for j in running if j.gpu == g) + a.k <= a.inflight and st["next"] < len(items):
+                while sum(a.k for j in running if j.gpu == g) + a.k <= a.inflight and st["next"] < len(items) \
+                        and time.time() - last_launch >= a.launch_gap_s:
                     item = items[st["next"]]
                     st["next"] += 1
                     st["launched"] += 1
@@ -262,6 +339,8 @@ def main(argv=None) -> int:
                     p = subprocess.Popen(cmd, cwd=str(FH), stdout=open(jd / "harbor.log", "w"),
                                          stderr=subprocess.STDOUT, env=env, start_new_session=True)
                     running.append(Job(name, item, g, p, version))
+                    (jd / "gpu").write_text(f"{g}\n")
+                    last_launch = time.time()
                     write_json(state_f, st)
                     log(f"launched {name} on gpu {g} (policy v{version}); in flight "
                         f"{sum(a.k for j in running if j.gpu == g)} on gpu {g}")
