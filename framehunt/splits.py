@@ -123,6 +123,33 @@ DEV: tuple[tuple[str, str, int], ...] = (
 SPLITS: dict[str, tuple[tuple[str, str, int], ...]] = {"eval": EVAL, "dev": DEV}
 
 
+# TRAIN: generated, not committed item by item, and deliberately not in SPLITS (so
+# build_tasks.py and the eval tooling never see it). Used only by training-data
+# generators (train/make_sft.py). Public seeds start at 100001 (logstream), 110001
+# (dialogs), 120001 (dashboard), so ids never collide with EVAL (7xxx) or DEV (3xxx).
+# Scene seeds are derive_seed("train", item_id) with the split's own secret salt
+# (FH_SALT_TRAIN or secrets/train.salt): a different split name and a different salt
+# from EVAL/DEV, so no training scene can coincide with an evaluation scene.
+TRAIN_KINDS: tuple[str, ...] = ("logstream", "dialogs", "dashboard")
+TRAIN_SEED_BASE = 100_000
+TRAIN_MAX_PER_KIND = 9_999
+
+
+def train_items(n_per_kind: int = 300) -> tuple[tuple[str, str, int], ...]:
+    """The first ``n_per_kind`` TRAIN items of each kind, as (item_id, kind, public_seed).
+
+    Stable: item i of a kind is the same for every n_per_kind > i.
+    """
+    if not 0 < n_per_kind <= TRAIN_MAX_PER_KIND:
+        raise ValueError(f"n_per_kind must be 1..{TRAIN_MAX_PER_KIND}, got {n_per_kind}")
+    out = []
+    for ki, kind in enumerate(TRAIN_KINDS):
+        for j in range(n_per_kind):
+            s = TRAIN_SEED_BASE + ki * 10_000 + j + 1
+            out.append((f"{kind}-{s}", kind, s))
+    return tuple(out)
+
+
 def salt_env_var(split: str) -> str:
     return f"FH_SALT_{split.upper()}"
 
@@ -177,6 +204,7 @@ def _check() -> None:
         ids = [i for i, _, _ in items]
         assert len(ids) == len(set(ids)), f"duplicate item ids in {name}"
     assert not {s for _, _, s in EVAL} & {s for _, _, s in DEV}, "EVAL and DEV seeds overlap"
+    assert "train" not in SPLITS
 
 
 _check()

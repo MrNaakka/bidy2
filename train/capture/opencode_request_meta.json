@@ -1,0 +1,32 @@
+{
+ "model": "qwen3.8-27b",
+ "max_tokens": 16384,
+ "tool_choice": "auto",
+ "stream": true,
+ "stream_options": {
+  "include_usage": true
+ },
+ "opencode_version": "1.19.5",
+ "harbor_version": "0.25.0",
+ "item": "eval/logstream-7001",
+ "n_tools": 17,
+ "tool_names": [
+  "bash",
+  "edit",
+  "framehunt_contact_sheet",
+  "framehunt_info",
+  "framehunt_submit",
+  "framehunt_view",
+  "glob",
+  "grep",
+  "list_mcp_resource_templates",
+  "list_mcp_resources",
+  "read",
+  "read_mcp_resource",
+  "skill",
+  "task",
+  "todowrite",
+  "webfetch",
+  "write"
+ ]
+}

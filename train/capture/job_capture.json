@@ -1,0 +1,43 @@
+{
+ "agents": [
+  {
+   "name": "opencode",
+   "model_name": "verda-qwen/qwen3.8-27b",
+   "base_url": "http://10.0.2.2:19190/v1",
+   "model_api_key_name": "QWEN_API_KEY",
+   "model_api_format": "openai_chat_completions",
+   "kwargs": {
+    "opencode_config": {
+     "provider": {
+      "verda-qwen": {
+       "models": {
+        "qwen3.8-27b": {
+         "name": "Qwen3.8 27B",
+         "attachment": true,
+         "reasoning": true,
+         "tool_call": true,
+         "interleaved": {
+          "field": "reasoning"
+         },
+         "modalities": {
+          "input": [
+           "text",
+           "image"
+          ],
+          "output": [
+           "text"
+          ]
+         },
+         "limit": {
+          "context": 65536,
+          "output": 16384
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ ]
+}

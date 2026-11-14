@@ -1,0 +1,8 @@
+hf/
+.venv/
+data/
+out/
+__pycache__/
+*.pyc
+capture/requests/
+capture/harbor_trial/

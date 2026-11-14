@@ -1,0 +1,15 @@
+1. **Medium — API key appears in process arguments.** [infra/verda/remote/serve.sh:34](/home/user/bidy2/infra/verda/remote/serve.sh:34)  
+   Systemd expands `${VLLM_API_KEY}` into the `--api-key` argument. A local process on the instance can read the bearer key through `ps` or `/proc/<pid>/cmdline`; the protected environment file does not prevent this. **Fix:** Have vLLM read `VLLM_API_KEY` directly from its environment and remove the command-line argument.
+
+2. **Medium — Stale download status can terminate a new download.** [infra/verda/verda_cli.py:558](/home/user/bidy2/infra/verda/verda_cli.py:558), [infra/verda/remote/download.sh:4](/home/user/bidy2/infra/verda/remote/download.sh:4)  
+   The persistent `download.status` belongs to no specific attempt. After mounting, the new startup script installs uv before resetting that status. During this interval, the CLI can read an earlier `done`, delete the new instance, and mark the newly requested weights available without downloading them. This can leave serving permanently failing on missing weights. Reproduced with mocked SSH responses. **Fix:** Give each attempt a unique status path or identifier and accept completion only for that attempt.
+
+3. **High — Interrupted creates can still leave untracked paid instances.** [infra/verda/verda_cli.py:450](/home/user/bidy2/infra/verda/verda_cli.py:450), [infra/verda/verda_cli.py:538](/home/user/bidy2/infra/verda/verda_cli.py:538)  
+   Pending hostnames exist only in memory, and cleanup performs one instance-list request. If Verda accepts a CPU instance creation but the response is lost, then the cleanup lookup also fails during the outage, the CLI exits without recording the instance or pending creation. The CPU can subsequently run indefinitely; the serving watchdog does not clean up download instances. Reproduced the failure path with no state or ledger record written. **Fix:** Persist creation intent before submitting it, then reconcile and clean up pending operations after connectivity returns.
+
+4. **Medium — A stalled cloud request can disable recovery indefinitely.** [infra/verda/verda_cli.py:155](/home/user/bidy2/infra/verda/verda_cli.py:155), [infra/verda/verda_cli.py:912](/home/user/bidy2/infra/verda/verda_cli.py:912)  
+   The installed Verda SDK supplies no HTTP timeout for API or authentication requests, and the CLI adds none. An API connection that stops responding can therefore hold the `serve-ensure` lock forever. Subsequent invocations exit because the lock is held, so a later spot preemption never gets repaired. Confirmed the SDK request receives no timeout. **Fix:** Enforce finite connect/read timeouts for API and authentication calls, allowing failures to release the lock and later watchdog iterations to retry.
+
+Validation: Read the code and ran in-memory mocked probes. The requested pytest command was blocked by the read-only filesystem.
+
+Verdict: Unattended overnight operation still needs fixes.

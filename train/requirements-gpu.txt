@@ -1,0 +1,9 @@
+# GPU-only extras for train/sft_lora.py on the Verda H100.
+# Fast Gated DeltaNet kernels (Triton). Without them transformers falls back to a pure
+# PyTorch chunked implementation for 48 of the 64 layers: correct but several times slower.
+flash-linear-attention==0.6.0
+# Optional: fast causal conv1d for the GDN layers (compiles CUDA code if no wheel matches;
+# skip it if the build fails, transformers falls back to a PyTorch conv).
+# causal-conv1d==1.7.0
+# Only for --quant 4bit (QLoRA fallback on 40-48 GB GPUs).
+bitsandbytes==0.50.2
