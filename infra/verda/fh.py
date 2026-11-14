@@ -682,6 +682,11 @@ LEAK_WINDOW_S = 30 * 60
 EVAL_UP_SWEEPS = 10   # every 30 s after a failed launch, before eval-up returns
 EVAL_NAME_RE = r"[a-z0-9][a-z0-9-]{0,15}"
 LORA_FILES = ("adapter_config.json", "adapter_model.safetensors")
+VOLUME_PREFIX = "fh-eval-"           # box i of every fleet mounts volume fh-eval-<i> (weights, venv, caches)
+VOLUME_MOUNT = "/mnt/fh"
+VOLUME_SIZE_GB = 100                 # BF16 weights 55.6 GB + vLLM venv ~12 GB + compile caches
+VOLUME_LOCATION = "FIN-01"
+VOLUME_USD_PER_GB_MONTH = 0.20       # Verda NVMe block storage (GET /volume-types)
 EVAL_PROBE = r"""
 J=~/fh/runs/$1
 echo "trials=$(ls -d "$J"/*/ 2>/dev/null | wc -l)"
@@ -773,6 +778,9 @@ def eval_definition(a) -> dict:
         "model_rev": a.model_rev or envs["MODEL_REV"], "vllm_version": envs["VLLM_VERSION"],
         "harbor_version": envs["HARBOR_VERSION"], "opencode_version": OPENCODE_VERSION,
         "max_run_hours": a.max_run_hours, "eval_yaml_sha": sha_files([EVAL_YAML, EVAL_JOB]), "git_commit": git_commit(),
+        # where the weights live: "volume" (box i mounts fh-eval-<i>, in volume_location) or "disk" (each box
+        # downloads to its boot disk, any region). Recorded, not part of the comparability check.
+        "weights_on": a.weights_on, "volume_location": a.volume_location if a.weights_on == "volume" else None,
     }
 
 
@@ -815,12 +823,30 @@ def stage_eval(defn: dict, attempt: str = "") -> Path:
     return dest
 
 
+def volume_task_yaml(stage: Path) -> Path:
+    """eval.yaml plus `volumes: {/mnt/fh: ${VOLUME}}` (SkyPilot has no CLI flag for volumes)."""
+    import yaml
+
+    task = yaml.safe_load(EVAL_YAML.read_text())
+    task["envs"]["VOLUME"] = None
+    task["volumes"] = {VOLUME_MOUNT: "${VOLUME}"}
+    path = stage.with_name(stage.name + ".task.yaml")
+    path.write_text(yaml.safe_dump(task, sort_keys=False))
+    return path
+
+
 def eval_launch_args(defn: dict, stage: Path, i: int) -> list[str]:
     cluster, job = eval_names(defn["split"], defn["label"], i)
     envs = {"JOB": job, "STAGE": str(stage), "N_CONCURRENT": str(defn["n_concurrent"]),
             "LORA": "1" if defn["lora_dir"] else "0", "MODEL_REPO": defn["model_repo"],
             "MODEL_REV": defn["model_rev"], "MAX_RUN_HOURS": str(defn["max_run_hours"])}
-    args = ["launch", "-y", "-d", "-c", cluster, str(EVAL_YAML), "--secret", "QWEN_API_KEY",
+    task = EVAL_YAML
+    extra = []
+    if defn.get("weights_on") == "volume":   # box i mounts fh-eval-<i>, so it must start where the volume is
+        task = stage.with_name(stage.name + ".task.yaml")
+        envs |= {"VOLUME": f"{VOLUME_PREFIX}{i}", "FH_DATA": VOLUME_MOUNT}
+        extra = ["--infra", f"verda/{defn['volume_location']}"]
+    args = ["launch", "-y", "-d", "-c", cluster, str(task), "--secret", "QWEN_API_KEY", *extra,
             "--instance-type", defn["instance_type"], "--disk-size", str(defn["disk_size"]),
             "--use-spot" if defn["use_spot"] else "--no-use-spot"]
     for k, v in envs.items():
@@ -904,10 +930,14 @@ def cmd_eval_up(args) -> None:
                 raise SystemExit(f"{cluster} is {box['state']}; eval-down --only {i} first to relaunch it, "
                                  f"or --resume to run the job again on it")
             down(cluster)   # ours and finished (e.g. a failed delete earlier)
+        if defn["weights_on"] == "volume":
+            ensure_volumes(defn, runs, resume=args.resume)
         evals[defn["fleet"]] = fleet
         save_evals(evals)
         attempt = secrets.token_hex(6)
         stage = stage_eval(defn, attempt)
+        if defn["weights_on"] == "volume":
+            volume_task_yaml(stage)
         for i in runs:
             cluster, job = eval_names(defn["split"], defn["label"], i)
             fleet["boxes"][str(i)] = {"cluster": cluster, "job": job, "state": "launching", "pending": attempt,
@@ -918,6 +948,7 @@ def cmd_eval_up(args) -> None:
         rcs = launch_eval_boxes(defn, stage, runs)
     finally:
         shutil.rmtree(stage, ignore_errors=True)   # synced to the boxes; holds the tasks' secrets
+        stage.with_name(stage.name + ".task.yaml").unlink(missing_ok=True)
     with _eval_lock():
         evals = load_evals()
         fleet = evals.get(defn["fleet"], {"boxes": {}})
@@ -957,6 +988,82 @@ def cmd_eval_up(args) -> None:
         log(f"eval: some launches failed (no capacity?); see the launch logs in {STAGE_DIR}; "
             f"retry with eval-up ... --only N. Run eval-wait (or eval-down): it keeps deleting instances a "
             f"timed-out launch leaves behind for {LEAK_WINDOW_S // 60} minutes.")
+
+
+def eval_volumes(location: str | None = None) -> list:
+    """Verda volumes named fh-eval-<i> (all locations unless given)."""
+    return [v for v in verda_client().volumes_get()
+            if re.fullmatch(re.escape(VOLUME_PREFIX) + r"\d+", v.name) and v.status not in ("deleted", "deleting")
+            and (location is None or v.location == location)]
+
+
+def ensure_volumes(defn: dict, runs: list[int], resume: bool = False) -> None:
+    """Create fh-eval-<i> for every run that lacks one (never deletes) and register it with SkyPilot.
+
+    Created here with the exact name, then registered as `use_existing`, like fh-qwen: the name on Verda is
+    the name in SkyPilot, so a lost ~/.sky never leads to a second volume. A volume attached to anything but
+    this run's own box (on --resume) is refused: a block volume serves one box at a time.
+    """
+    import yaml
+
+    loc = defn["volume_location"]
+    client = verda_client()
+    hosts = {i.instance_id: i.hostname for i in client.instances_get()}
+    vols = eval_volumes()
+    for i in runs:
+        name = f"{VOLUME_PREFIX}{i}"
+        cluster = eval_names(defn["split"], defn["label"], i)[0]
+        same = [v for v in vols if v.name == name]
+        if any(v.location != loc for v in same):
+            raise SystemExit(f"{name} exists in {[v.location for v in same]}, not {loc}; use --volume-location")
+        if len(same) > 1:
+            raise SystemExit(f"{len(same)} Verda volumes are named {name}; delete the extra ones")
+        if same and same[0].status == "attached":
+            host = hosts.get(same[0].instance_id, same[0].instance_id)
+            if not (resume and str(host).startswith(f"{cluster}-")):
+                raise SystemExit(f"{name} is attached to {host}; a volume serves one box at a time "
+                                 f"(eval-down that fleet first, or use --weights-on disk)")
+        if not same:
+            log(f"eval: creating volume {name} ({VOLUME_SIZE_GB} GB NVMe, {loc}, "
+                f"${VOLUME_SIZE_GB * VOLUME_USD_PER_GB_MONTH:.0f}/month until deleted with eval-volumes --delete)")
+            client.volume_create(name=name, size_gb=VOLUME_SIZE_GB, volume_type="NVMe", location=loc)
+        STAGE_DIR.mkdir(parents=True, exist_ok=True)
+        spec = STAGE_DIR / f"{name}.volume.yaml"
+        spec.write_text(yaml.safe_dump({"name": name, "type": "verda-block-volume", "infra": f"verda/{loc}",
+                                        "size": f"{VOLUME_SIZE_GB}Gi", "use_existing": True}))
+        sky("volumes", "apply", "-y", str(spec))   # no-op when SkyPilot already knows it
+
+
+def volume_rows() -> list[dict]:
+    client = verda_client()
+    hosts = {i.instance_id: i.hostname for i in client.instances_get()}
+    return [{"name": v.name, "location": v.location, "size_gb": v.size, "status": v.status, "id": v.id,
+             "attached_to": hosts.get(v.instance_id, v.instance_id) if v.instance_id else None,
+             "usd_per_month": round((v.size or 0) * VOLUME_USD_PER_GB_MONTH, 2)}
+            for v in sorted(eval_volumes(), key=lambda v: (v.location, v.name))]
+
+
+def cmd_eval_volumes(args) -> None:
+    if args.delete:
+        if not args.yes:
+            raise SystemExit("eval-volumes --delete deletes the volumes and their weights for good; add --yes")
+        rows = {r["name"]: r for r in volume_rows()}
+        for name in args.delete:
+            if name not in rows:
+                raise SystemExit(f"no volume {name} (have {sorted(rows)})")
+            if rows[name]["attached_to"]:
+                raise SystemExit(f"{name} is attached to {rows[name]['attached_to']}; eval-down first")
+        for name in args.delete:
+            if sky("volumes", "delete", "-y", name, check=False) != 0:   # not registered here: delete on Verda
+                verda_client().volume_delete(rows[name]["id"])
+            log(f"eval: deleted volume {name}")
+        return
+    rows = volume_rows()
+    for r in rows:
+        print(f"{r['name']:12s} {r['location']:7s} {r['size_gb']!s:>4} GB  {r['status']:9s} "
+              f"{r['attached_to'] or '-':40s} ${r['usd_per_month']}/month")
+    print(f"total ${sum(r['usd_per_month'] for r in rows):.2f}/month for {len(rows)} volume(s); "
+          f"delete with: fh eval-volumes --delete NAME [--delete NAME] --yes")
 
 
 def launch_pending(box: dict) -> bool:
@@ -1224,7 +1331,11 @@ def add_eval_parsers(sub) -> None:
     s.add_argument("--lora", help=f"adapter dir (train/out/<run> or its final/), served as {LORA_NAME}")
     s.add_argument("--runs", type=int, default=3)
     s.add_argument("--only", type=int, action="append", help="(re)launch only this run index (repeatable)")
-    s.add_argument("-n", type=int, default=10, help="concurrent trials per box")
+    s.add_argument("-n", type=int, default=15, help="concurrent trials per box (fp8 KV fits about 15 on an H100)")
+    s.add_argument("--weights-on", choices=["volume", "disk"], default="volume",
+                   help="volume: box i mounts its own fh-eval-<i> (created once, weights downloaded on first use); "
+                        "disk: every box downloads to its boot disk (any region)")
+    s.add_argument("--volume-location", default=VOLUME_LOCATION, help="Verda location of the fh-eval-<i> volumes")
     s.add_argument("--instance-type", help="default: eval.yaml's pinned type")
     s.add_argument("--disk-size", type=int)
     s.add_argument("--on-demand", action="store_true")
@@ -1236,6 +1347,10 @@ def add_eval_parsers(sub) -> None:
     s.add_argument("--resume", action="store_true",
                    help="run the job again on existing boxes (interrupted eval-up, failed job) instead of refusing")
     s.set_defaults(fn=cmd_eval_up)
+    s = sub.add_parser("eval-volumes", help="list the fh-eval-<i> volumes with their cost, or --delete them")
+    s.add_argument("--delete", action="append", metavar="NAME")
+    s.add_argument("--yes", action="store_true")
+    s.set_defaults(fn=cmd_eval_volumes)
     for name, fn in (("eval-status", cmd_eval_status), ("eval-fetch", cmd_eval_fetch), ("eval-wait", cmd_eval_wait),
                      ("eval-down", cmd_eval_down)):
         s = sub.add_parser(name)

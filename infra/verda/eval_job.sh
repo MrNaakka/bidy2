@@ -34,25 +34,43 @@ fi
 systemctl start docker
 command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
 uv tool install -q "harbor==$HARBOR_VERSION"
-model=$FH/models/${MODEL_REPO#*/}
+# Weights, vLLM venv (with its uv-managed Python) and compile caches live in $DATA: this box's own volume
+# (FH_DATA=/mnt/fh, kept across evals) or the boot disk. Markers say what is complete and verified.
+if [ -n "${FH_DATA:-}" ]; then
+  mountpoint -q "$FH_DATA" || { echo "$FH_DATA is not a mounted volume" >&2; exit 1; }
+  DATA=$FH_DATA
+else
+  DATA=$FH
+fi
+export UV_PYTHON_INSTALL_DIR=$DATA/uv/python UV_LINK_MODE=copy
+mkdir -p "$DATA/models" "$DATA/envs" "$DATA/cache"
+model=$DATA/models/${MODEL_REPO#*/}
 (
   if [ "$(cat "$model.REVISION" 2>/dev/null)" != "$MODEL_REPO $MODEL_REV" ]; then
     rm -f "$model.REVISION"
     HF_HUB_ENABLE_HF_TRANSFER=1 timeout --foreground 90m uvx -q --python 3.12 --from 'huggingface_hub[cli,hf_transfer]' \
       hf download "$MODEL_REPO" --revision "$MODEL_REV" --local-dir "$model" --max-workers 16 >/dev/null
     uv run -q --no-project --python 3.12 python "$IN/verify_weights.py" "$MODEL_REPO" "$MODEL_REV" "$model"
+    sync
     echo "$MODEL_REPO $MODEL_REV" > "$model.REVISION"
+    echo "weights downloaded and verified"
+  else
+    echo "weights $MODEL_REPO@$MODEL_REV already verified on $DATA"
   fi
 ) &
 dl=$!
-VENV=$FH/vllm-$VLLM_VERSION
-if [ ! -x "$VENV/bin/vllm" ]; then
+VENV=$DATA/envs/vllm-$VLLM_VERSION
+if [ ! -f "$VENV/.fh-ok" ]; then   # a venv cut short (spot loss) has no marker and is rebuilt
   rm -rf "$VENV"
   uv venv -q --managed-python --python 3.12 "$VENV"   # system python lacks Python.h, which Triton compiles against
   VIRTUAL_ENV="$VENV" timeout --foreground 30m uv pip install -q "vllm==$VLLM_VERSION"
+  "$VENV/bin/python" -c "import vllm"
+  sync
+  touch "$VENV/.fh-ok"
 fi
 mark venv_ready
 wait "$dl"
+sync
 mark weights_ready
 
 # --- serve: identical flags on every box; LoRA adds the adapter ---
@@ -69,6 +87,7 @@ pkill -f '[v]llm serve' || true
 pkill -f '[s]ocat TCP-LISTEN:18000' || true
 export VLLM_API_KEY="$QWEN_API_KEY" HF_HUB_OFFLINE=1 VLLM_NO_USAGE_STATS=1 VLLM_USE_FLASHINFER_SAMPLER=0
 export CUDA_HOME=/usr/local/cuda PATH="$VENV/bin:/usr/local/cuda/bin:$PATH"
+export VLLM_CACHE_ROOT=$DATA/cache/vllm TRITON_CACHE_DIR=$DATA/cache/triton FLASHINFER_WORKSPACE_BASE=$DATA/cache/flashinfer
 vllm serve "$model" "${args[@]}" > "$ST/vllm.log" 2>&1 &
 vllm_pid=$!
 # Trial containers reach vLLM through the Docker bridge only (http://172.17.0.1:18000/v1).
@@ -79,6 +98,7 @@ import json, os, socket, subprocess, sys
 gpu = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader"],
                      capture_output=True, text=True).stdout.strip().splitlines()
 print(json.dumps({"hostname": socket.gethostname(), "gpus": gpu, "vllm_cmd": ["vllm", "serve", *sys.argv[1:]],
+                  "weights_on": os.environ.get("FH_DATA") or "boot disk",
                   "cluster_info": json.loads(os.environ.get("SKYPILOT_CLUSTER_INFO") or "{}")}))
 PY
 served() {  # every name in $names is listed by /v1/models

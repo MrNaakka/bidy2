@@ -51,14 +51,16 @@ another command holds it.
 
 ## Parallel evals
 
-Each Qwen eval run gets its own box (`eval.yaml`, one SkyPilot cluster per run): the box downloads the pinned
-weights, starts vLLM, and runs Harbor against it. Three runs take about as long as one.
+Each Qwen eval run gets its own box (`eval.yaml`, one SkyPilot cluster per run): box `i` mounts its own volume
+`fh-eval-<i>` with the pinned weights, starts vLLM, and runs Harbor against it. Three runs take about as long as
+one.
 
 ```bash
 uv run python scripts/build_tasks.py --split eval                 # tasks/eval (secret seeds; never commit)
-infra/verda/fh eval-up --tasks tasks/eval --runs 3 -n 10          # fleet eval-qwen: boxes fh-ev-eval-qwen-{1,2,3}
+infra/verda/fh eval-up --tasks tasks/eval --runs 3 -n 15          # fleet eval-qwen: boxes fh-ev-eval-qwen-{1,2,3}
 infra/verda/fh eval-wait                                          # fetch each run as it ends, delete its box
-infra/verda/fh eval-up --tasks tasks/eval --lora train/out/<run> --runs 3 -n 10   # fleet eval-qwen-fh
+infra/verda/fh eval-up --tasks tasks/eval --lora train/out/<run> --runs 3 -n 15   # fleet eval-qwen-fh
+infra/verda/fh eval-volumes                                       # the fh-eval-<i> volumes and what they cost
 ```
 
 `scripts/eval.sh --stage agents --model qwen --fleet` (or `--model qwen-fh --lora train/out/<run>`) does both
@@ -66,11 +68,12 @@ steps and then summarizes. It runs for 1-2 hours, so start it with `systemd-run 
 
 | command | what it does |
 | --- | --- |
-| `eval-up --tasks DIR [--lora DIR] [--runs 3] [-n 10] [--only I] [--on-demand] [--max-usd 60] [--max-run-hours 4]` | Stages `.stage/eval-<fleet>-<attempt>/` (tasks with 0700 dirs, Harbor config, `eval_job.sh`, `verify_weights.py`, adapter, `meta.json`; deleted once the launch returns) and runs `sky launch -d` for every box in parallel (logs in `.stage/`). A failed launch (no capacity) is recorded and retried with `--only I`. Refuses to add a run whose tasks, adapter, instance type, `-n`, model or `eval.yaml` differ from the fleet's first runs (`--new` starts over). |
+| `eval-up --tasks DIR [--lora DIR] [--runs 3] [-n 15] [--only I] [--on-demand] [--weights-on volume\|disk] [--volume-location FIN-01] [--max-usd 60] [--max-run-hours 4] [--resume] [--new]` | Stages `.stage/eval-<fleet>-<attempt>/` (tasks with 0700 dirs, Harbor config, `eval_job.sh`, `verify_weights.py`, adapter, `meta.json`; deleted once the launch returns) and runs `sky launch -d` for every box in parallel (logs in `.stage/`). A failed launch (no capacity) is recorded and retried with `--only I`. Refuses to add a run whose tasks, adapter, instance type, `-n`, model or `eval.yaml` differ from the fleet's first runs (`--new` starts over). |
 | `eval-status [--fleet F]` | Per box: cluster and job state, phase (`venv_ready`, `weights_ready`, `vllm_healthy`, `harbor_start`), trials done and rewards written, vLLM running/waiting requests, KV-cache use, preemptions, cost. |
 | `eval-wait [--fleet F]` | Every 2 minutes: fetches a box whose job ended and deletes it; reports a box that is gone (spot loss) as `lost`; at the fleet cost cap it fetches what is there and deletes every box. Exits when no box is left (status 1 unless every run is `done`). |
 | `eval-fetch [--fleet F] [--only I] [--partial]` | `rsync` of `~/fh/runs/<job>/` to `runs/<job>/`. `--partial` also fetches running jobs. |
 | `eval-down [--fleet F] [--only I] [--no-fetch]` | Fetches what is there (unless `--no-fetch`), then deletes the boxes. |
+| `eval-volumes [--delete NAME --yes]` | Lists the `fh-eval-<i>` volumes (location, size, attached box, $/month). Volumes are deleted only here, by name, and never while attached. |
 | `fh sky <args>` | The SkyPilot CLI: `fh sky status`, `fh sky queue fh-ev-eval-qwen-1`, `fh sky logs fh-ev-eval-qwen-1`, `fh sky cost-report`. |
 
 Comparability: every box uses the instance type pinned in `eval.yaml` (`1H100.80S.30V`, spot unless
@@ -81,9 +84,19 @@ exact `vllm serve` command, phase timings and the cost. `runs/<job>/fh-status/` 
 `metrics.txt` (vLLM metrics at the end), `timings.txt` and `done.json` (Harbor's exit code). A LoRA eval adds only
 `--enable-lora --max-lora-rank 16 --lora-modules qwen3.8-27b-fh=<adapter>` to the base eval's flags.
 
-Weights: each box downloads `Qwen/Qwen3.8-27B` at the pinned revision from Hugging Face to its own 250 GB
-boot disk and checks every file with `verify_weights.py` (about 10 minutes, in parallel with the vLLM
-install). `fh-qwen` is not used: a block volume attaches to one box, and it serves the endpoint.
+Weights (`--weights-on volume`, the default): `eval-up` creates the missing `fh-eval-<i>` volumes (100 GB NVMe
+each, $20/month, in `--volume-location`, FIN-01 by default) and box `i` mounts `fh-eval-<i>` at `/mnt/fh`. On
+first use the box downloads `Qwen/Qwen3.8-27B` at the pinned revision, checks every file with
+`verify_weights.py` and writes `models/Qwen3.8-27B.REVISION`; it also builds the vLLM venv (with its own
+uv-managed Python, marker `.fh-ok`) and keeps the vLLM/Triton compile caches there. Later evals (base or LoRA)
+skip all of that: vLLM is up a few minutes after the box. The three boxes download in parallel. A block volume
+attaches to one box at a time, so two fleets cannot run at once (eval-up refuses a volume that is attached
+elsewhere), and `fh-qwen` is never used.
+
+Trade-off: boxes with volumes must start in the volumes' location, so they only get that location's capacity
+(H100 spot in FIN-01 comes and goes). `--weights-on disk` lifts that: every box downloads the weights to its
+250 GB boot disk again (about 10 minutes, in parallel with the vLLM install) and may start in any Verda region.
+Where the weights came from is recorded with each run but does not affect comparability.
 
 Spot loss: the run is lost (Harbor has no trial resume). `eval-wait` reports it; `eval-up --tasks ... --only I`
 starts it again from scratch on a new box.

@@ -60,7 +60,8 @@ def evalbox(tmp_path, monkeypatch, verda):
 def eval_args(evalbox, **kw):
     base = {"tasks": str(evalbox.tasks), "split": None, "label": None, "lora": None, "runs": 3, "only": None,
             "n": 10, "instance_type": None, "disk_size": None, "on_demand": False, "model_repo": None,
-            "model_rev": None, "max_usd": 60, "max_run_hours": 4, "new": False, "resume": False}
+            "model_rev": None, "max_usd": 60, "max_run_hours": 4, "new": False, "resume": False,
+            "weights_on": "disk", "volume_location": "FIN-01"}
     return SimpleNamespace(**{**base, **kw})
 
 
@@ -346,6 +347,61 @@ def test_launch_waits_for_every_started_launch(evalbox, monkeypatch):
     fh.STAGE_DIR.mkdir(parents=True, exist_ok=True)
     assert fh.launch_eval_boxes(d, Path("/s"), [1, 2, 3]) == {1: 0, 2: 1, 3: 0}
     assert waited == started and len(started) == 2
+
+
+def vol(name, location="FIN-01", status="detached", instance_id=None, size=100):
+    return SimpleNamespace(name=name, location=location, status=status, instance_id=instance_id, size=size,
+                           id=f"id-{name}")
+
+
+def test_volume_mode_mounts_box_is_own_volume_in_its_location(evalbox, tmp_path):
+    d = fh.eval_definition(eval_args(evalbox, weights_on="volume", volume_location="FIN-03"))
+    stage = fh.stage_eval(d, "a1")
+    task = fh.volume_task_yaml(stage)
+    a2 = fh.eval_launch_args(d, stage, 2)
+    assert a2[a2.index("-c") + 2] == str(task) and a2[a2.index("--infra") + 1] == "verda/FIN-03"
+    assert "VOLUME=fh-eval-2" in a2 and "FH_DATA=/mnt/fh" in a2
+    import yaml
+    spec = yaml.safe_load(task.read_text())
+    assert spec["volumes"] == {"/mnt/fh": "${VOLUME}"} and spec["resources"]["instance_type"] == "1H100.80S.30V"
+    assert d["weights_on"] == "volume" and "weights_on" not in fh.COMPARABLE_KEYS
+    d = fh.eval_definition(eval_args(evalbox))
+    a = fh.eval_launch_args(d, stage, 1)
+    assert str(fh.EVAL_YAML) in a and "--infra" not in a and not any(x.startswith("VOLUME=") for x in a)
+
+
+def test_ensure_volumes_creates_missing_ones_and_refuses_shared_or_misplaced(evalbox, sandbox, verda, monkeypatch):
+    created, applied = [], []
+    verda.volume_create = lambda **kw: created.append(kw)
+    monkeypatch.setattr(fh, "sky", lambda *a, **k: applied.append(a) or 0)
+    verda.volumes = [vol("fh-eval-1"), vol("fh-qwen", status="attached", instance_id="x")]
+    d = fh.eval_definition(eval_args(evalbox, weights_on="volume"))
+    fh.ensure_volumes(d, [1, 2])
+    assert [c["name"] for c in created] == ["fh-eval-2"] and created[0]["location"] == "FIN-01"
+    assert len(applied) == 2 and all(a[:3] == ("volumes", "apply", "-y") for a in applied)
+    verda.instances = [SimpleNamespace(instance_id="i9", hostname="fh-ev-eval-qwen-fh-1-f5c0b31c-head",
+                                       status="running", os_volume_id=None)]
+    verda.volumes = [vol("fh-eval-1", status="attached", instance_id="i9")]
+    with pytest.raises(SystemExit, match="one box at a time"):
+        fh.ensure_volumes(d, [1])
+    verda.volumes = [vol("fh-eval-1", location="FIN-03")]
+    with pytest.raises(SystemExit, match="--volume-location"):
+        fh.ensure_volumes(d, [1])
+
+
+def test_volumes_are_deleted_only_explicitly_and_never_while_attached(sandbox, verda, monkeypatch):
+    calls = []
+    monkeypatch.setattr(fh, "sky", lambda *a, **k: calls.append(a) or 0)
+    verda.volumes = [vol("fh-eval-1"), vol("fh-eval-2", status="attached", instance_id="i1"), vol("fh-qwen")]
+    with pytest.raises(SystemExit, match="--yes"):
+        fh.cmd_eval_volumes(SimpleNamespace(delete=["fh-eval-1"], yes=False))
+    with pytest.raises(SystemExit, match="attached"):
+        fh.cmd_eval_volumes(SimpleNamespace(delete=["fh-eval-2"], yes=True))
+    with pytest.raises(SystemExit, match="no volume"):
+        fh.cmd_eval_volumes(SimpleNamespace(delete=["fh-qwen"], yes=True))
+    assert calls == []
+    fh.cmd_eval_volumes(SimpleNamespace(delete=["fh-eval-1"], yes=True))
+    assert calls == [("volumes", "delete", "-y", "fh-eval-1")]
 
 
 def test_probe_parsing():

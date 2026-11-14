@@ -13,7 +13,7 @@
 #          "qwen-fh" = the same with our LoRA adapter), --split S (default eval).
 #   scripts/eval.sh --stage agents --model qwen --fleet                       # Qwen runs in parallel, one Verda
 #   scripts/eval.sh --stage agents --model qwen-fh --lora train/out/R --fleet # box per run with its own vLLM
-#          (infra/verda/fh eval-up + eval-wait; -n defaults to 10 per box there; long: run it under systemd-run)
+#          (infra/verda/fh eval-up + eval-wait; -n defaults to 15 per box there; long: run it under systemd-run)
 # OpenCode is pinned to $OPENCODE_VERSION (the version the training data was captured with).
 # Only agent-install timeouts (before the agent sees anything) are retried, up to 2 times.
 # Jobs have fixed names and go to runs/<job>; an existing runs/<job> is replaced.
@@ -47,7 +47,7 @@ case "$STAGE" in all|baselines|agents|summarize) ;; *) echo "bad --stage: $STAGE
 if [ "$FLEET" = 1 ]; then
   case "$MODEL" in qwen) ;; qwen-fh) [ -n "$LORA" ] || { echo "--model qwen-fh --fleet needs --lora DIR" >&2; exit 2; } ;;
     *) echo "--fleet runs Qwen only (--model qwen or qwen-fh)" >&2; exit 2 ;; esac
-  N="${N:-10}"
+  N="${N:-15}"
 else
   N="${N:-4}"
 fi
