@@ -508,7 +508,7 @@ def cmd_stop_all(args) -> None:
             modal.FunctionCall.from_id(st["train"][r]["call_id"]).cancel()
     modal_cli = Path(sys.executable).parent / "modal"
     for a in (APP, f"{APP}-train"):
-        subprocess.run([str(modal_cli), "app", "stop", a], check=False)
+        subprocess.run([str(modal_cli), "app", "stop", "-y", a], check=False)
 
 
 def main(argv=None) -> None:
