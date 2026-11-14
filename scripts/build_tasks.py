@@ -45,7 +45,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from framehunt.scenes import make_scene
+from framehunt.scenes import DOCUMENT_KINDS, make_scene
 from framehunt.server import (
     DEFAULT_BUDGET_PX,
     MAX_SHEET_N,
@@ -68,7 +68,7 @@ schema_version = "1.4"
 [task]
 name = "framehunt/{item_id}"
 version = "0.1.0"
-description = "FrameHunt {kind} item: answer a question about a screen recording under a pixel budget."
+description = "FrameHunt {kind} item: answer a question about a {medium} under a pixel budget."
 
 [metadata]
 split = "{split}"
@@ -152,6 +152,71 @@ You have {budget} pixels in total. For scale, one full frame at native resolutio
 - `contact_sheet(t_start, t_end, n, x=0, y=0, w=None, h=None, out_width=160)`: returns
   one grid image of `n` evenly spaced frames from `t_start` to `t_end` (both included),
   plus a text list of the frame times. Tiles are read left to right, then top to bottom.
+  - `n` is from {min_n} to {max_n}. The same crop and `out_width` rules as `view`
+    apply to each tile.
+  - **Cost = n x tile output width x tile output height.** The {sep}-pixel separators
+    between tiles are free.
+- `submit(answer)`: records your answer. Free. **Only the first submission counts.**
+  Later submissions are refused. No feedback on correctness is given.
+
+A request that costs more than your remaining budget is refused and charges nothing.
+Invalid requests are refused and charge nothing.
+
+## Scoring
+
+The score is 1 if your submitted answer matches the correct answer exactly, ignoring
+case and whitespace. Otherwise it is 0. Not submitting scores 0. The budget is a hard
+limit. Pixels you don't use don't change the score.
+"""
+
+INSTRUCTION_DOC_MD = """\
+# FrameHunt
+
+Answer a question about a long scanned document. You can't open the file. You can only
+request individual page images from the MCP server `framehunt`. Pages can be cropped
+and downscaled, and every image pixel the server returns is charged against a fixed
+pixel budget.
+
+## Question
+
+{question}
+
+Answer format: {answer_format}
+
+## Document
+
+- A scanned PDF of {n_frames} pages: page images only, there is no text layer.
+- Each page image is {width} x {height} pixels (A4 at 150 dpi).
+- Pages are addressed by their 0-based PDF page index `t`, from 0 to {last}:
+  `t=0` is the first page of the PDF (the cover), `t={last}` the last one. The MCP
+  tools call it `t` because the same server also serves videos; here `t` is simply the
+  page index (it is rounded to the nearest integer).
+- The page numbers printed on the pages and in the document's contents are the
+  document's own numbering. They are not PDF page indexes.
+
+## Pixel budget
+
+You have {budget} pixels in total. For scale, one full page at native resolution is
+{full} pixels, so reading everything is far out of reach.
+
+## Tools and costs
+
+- `info()`: shows the question, answer format, document facts, `budget_left` and these
+  rules. Free.
+- `view(t, x=0, y=0, w=None, h=None, out_width=320)`: returns one page as a PNG image
+  and one line of text with the PDF page index, the crop, output size, cost and
+  `budget_left`.
+  - `t` is the PDF page index, from 0 to {last}.
+  - `x, y, w, h` give a crop rectangle in native pixels. The default is the whole
+    page. The crop is clipped to the page.
+  - The crop is resized to `out_width` pixels wide, keeping its aspect ratio.
+    `out_width` must be at least {min_out}. It is capped at the crop width, so images
+    are never upscaled.
+  - **Cost = output width x output height.**
+- `contact_sheet(t_start, t_end, n, x=0, y=0, w=None, h=None, out_width=160)`: returns
+  one grid image of `n` evenly spaced pages from page index `t_start` to `t_end` (both
+  included), plus a text list of their page indexes. Tiles are read left to right, then
+  top to bottom.
   - `n` is from {min_n} to {max_n}. The same crop and `out_width` rules as `view`
     apply to each tile.
   - **Cost = n x tile output width x tile output height.** The {sep}-pixel separators
@@ -286,12 +351,15 @@ def build_item(out: Path, split: str, item_id: str, kind: str, seed: int, budget
     (d / "tests").mkdir()
     (d / "solution").mkdir()
 
-    fmt = {"item_id": item_id, "kind": kind, "seed": scene_seed, "evidence_dir": EVIDENCE_DIR, "split": split, "budget": budget, "token": token, "host": MCP_HOST,
+    # medium: video kinds keep the exact task.toml text they were evaluated with.
+    medium = "scanned document" if kind in DOCUMENT_KINDS else "screen recording"
+    fmt = {"item_id": item_id, "kind": kind, "medium": medium, "seed": scene_seed, "evidence_dir": EVIDENCE_DIR, "split": split, "budget": budget, "token": token, "host": MCP_HOST,
                "agent_timeout": AGENT_TIMEOUT_SEC, "verifier_timeout": VERIFIER_TIMEOUT_SEC}
     (d / "task.toml").write_text(TASK_TOML.format(**fmt))
-    (d / "instruction.md").write_text(INSTRUCTION_MD.format(
+    template = INSTRUCTION_DOC_MD if kind in DOCUMENT_KINDS else INSTRUCTION_MD
+    (d / "instruction.md").write_text(template.format(
         question=scene.question, answer_format=scene.answer_format, width=m.width, height=m.height, fps=m.fps,
-        n_frames=m.n_frames, duration=m.duration_s, budget=budget, full=m.width * m.height,
+        n_frames=m.n_frames, last=m.n_frames - 1, duration=m.duration_s, budget=budget, full=m.width * m.height,
         min_out=MIN_OUT_WIDTH, min_n=MIN_SHEET_N, max_n=MAX_SHEET_N, sep=SHEET_SEPARATOR_PX))
     (d / "environment" / "Dockerfile").write_text(MAIN_DOCKERFILE.format(pins=" ".join(MAIN_PIP)))
     (d / "environment" / "docker-compose.yaml").write_text(COMPOSE.format(**fmt))

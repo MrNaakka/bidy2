@@ -19,10 +19,18 @@ the answer will be; a little late, the answer has moved or changed. Good play: b
 on one sharp crop of *where*. Reward is 1 for an exact answer on the first submission,
 else 0. Design details: [docs/design.md](docs/design.md).
 
+The same tools, budget and reward also serve a second medium: a long **scanned PDF**
+(kind `scandoc`, frame index = page index), where the agent must navigate by the
+contents and printed page numbers to one amount in one table.
+
 ## Results
 
-**EVAL v2** (current, `framehunt/splits.py` `EVAL`): 10 logstream, 10 dialogs and 10
-toasts items. Final v2 numbers come later.
+**EVAL v2** (current, `framehunt/splits.py` `EVAL`): 40 items, 10 each of logstream,
+dialogs, toasts and scandoc. Final v2 numbers come later. The 10 scandoc items
+(`scandoc-7601..7610`) were added after the first 30 had been run; adding them changed
+nothing about those 30 (same salt, same scenes, instructions, `info()` text and tool
+behaviour, checked frame by frame). **scandoc EVAL results are pending**; until then the
+scandoc numbers below are the DEV pilot.
 - **logstream** (a terminal recording of a failing service): the hard case. Verifying
   the event frame and finding the right row need extra looks that Opus doesn't spend.
 - **dialogs** (the common E2E-video case: an error dialog pops up and closes).
@@ -33,6 +41,10 @@ toasts items. Final v2 numbers come later.
   and succeeds (5/6). That fits the hypothesis that verification cost, not the mechanism
   itself, drives the logstream failures. It isn't proof, since the kinds also differ in
   layout and distractors.
+- **scandoc** (a scanned annual report, 150–400 pages): find one amount in one note's
+  table at a given year-end. Traps, all visible: printed page numbers are not PDF
+  indexes (roman front matter, unnumbered inserted sheets), and the comparative-year
+  table with the same caption sits on the facing page. DEV pilot: Opus 3/8, below.
 - `leaderboard` (an endpoint table that re-sorts every half second) is a replication
   experiment kept in DEV and TRAIN (Opus DEV pilot: 2/6). It is not in EVAL.
 
@@ -67,6 +79,33 @@ with 113.5k or more spent, and 17 of them with less than 2.3k left.
 
 A full Harbor run log of Opus run 1, with its score, is in
 [examples/harbor-runs/](examples/harbor-runs/).
+
+### Scanned documents (`scandoc`, in EVAL v2; EVAL results pending)
+
+The same tools, budget and reward on a long **scanned PDF** (150–400 page images of an
+annual report, no text layer; PDF page index = frame index, stated in the instruction).
+The question asks for one amount in one note's table at a given year-end. Navigation cues
+(contents, running headers, printed page numbers, table date, row and column labels) are
+legible at 1/4; the 12-px amounts need a native crop. One full page at 1/4 costs more than
+the budget. The traps are all visible: printed page numbers are not PDF indexes (roman
+front matter plus unnumbered inserted sheets, at least one inside the notes before the
+target), and the comparative-year table with the same caption is on the facing page.
+Details: [docs/design.md](docs/design.md), "Scanned documents".
+
+DEV pilot on Modal (8 items `scandoc-3601..3608`, one run each; the EVAL items
+`scandoc-7601..7610` have not been run yet):
+
+| Run | Score | Pixels used |
+| --- | --- | --- |
+| Reference (oracle) | 8/8 | 50–56k (100/100 on 100 random seeds in-process) |
+| Opus 5.5 (OpenCode) | 3/8 | 108–120k on every item |
+
+Opus's 5 failures: read the facing comparative-year table (1); right table, wrong row,
+amount read at 1/2 scale (1); misread digits read at 1/3 scale after the budget ran low (1);
+budget gone before reaching the table, placeholder guess (2: one first assumed printed =
+PDF page and searched the wrong pages, one spent 46k on an unreadable full-page view of a
+front page, never found the contents and skimmed headers with contact sheets). Every trial used 90 % or more
+of the budget; the reference needs under half of it. API cost: $1.33.
 
 ## Why it's hard
 
@@ -128,7 +167,7 @@ and `ANTHROPIC_API_KEY` in the environment or in `.env` for the agent runs.
 scripts/eval.sh
 ```
 
-This builds the 30 EVAL (v2) tasks and runs, through Harbor, in this order:
+This builds the 40 EVAL (v2) tasks and runs, through Harbor, in this order:
 
 | Stage | Harbor job (`runs/<job>`) | What it is |
 | --- | --- | --- |
@@ -149,13 +188,22 @@ scripts/eval.sh --stage summarize   # rebuild the summary from runs/
 
 Options: `-n 4` concurrent trials (default 4), `--runs 3`, `--model ...`.
 
+Only the 10 scandoc EVAL items (e.g. to add their runs to existing results for the
+other 30) can be built into their own directory:
+
+```bash
+uv run python scripts/build_tasks.py --split eval --out tasks/eval-scandoc \
+  --only scandoc-7601 scandoc-7602 scandoc-7603 scandoc-7604 scandoc-7605 \
+         scandoc-7606 scandoc-7607 scandoc-7608 scandoc-7609 scandoc-7610
+```
+
 `--env <harbor environment>` runs every Harbor job in another environment (default
 `docker`, local Docker, which needs nothing extra). For example, on Modal:
 
 ```bash
 uv tool install --force 'harbor[modal]==0.25.0'
 export MODAL_TOKEN_ID=... MODAL_TOKEN_SECRET=...
-scripts/eval.sh --env modal -n 30
+scripts/eval.sh --env modal -n 40
 ```
 
 This adds `-e modal` to every `harbor run`. On Modal, `-n` can be as high as the number
@@ -224,14 +272,16 @@ scripts/eval.sh --stage agents --model qwen-fh --lora train/out/<run> --fleet   
 
 ```bash
 uv run pytest -m "not reference"     # unit and server tests
-uv run pytest -m reference -s        # the reference policy on all 30 EVAL items (in-process HTTP, no Docker)
-                                     # and on 200 random seeds each of toasts and leaderboard
+uv run pytest -m reference -s        # the reference policy on all 40 EVAL items (in-process HTTP, no Docker)
+                                     # and on 200 random seeds each of toasts and leaderboard,
+                                     # 100 of scandoc (FH_REF_N_DOC)
 ```
 
 ## Layout
 
-- `framehunt/scenes/`: scene generators (`logstream`, `dialogs`, `toasts` in EVAL v2;
-  `dashboard` in EVAL v1; `leaderboard` in DEV and TRAIN; all kinds in DEV and TRAIN)
+- `framehunt/scenes/`: scene generators (`logstream`, `dialogs`, `toasts` and the scanned
+  document `scandoc` in EVAL v2; `dashboard` in EVAL v1; `leaderboard` in DEV and TRAIN;
+  all kinds in DEV and TRAIN)
 - `framehunt/server.py`: the MCP server (the agent's tools and the budget)
 - `framehunt/reference.py`: the reference policy
 - `framehunt/baselines/`: the stop-early baseline agent

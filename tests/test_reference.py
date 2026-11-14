@@ -101,15 +101,17 @@ class _InProcess:
 
 
 N_MANY = int(os.environ.get("FH_REF_N", "200"))
+N_MANY_DOC = int(os.environ.get("FH_REF_N_DOC", "100"))   # scandoc pages are slower to render
 
 
-@pytest.mark.parametrize("kind", ["toasts", "leaderboard"])
+@pytest.mark.parametrize("kind", ["toasts", "leaderboard", "scandoc"])
 def test_reference_many_seeds(kind):
     """The reference solves every one of N_MANY random 64-bit seeds of the new kinds."""
     from framehunt.reference import _run
 
     fails, px = [], []
-    for i in range(N_MANY):
+    n_many = N_MANY_DOC if kind == "scandoc" else N_MANY
+    for i in range(n_many):
         seed = splits.derive_seed("refcheck", f"{kind}-{i}", "reference-many-seeds")
         env = FrameHuntEnv(make_scene(kind, seed), verify_token="t")
         _run(_InProcess(env), None, time.time())
@@ -117,7 +119,7 @@ def test_reference_many_seeds(kind):
         px.append(r["pixels_used"])
         if not r["correct"]:
             fails.append((i, seed, r["answer"]))
-    print(json.dumps({"kind": kind, "n": N_MANY, "solved": N_MANY - len(fails), "max_px": max(px),
+    print(json.dumps({"kind": kind, "n": n_many, "solved": n_many - len(fails), "max_px": max(px),
                       "mean_px": round(sum(px) / len(px))}))
     assert not fails, fails
     assert max(px) <= MAX_PIXELS

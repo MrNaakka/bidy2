@@ -1,11 +1,13 @@
 """Fixed, committed item lists, and the secret seed derivation. Each item is
 (item_id, kind, public_seed).
 
-EVAL (v2): 30 items, 10 each of logstream, dialogs and toasts (the control). EVAL_V1 is
-the first evaluation set (10 each of logstream, dialogs and dashboard); the v1 results
-in the README were measured on it. EVAL shares its logstream and dialogs ids with
+EVAL (v2): 40 items, 10 each of logstream, dialogs, toasts (the control) and scandoc (a
+scanned PDF, not a video). The first 30 (logstream, dialogs, toasts) were evaluated before
+scandoc was added (scandoc-7601..7610, same salt); adding scandoc changed none of them.
+EVAL_V1 is the first evaluation set (10 each of logstream, dialogs and dashboard); the v1
+results in the README were measured on it. EVAL shares its logstream and dialogs ids with
 EVAL_V1 (same derived seeds; dialogs' answer_format now states the exact alphabet).
-leaderboard is in DEV and TRAIN only. DEV: 100 items (20 per kind). item_id
+leaderboard is in DEV and TRAIN only. DEV: 120 items (20 per kind). item_id
 is "<kind>-<public_seed:04d>". Public seeds are disjoint between splits (EVAL uses 7xxx,
 DEV uses 3xxx). Do not edit existing entries: results are reported against these ids.
 
@@ -93,6 +95,16 @@ EVAL: tuple[tuple[str, str, int], ...] = (
     ("toasts-7408", "toasts", 7408),
     ("toasts-7409", "toasts", 7409),
     ("toasts-7410", "toasts", 7410),
+    ("scandoc-7601", "scandoc", 7601),
+    ("scandoc-7602", "scandoc", 7602),
+    ("scandoc-7603", "scandoc", 7603),
+    ("scandoc-7604", "scandoc", 7604),
+    ("scandoc-7605", "scandoc", 7605),
+    ("scandoc-7606", "scandoc", 7606),
+    ("scandoc-7607", "scandoc", 7607),
+    ("scandoc-7608", "scandoc", 7608),
+    ("scandoc-7609", "scandoc", 7609),
+    ("scandoc-7610", "scandoc", 7610),
 )
 
 DEV: tuple[tuple[str, str, int], ...] = (
@@ -196,6 +208,26 @@ DEV: tuple[tuple[str, str, int], ...] = (
     ("leaderboard-3518", "leaderboard", 3518),
     ("leaderboard-3519", "leaderboard", 3519),
     ("leaderboard-3520", "leaderboard", 3520),
+    ("scandoc-3601", "scandoc", 3601),
+    ("scandoc-3602", "scandoc", 3602),
+    ("scandoc-3603", "scandoc", 3603),
+    ("scandoc-3604", "scandoc", 3604),
+    ("scandoc-3605", "scandoc", 3605),
+    ("scandoc-3606", "scandoc", 3606),
+    ("scandoc-3607", "scandoc", 3607),
+    ("scandoc-3608", "scandoc", 3608),
+    ("scandoc-3609", "scandoc", 3609),
+    ("scandoc-3610", "scandoc", 3610),
+    ("scandoc-3611", "scandoc", 3611),
+    ("scandoc-3612", "scandoc", 3612),
+    ("scandoc-3613", "scandoc", 3613),
+    ("scandoc-3614", "scandoc", 3614),
+    ("scandoc-3615", "scandoc", 3615),
+    ("scandoc-3616", "scandoc", 3616),
+    ("scandoc-3617", "scandoc", 3617),
+    ("scandoc-3618", "scandoc", 3618),
+    ("scandoc-3619", "scandoc", 3619),
+    ("scandoc-3620", "scandoc", 3620),
 )
 
 SPLITS: dict[str, tuple[tuple[str, str, int], ...]] = {"eval": EVAL, "dev": DEV}
@@ -204,12 +236,12 @@ SPLITS: dict[str, tuple[tuple[str, str, int], ...]] = {"eval": EVAL, "dev": DEV}
 # TRAIN: generated, not committed item by item, and deliberately not in SPLITS (so
 # build_tasks.py and the eval tooling never see it). Used only by training-data
 # generators (train/make_sft.py). Public seeds start at 100001 (logstream), 110001
-# (dialogs), 120001 (dashboard), 130001 (toasts), 140001 (leaderboard), so ids never
+# (dialogs), 120001 (dashboard), 130001 (toasts), 140001 (leaderboard), 150001 (scandoc), so ids never
 # collide with EVAL (7xxx) or DEV (3xxx).
 # Scene seeds are derive_seed("train", item_id) with the split's own secret salt
 # (FH_SALT_TRAIN or secrets/train.salt): a different split name and a different salt
 # from EVAL/DEV, so no training scene can coincide with an evaluation scene.
-TRAIN_KINDS: tuple[str, ...] = ("logstream", "dialogs", "dashboard", "toasts", "leaderboard")
+TRAIN_KINDS: tuple[str, ...] = ("logstream", "dialogs", "dashboard", "toasts", "leaderboard", "scandoc")
 TRAIN_SEED_BASE = 100_000
 TRAIN_MAX_PER_KIND = 9_999
 

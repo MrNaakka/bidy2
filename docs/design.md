@@ -61,7 +61,8 @@ dashboard the answer holds for seconds on both sides of the event, sits at a fix
 and has no look-alike on screen, so an imprecise search still lands on it. The two new
 kinds carry logstream's mechanism into other settings.
 
-**EVAL v2 (final): logstream + dialogs + toasts, 10 each.** The setting is triage when a
+**EVAL v2: logstream + dialogs + toasts, 10 each, plus 10 scandoc items** (a scanned
+PDF, added later; see "Scanned documents" below). The setting is triage when a
 screen recording is the only artifact: E2E test videos (Playwright, Cypress), users'
 bug-report recordings, terminal recordings of a failed deploy. Logstream is the hard
 case: verifying the event frame and finding the row need extra looks, which Opus
@@ -132,6 +133,114 @@ the K-th even after the stack moves. The one failure is the targeted one: it rea
 frames late, the badge already showed K+1, and it took the top toast, which was the
 (K+1)-th Error. The look-alikes only catch an agent that skips that same-frame check.
 
+## Scanned documents (`scandoc`, in EVAL v2)
+
+The same tools, budget and reward on a different medium: a **long scanned PDF** instead
+of a video. The setting is a reviewer who has only a scan of a company's annual report
+(no text layer) and needs one figure from the notes to the financial statements. Frame
+index = 0-based PDF page index (fps 1, so `t` is the page index); the instruction and
+`info()` state this mapping plainly, and say that printed page numbers are the
+document's own numbering, not PDF indexes. `scandoc` started as a DEV/TRAIN prototype
+and is now an EVAL v2 kind: 10 items `scandoc-7601..7610` (fresh public seeds, the same
+EVAL salt). They were added after the 30 video items had been run; the addition changes
+nothing about those 30 (the scandoc instruction, `info()` text and tool docstrings are
+separate templates selected by `DOCUMENT_KINDS`, and the video code paths are unchanged;
+before and after the merge, the question/answer/format/meta hashes, rendered frames,
+`instruction.md`, `task.toml`, `info()` text, MCP tool list and the reference's full
+trace and pixel use were identical for all 30). **EVAL results for scandoc are pending**;
+the numbers below are the DEV pilot.
+
+**The document** (`framehunt/scenes/scandoc.py`, all planned from the seed): 150–400
+pages of 1240×1754 (A4 at 150 dpi). Front matter numbered in lower-case roman numerals
+(cover, optional notice and blank pages, the Contents page, 2–4 front sections);
+main matter numbered from 1 (3–4 report sections, the consolidated statements, 8–11
+numbered notes, auditor's report, shareholder information); 2–4 **unnumbered inserted
+sheets** (correction slips, letters) that carry no running header and no page number and
+do not count in the printed numbering. Every numbered page has a running header: section
+or note title at the top left, printed page number at the top right. Each note after
+note 1 has a table "Table n.1 <caption>" by country, printed **twice on facing pages**:
+at 31 December of the report year and of the comparative year (same caption, rows and
+columns; different amounts). All amounts printed in the document, Total rows included, are distinct. Pages are
+rendered with PIL from the bundled DejaVu fonts, then a seeded, deterministic scan
+degradation: shift ≤ 4 px, skew ≤ 0.12°, a 3×3 softening blur, sensor noise from a
+cached noise field, a per-page paper tint, margin speckles, and a red "RECEIVED" stamp
+on the cover and inserts.
+
+**Question:** "In the notes ..., the note titled T has a table C (amounts in EUR
+thousand). What amount does that table give for row R in column K at 31 December Y?"
+Answer: the amount (4–6 digits; the thousands space doesn't matter).
+
+**Hard rules, adapted:**
+
+1. *Random answers*: amounts are drawn from the seed, 4–6 digits, unique in the document.
+2. *Navigation cues instead of a trace*: everything needed to navigate is legible at 1/4
+   scale: the Contents entries (36 px), the running header and printed page number
+   (36 px bold), the table caption, date line, column headers and row labels (36 px).
+   Every numbered page shows its printed number; inserts visibly have none.
+3. *Exact answers* from the generator.
+4. *Answer needs resolution*: amounts are 12-px monospace digits. At 1/4 they are a
+   blur (a matched filter with the bundled font, searching 1-px shifts, gets ~40 % of
+   the digits and almost never the whole amount; `tests/test_scandoc.py`); a native
+   crop reads exactly (they are also readable at 1/2).
+5. *No hidden information*: the instruction states the page-index mapping, the cost
+   rules and the question; the Contents, headers and dates are on the pages.
+
+**Where the difficulty comes from (decisions, all on visible information):**
+
+- *Navigation planning.* One full page at 1/4 costs 136k px, more than the 120k budget,
+  and at 1/8 (34k) the cues are illegible. Skimming is unaffordable; the agent has to
+  read the Contents (a narrow crop of it), then look only at small crops (header strips,
+  one column).
+- *Printed page ≠ PDF index.* The roman front matter shifts the numbering, and at least
+  one unnumbered insert sits in the report sections and at least one in the notes before
+  the target note (`inserts_before ≥ 2`). An offset calibrated once at the start of the
+  main matter is wrong by the time you reach the note. Jumping and then reading the
+  printed number on the landing page (36 px, top right) fixes it in a hop or two.
+- *Look-alike neighbour.* The comparative-year table is on the facing page with the same
+  header, caption, rows and columns. Reading the amount from it gives a well-formed wrong
+  answer; the date line under the caption (36 px) tells them apart. Both orders occur
+  (current year first in ~70 % of notes), and the asked year is the comparative one in
+  ~1/3 of items.
+- *Row and column.* The amount is 12 px; the row labels and column headers are 36 px
+  and far to the left/top. The agent must locate the row and column at low resolution
+  and then crop the right cell at native.
+
+Not implemented (possible extensions): superseded clauses and two-hop references
+(clause -> schedule). They would add the same kind of trap (a well-formed look-alike that
+a check on visible text rules out).
+
+**Reference** (`reference.Doc`, MCP tools only): header-title crops of PDF pages 1–3
+at 1/4 to find the Contents; the Contents' title column at 1/4 to find the note's row;
+that row's printed page number at 1/4; jump to PDF index = printed number and correct
+by the printed number read on the landing page (1/4 header crop) until they agree;
+read only the date line of the following pages until the asked year; row labels and
+column headers at 1/4; one native crop of the amount (template OCR). Every look searches
+small shifts because of the scan. 100 % on 100 random seeds; 51.6k px on average, at most
+56.1k (`tests/test_reference.py`, `FH_REF_N_DOC`).
+
+**Cheap shortcuts** (perfect readers, `tests/test_scandoc.py`): using the printed number
+as the PDF index, or the front-matter offset only, then reading the first table found
+within 3 pages: 0 %; the other year's table: 0 %; the first or last table of the document:
+≤ 5 %. A slower "jump with the front-matter offset, take the first table found from there,
+never check a header or date" strategy hits ~13 % (when it happens to land in the note
+before the target and the asked year is printed first). Stop-early (a well-formed random
+4–6 digit guess) and do-nothing score 0.
+
+**Budget**: 120k, as for the videos, which is about 2.1× the reference's maximum.
+
+**DEV pilot** (Modal, 8 items `scandoc-3601..3608`, Opus 5.5 via OpenCode, one run): the
+reference 8/8, Opus **3/8**. Per failure: 3601 read the facing comparative-year table
+(2019 instead of 2020), from a 0.4-scale crop; 3602 right table, wrong row (Latvia for
+Netherlands), amount read at 1/2; 3607 right table and row, digits misread from a 1/3-scale
+crop when the budget was nearly gone; 3605 first assumed printed = PDF page, searched the
+wrong stretch, budget gone before the note (placeholder guess); 3608 spent 46k on one
+unreadable full view of PDF page 2 (the contents is page 1), never read the contents,
+skimmed headers with contact sheets, budget gone (guess). 6 of 8 trials read the
+contents page (3604 skipped it and still won by skimming headers); none ended with more
+than 12k left (the reference uses 50–56k). The main mistakes are budget planning (broad looks
+before narrow ones, then amounts read below native) and skipping the date or row check
+on the look-alike table. Opus was ≤ 6/8, so no tuning was done.
+
 ## Interfaces
 
 ### Package `framehunt/` (scene generation)
@@ -158,7 +267,8 @@ class Scene(ABC):
         # key frames of events etc. For tests/analysis only; the server never exposes it.
 
 # framehunt/scenes/__init__.py
-KINDS: tuple[str, ...] = ("logstream", "dialogs", "dashboard", "toasts", "leaderboard")
+KINDS: tuple[str, ...] = ("logstream", "dialogs", "dashboard", "toasts", "leaderboard", "scandoc")
+DOCUMENT_KINDS = ("scandoc",)   # a scanned PDF: frame index = page index, fps 1
 def make_scene(kind: str, seed: int) -> Scene: ...
 
 # framehunt/answers.py

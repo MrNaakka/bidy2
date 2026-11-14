@@ -95,6 +95,8 @@ class FrameHuntEnv:
             raise ValueError("budget_px must be positive")
         self.scene = scene
         self.meta = scene.meta
+        # "document": a scanned PDF, frame index = page index (fps 1, so t = page index).
+        self.is_document = getattr(scene, "medium", "video") == "document"
         self.budget_total = budget_px
         self._budget_left = budget_px
         self._token = verify_token or ""
@@ -155,6 +157,10 @@ class FrameHuntEnv:
     def _frame_index(self, name: str, t: Any) -> int:
         t = _num(name, t)
         m = self.meta
+        if self.is_document:
+            if not -0.5 < t < m.n_frames - 0.5:
+                raise FrameHuntError(f"{name}={t} is not a page index of this PDF; valid page indexes are 0 to {m.n_frames - 1}")
+            return min(max(math.floor(t + 0.5), 0), m.n_frames - 1)
         if t < 0:
             raise FrameHuntError(f"{name}={t} is negative; valid range is 0 to {m.duration_s:g} s")
         if t > m.duration_s + 1e-9:
@@ -242,6 +248,29 @@ class FrameHuntEnv:
         with self._lock:
             left = self._budget_left
             self._record("info", {}, ok=True)
+        if self.is_document:
+            return "\n".join([
+                f"question: {self.scene.question}",
+                f"answer_format: {self.scene.answer_format}",
+                "document: a scanned PDF (page images only, no text layer)",
+                f"width: {m.width}",
+                f"height: {m.height}",
+                f"n_pages: {m.n_frames}",
+                f"pages: t is the 0-based PDF page index, 0 to {m.n_frames - 1} (t=0 is the first page of the PDF). "
+                "Printed page numbers on the pages and in the contents are the document's own numbering, not PDF page indexes.",
+                f"fps: {m.fps}",
+                f"n_frames: {m.n_frames}",
+                f"duration_s: {m.duration_s:g}",
+                f"budget_total: {self.budget_total}",
+                f"budget_left: {left}",
+                "cost rules:",
+                "  view: cost = output width x output height (pixels returned).",
+                f"  contact_sheet: cost = n x tile output width x tile output height; the {SHEET_SEPARATOR_PX}-px separators are free.",
+                "  info and submit are free. A request that costs more than budget_left is refused and charges nothing.",
+                "  t, t_start and t_end are PDF page indexes (rounded to the nearest integer). Crops (x, y, w, h) are in native pixels and clipped to the page.",
+                f"  out_width must be at least {MIN_OUT_WIDTH} and is capped at the crop width (no upscaling); height keeps the aspect ratio.",
+                "  Only the first submit counts. Submitting gives no feedback on correctness.",
+            ])
         return "\n".join([
             f"question: {self.scene.question}",
             f"answer_format: {self.scene.answer_format}",
@@ -273,7 +302,8 @@ class FrameHuntEnv:
         self._precheck("view", args, cost)
         png = self._png(self._tile(idx, box, out))
         left = self._charge("view", args, cost, frames=[idx], crop=list(box), out=list(out))
-        text = (f"t={self._frame_time(idx):.3f}s frame={idx} crop=(x={box[0]}, y={box[1]}, w={box[2]}, h={box[3]}) "
+        where = f"page={idx}" if self.is_document else f"t={self._frame_time(idx):.3f}s frame={idx}"
+        text = (f"{where} crop=(x={box[0]}, y={box[1]}, w={box[2]}, h={box[3]}) "
                 f"output={out[0]}x{out[1]} cost={cost} budget_left={left}")
         return png, text
 
@@ -289,7 +319,7 @@ class FrameHuntEnv:
             if f1 <= f0:
                 raise FrameHuntError("t_end must be later than t_start (after snapping to frames)")
             if f1 - f0 + 1 < n:
-                raise FrameHuntError(f"the range holds only {f1 - f0 + 1} frames; n must not exceed that")
+                raise FrameHuntError(f"the range holds only {f1 - f0 + 1} {'pages' if self.is_document else 'frames'}; n must not exceed that")
             box = self._crop(x, y, w, h)
             tw, th = self._out_size(box[2], box[3], out_width)
         except FrameHuntError as e:
@@ -307,9 +337,12 @@ class FrameHuntEnv:
             sheet.paste(self._tile(idx, box, (tw, th)), (c * (tw + s), r * (th + s)))
         png = self._png(sheet)
         left = self._charge("contact_sheet", args, cost, frames=frames, crop=list(box), out=[tw, th])
-        lines = [(f"{n} frames, {cols} columns x {rows} rows, read left to right then top to bottom; "
+        lines = [(f"{n} {'pages' if self.is_document else 'frames'}, {cols} columns x {rows} rows, read left to right then top to bottom; "
                  f"crop=(x={box[0]}, y={box[1]}, w={box[2]}, h={box[3]}) tile={tw}x{th} cost={cost} budget_left={left}")]
-        lines += [f"  tile {i + 1}: t={self._frame_time(idx):.3f}s frame={idx}" for i, idx in enumerate(frames)]
+        if self.is_document:
+            lines += [f"  tile {i + 1}: page={idx}" for i, idx in enumerate(frames)]
+        else:
+            lines += [f"  tile {i + 1}: t={self._frame_time(idx):.3f}s frame={idx}" for i, idx in enumerate(frames)]
         return png, "\n".join(lines)
 
     def submit(self, answer: Any) -> str:
@@ -377,12 +410,29 @@ def build_mcp(env: FrameHuntEnv, host: str = "0.0.0.0", port: int = 8000):
         except FrameHuntError as e:
             raise ToolError(str(e)) from None
 
-    @mcp.tool(structured_output=False)
+    doc = env.is_document
+    INFO_DOC = ("Show the question, answer format, page size, number of PDF pages, the pixel budget left and the "
+                "cost rules. Free.")
+    VIEW_DOC = """Return one page of the scanned PDF as a PNG image, optionally cropped and downscaled.
+
+        t: 0-based PDF page index (t=0 is the first page of the PDF; printed page numbers differ).
+        x, y, w, h: crop rectangle in native pixels (default: whole page), clipped to the page.
+        out_width: output width in pixels (min 8, capped at the crop width); height keeps the aspect ratio.
+        Cost: output width x output height pixels.
+        """
+    SHEET_DOC = """Return one grid image of n evenly spaced PDF pages from page index t_start to t_end (inclusive).
+
+        t_start, t_end: 0-based PDF page indexes. n: 2 to 16 pages. x, y, w, h: crop applied to every tile,
+        in native pixels. out_width: width of each tile (min 8, capped at the crop width).
+        Cost: n x tile width x tile height pixels; separators between tiles are free.
+        """
+
+    @mcp.tool(structured_output=False, description=INFO_DOC if doc else None)
     async def info() -> str:
         """Show the question, answer format, video size/fps/length, the pixel budget left and the cost rules. Free."""
         return await run(env.info)
 
-    @mcp.tool(structured_output=False)
+    @mcp.tool(structured_output=False, description=VIEW_DOC if doc else None)
     async def view(t: float, x: int = 0, y: int = 0, w: int | None = None, h: int | None = None,
                    out_width: int = 320):
         """Return one video frame as a PNG image, optionally cropped and downscaled.
@@ -395,7 +445,7 @@ def build_mcp(env: FrameHuntEnv, host: str = "0.0.0.0", port: int = 8000):
         png, text = await run(env.view, t, x, y, w, h, out_width)
         return [Image(data=png, format="png"), text]
 
-    @mcp.tool(structured_output=False)
+    @mcp.tool(structured_output=False, description=SHEET_DOC if doc else None)
     async def contact_sheet(t_start: float, t_end: float, n: int, x: int = 0, y: int = 0, w: int | None = None,
                             h: int | None = None, out_width: int = 160):
         """Return one grid image of n evenly spaced frames from t_start to t_end (inclusive), plus their times.

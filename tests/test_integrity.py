@@ -46,6 +46,16 @@ def test_derive_seed_rejects_empty_salt():
         splits.derive_seed("eval", "x", "")
 
 
+def test_eval_items_frozen():
+    """EVAL's first 30 items were run before scandoc was added; they must never change."""
+    first = [(f"{k}-{s}", k, s) for k, base in (("logstream", 7000), ("dialogs", 7100), ("toasts", 7400))
+             for s in range(base + 1, base + 11)]
+    assert list(splits.EVAL[:30]) == first
+    assert list(splits.EVAL[30:]) == [(f"scandoc-{s}", "scandoc", s) for s in range(7601, 7611)]
+    public = {s for _, _, s in splits.EVAL_V1 + splits.DEV}
+    assert not {s for _, _, s in splits.EVAL[30:]} & public
+
+
 def test_derived_seeds_distinct_per_split():
     for name, items in splits.SPLITS.items():
         seeds = {splits.derive_seed(name, i, SALT) for i, _, _ in items}

@@ -22,7 +22,7 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-KINDS = ("logstream", "dialogs", "toasts", "leaderboard", "dashboard")
+KINDS = ("logstream", "dialogs", "toasts", "scandoc", "leaderboard", "dashboard")
 ORDER = ["reference", "nop", "stop-early"]
 
 
