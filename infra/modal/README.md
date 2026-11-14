@@ -58,6 +58,21 @@ systemd-run --user --unit=fh-modal-eval-qwen --collect --same-dir --setenv=PATH=
 journalctl --user -u fh-modal-eval-qwen -f
 ```
 
+`eval` runs Harbor with the first `harbor` on PATH whose Python has the modal extra (`modal`, `dockerfile_parse`;
+Harbor's separate verifier sandbox needs it), or `$FH_HARBOR`. The repo `.venv`'s harbor lacks it, and `uv run`
+puts that one first on PATH: with it every trial fails at the verifier with `No module named 'dockerfile_parse'`.
+
+## Status (2026-11-14, backup to the Verda fleet)
+
+GPU probe (`probe_gpus.py`, time from call to nvidia-smi result): H100 3.7 s, H200 3.6 s, A100-80GB 3.4 s,
+H100:2 3.5 s, B200 115 s. Weights: download 233 s + verify 30 s onto `fh-qwen-weights`.
+
+Smoke results: an endpoint loads in 174-211 s from spawn to healthy (H100 80GB, eu-south). `test`: no key -> 401,
+tool call correct (`view(t=12.5, out_width=320)`, reasoning present), 49.6 decode tok/s single stream, TTFT 0.2 s.
+The vision check misread the code (`K7QZP`/`K702P` for `K7Q2ZP`, also at temperature 0) where the Verda box
+read it right twice: not investigated (the image's resolved transformers/vLLM deps may differ from the fleet's
+venv). Train: first logged step after 207 s (loss 0.424, sft-v2, 109 steps/epoch), `train-down` stopped it cleanly.
+
 ## Training
 
 `train` runs `train/sft_lora.py` (code baked into the image) with `/w/models/Qwen3.8-27B` and the data on
