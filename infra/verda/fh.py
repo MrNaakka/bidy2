@@ -677,6 +677,7 @@ OPENCODE_VERSION = "1.19.5"
 EVAL_TERMINAL = {"SUCCEEDED", "FAILED", "FAILED_SETUP", "FAILED_DRIVER", "FAILED_PRECHECKS", "CANCELLED"}
 EVAL_FETCH_TRIES = 3
 LEAK_WINDOW_S = 30 * 60
+EVAL_UP_SWEEPS = 10   # every 30 s after a failed launch, before eval-up returns
 EVAL_NAME_RE = r"[a-z0-9][a-z0-9-]{0,15}"
 LORA_FILES = ("adapter_config.json", "adapter_model.safetensors")
 EVAL_PROBE = r"""
@@ -851,9 +852,16 @@ def cmd_eval_up(args) -> None:
                         if b["state"] in ("running", "launching") or cluster_status(b["cluster"]) is not None]
                 if live:
                     raise SystemExit(f"--new: fleet {defn['fleet']} still has {live}; eval-down first")
-                fleet = None
-        if fleet is None:
-            fleet = {"meta": {**defn, "created_at": time.time()}, "boxes": {}, "max_usd": args.max_usd}
+                for note in sweep_leaks([b["cluster"] for b in fleet["boxes"].values()]):
+                    log(f"eval: {note}")
+                # keep sweeping for the old boxes' late instances under the new fleet
+                orphans = [o for o in fleet.get("orphans", []) if o["until"] > time.time()]
+                orphans += [{"cluster": b["cluster"], "until": time.time() + LEAK_WINDOW_S}
+                            for b in fleet["boxes"].values() if sweeping(b)]
+                fleet = {"orphans": orphans}
+        if fleet is None or "meta" not in fleet:
+            fleet = {"meta": {**defn, "created_at": time.time()}, "boxes": {}, "max_usd": args.max_usd,
+                     "orphans": (fleet or {}).get("orphans", [])}
         fleet["max_usd"] = args.max_usd
         for i in runs:
             cluster, _ = eval_names(defn["split"], defn["label"], i)
@@ -890,11 +898,19 @@ def cmd_eval_up(args) -> None:
                 box["state"] = "running"
             else:
                 box["state"] = "launch_failed"
+                box["failed_at"] = time.time()
                 if cluster_status(box["cluster"]) is not None:
                     down(box["cluster"])
         save_evals(evals)
-        for note in sweep_leaks([fleet["boxes"][str(i)]["cluster"] for i, rc in rcs.items() if rc != 0]):
-            log(f"eval: {note}")
+    failed = [fleet["boxes"][str(i)]["cluster"] for i, rc in rcs.items() if rc != 0]
+    # A timed-out create shows up on Verda within a minute or two (smoke test); sweep for a while here, so a
+    # leak does not depend on eval-wait running (which keeps sweeping for LEAK_WINDOW_S).
+    for k in range(EVAL_UP_SWEEPS if failed else 0):
+        with _eval_lock():
+            for note in sweep_leaks(failed):
+                log(f"eval: {note}")
+        if k + 1 < EVAL_UP_SWEEPS:
+            time.sleep(30)
     for i in runs:
         b = fleet["boxes"][str(i)]
         log(f"eval {defn['fleet']} run {i}: {b['cluster']} {b['state']}")
@@ -1022,6 +1038,7 @@ def eval_tick(fleet: dict) -> list[str]:
             continue
         if status is None:
             box["state"] = "lost"
+            box["failed_at"] = time.time()
             notes.append(f"run {i}: {box['cluster']} is gone (spot preemption or autodown) before its results "
                          f"were fetched; relaunch with eval-up ... --only {i}")
             continue
@@ -1037,22 +1054,30 @@ def eval_tick(fleet: dict) -> list[str]:
                     notes.append(f"run {i}: fetch failed ({box['fetch_error']}); retrying next tick")
                     continue
             box["job_status"] = job
-            box["state"] = ("done" if job == "SUCCEEDED" else "failed") if job in EVAL_TERMINAL else "budget"
+            if not box.get("fetched_at"):
+                box["state"] = "fetch_failed"
+                what = f"results NOT fetched ({box['fetch_error']})"
+            else:
+                box["state"] = ("done" if job == "SUCCEEDED" else "failed") if job in EVAL_TERMINAL else "budget"
+                what = f"fetched to runs/{box['job']}/"
             down(box["cluster"])
-            notes.append(f"run {i}: job {job}; fetched to runs/{box['job']}/ and deleted {box['cluster']}")
+            notes.append(f"run {i}: job {job}; {what}; deleted {box['cluster']}")
         elif over:
             down(box["cluster"])
             box["state"] = "budget"
             notes.append(f"run {i}: cost cap; deleted {box['cluster']} ({status})")
     if over:
         notes.append(f"cost cap reached: {total:.2f} >= {fleet['max_usd']}")
-    notes += sweep_leaks([b["cluster"] for b in fleet["boxes"].values() if b["state"] not in ("running", "launching")])
+    fleet["orphans"] = [o for o in fleet.get("orphans", []) if o["until"] > time.time()]
+    notes += sweep_leaks([b["cluster"] for b in fleet["boxes"].values() if b["state"] not in ("running", "launching")]
+                         + [o["cluster"] for o in fleet["orphans"]])
     return notes
 
 
 def sweeping(box: dict) -> bool:
     """A box whose launch failed or that is gone may still have an instance coming up on Verda for a while."""
-    return box["state"] in ("launch_failed", "lost") and time.time() - box.get("launched_at", 0) < LEAK_WINDOW_S
+    since = box.get("failed_at", box.get("launched_at", 0))
+    return box["state"] in ("launch_failed", "lost") and time.time() - since < LEAK_WINDOW_S
 
 
 def cmd_eval_status(args) -> None:
@@ -1111,6 +1136,7 @@ def cmd_eval_wait(args) -> None:
                 log(f"eval {name}: {note}")
             save_evals(evals)
             active = [i for i, b in fleet["boxes"].items() if b["state"] in ("running", "launching") or sweeping(b)]
+            active += [o["cluster"] for o in fleet.get("orphans", [])]
         if not active:
             states = {i: b["state"] for i, b in fleet["boxes"].items()}
             log(f"eval {name}: no box left running; {states}")

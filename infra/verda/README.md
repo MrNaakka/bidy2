@@ -96,7 +96,9 @@ lost.
 Leaked instances: when Verda's API is slow, the fork can time out on the create call, report no capacity
 and forget the instance, which Verda then boots anyway (seen in the smoke test). `eval-up`, `eval-wait`
 and `eval-down` delete Verda instances and volumes named `<eval cluster>-*` that SkyPilot no longer
-knows; `eval-wait` keeps doing so for 30 minutes after a failed launch.
+knows: `eval-up` for 5 minutes after a failed launch, `eval-wait` for 30 (also for the boxes of a fleet
+replaced with `--new`). An instance that boots later than that, with no `eval-wait` running, has no job and
+no autodown: check `fh sky status` and the Verda console after a failed launch.
 
 Trial containers reach vLLM through `socat` on the Docker bridge (`http://172.17.0.1:18000/v1`); vLLM itself
 listens on `127.0.0.1:8000`, with the key from the `QWEN_API_KEY` SkyPilot secret. Docker needs

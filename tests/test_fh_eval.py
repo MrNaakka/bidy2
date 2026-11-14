@@ -223,7 +223,7 @@ def test_tick_gives_up_fetching_after_a_few_tries(evalbox, sandbox, monkeypatch)
     monkeypatch.setattr(fh, "fetch_eval", broken)
     for _ in range(fh.EVAL_FETCH_TRIES):
         fh.eval_tick(fleet)
-    assert fleet["boxes"]["1"]["state"] == "failed" and sandbox.down == ["fh-ev-dev-qwen-1"]
+    assert fleet["boxes"]["1"]["state"] == "fetch_failed" and sandbox.down == ["fh-ev-dev-qwen-1"]
 
 
 def test_sweep_deletes_only_leaked_instances_of_clusters_skypilot_lost(verda, monkeypatch):
@@ -260,6 +260,23 @@ def test_wait_keeps_sweeping_after_a_failed_launch_for_a_while(evalbox, sandbox,
     assert fh.sweeping(fleet["boxes"]["1"])
     fleet["boxes"]["1"]["launched_at"] -= fh.LEAK_WINDOW_S + 1
     assert not fh.sweeping(fleet["boxes"]["1"])
+
+
+def test_new_fleet_keeps_sweeping_the_old_fleets_failed_launches(evalbox, sandbox, monkeypatch):
+    monkeypatch.setattr(fh, "cluster_status", lambda name: None)
+    monkeypatch.setattr(fh, "launch_eval_boxes", fake_launch({1: 1, 2: 1, 3: 1}))
+    fh.cmd_eval_up(eval_args(evalbox))
+    monkeypatch.setattr(fh, "launch_eval_boxes", fake_launch({}))
+    fh.cmd_eval_up(eval_args(evalbox, n=4, new=True, only=[1]))
+    fleet = fh.load_evals()["dev-qwen"]
+    assert list(fleet["boxes"]) == ["1"] and fleet["meta"]["n_concurrent"] == 4
+    assert [o["cluster"] for o in fleet["orphans"]] == ["fh-ev-dev-qwen-1", "fh-ev-dev-qwen-2", "fh-ev-dev-qwen-3"]
+    swept = []
+    monkeypatch.setattr(fh, "sweep_leaks", lambda clusters: swept.extend(clusters) or [])
+    monkeypatch.setattr(fh, "cluster_cost_since", lambda n, s: 0.0)
+    monkeypatch.setattr(fh, "last_job_status", lambda n: "RUNNING")
+    fh.eval_tick(fleet)
+    assert "fh-ev-dev-qwen-2" in swept and "fh-ev-dev-qwen-1" in swept
 
 
 def test_probe_parsing():
