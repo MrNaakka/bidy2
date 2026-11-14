@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import collections
+import itertools
 import random
 import re
 import time
@@ -291,7 +292,7 @@ def test_dialogs_timing_and_codes():
         assert len(set(codes)) == len(codes)
         assert len({c[:2] for c in codes}) == 1                 # look-alike prefix
         assert sc.answer == codes[info["k"] - 1]
-        for a, b in zip(dls, dls[1:]):
+        for a, b in itertools.pairwise(dls):
             assert b["open_frame"] - a["close_frame"] >= 40       # >= 4 s apart
         for d in dls:
             assert 30 <= d["close_frame"] - d["open_frame"] <= 60

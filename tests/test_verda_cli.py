@@ -13,7 +13,7 @@ import pytest
 from verda.exceptions import APIException
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "infra" / "verda"))
-import verda_cli as vc  # noqa: E402
+import verda_cli as vc
 
 
 @pytest.fixture(autouse=True)
@@ -210,8 +210,8 @@ def test_download_keep_skips_cleanup(sandbox, cloud, monkeypatch):
 
 
 def _serve_args(**kw):
-    d = dict(type=None, variant=None, on_demand=False, mtp=False, timeout_min=0.01, keep=False, no_wait=False,
-             lora=None)
+    d = {"type": None, "variant": None, "on_demand": False, "mtp": False, "timeout_min": 0.01, "keep": False, "no_wait": False,
+             "lora": None}
     d.update(kw)
     return SimpleNamespace(**d)
 
@@ -614,10 +614,9 @@ def test_lock_released_when_holder_dies(sandbox):
 
 def test_deadline_interrupts_a_stuck_call():
     t0 = vc.time.time()
-    with pytest.raises(vc.Deadline):
-        with vc.deadline(1):
-            while vc.time.time() - t0 < 10:
-                pass
+    with pytest.raises(vc.Deadline), vc.deadline(1):
+        while vc.time.time() - t0 < 10:
+            pass
     assert vc.time.time() - t0 < 5
 
 
@@ -1204,8 +1203,8 @@ def train_cloud(cloud, monkeypatch, sandbox):
 
 
 def _up_args(**kw):
-    d = dict(run="r1", data_dir="/tmp/sft-v1", epochs=1.0, lr=1e-4, grad_accum=8, lora_r=16, save_every=10,
-             trainer_arg=None, type=None, on_demand=False, max_eur=40.0, timeout_min=1, no_wait=True, keep=False)
+    d = {"run": "r1", "data_dir": "/tmp/sft-v1", "epochs": 1.0, "lr": 1e-4, "grad_accum": 8, "lora_r": 16, "save_every": 10,
+             "trainer_arg": None, "type": None, "on_demand": False, "max_eur": 40.0, "timeout_min": 1, "no_wait": True, "keep": False}
     d.update(kw)
     return SimpleNamespace(**d)
 
@@ -1452,7 +1451,7 @@ def test_r10_2_failed_starts_are_counted_and_bounded(sandbox, monkeypatch):
 
 
 def test_r10_2_upload_exception_is_counted(sandbox, monkeypatch):
-    c, calls = _tick_env(monkeypatch, READY_IDLE)
+    c, _calls = _tick_env(monkeypatch, READY_IDLE)
     monkeypatch.setattr(vc, "train_prepare", mock.Mock(side_effect=RuntimeError("tar: broken pipe")))
     assert vc.train_tick(c) == "retry"
     assert vc.load_state()["train_run"]["failures"] == 1
@@ -1610,7 +1609,7 @@ def test_r10_6_rank_above_serving_limit_rejected_before_provisioning(train_cloud
 @pytest.mark.parametrize("run_extra", [{"desired": False}, {"desired": False, "disabled": "budget"},
                                        {"desired": False, "failed": "x"}, {"done": True}])
 def test_r11_1_inactive_run_box_is_deleted_on_every_tick(sandbox, monkeypatch, run_extra):
-    c, calls = _tick_env(monkeypatch, READY_IDLE, run_extra=run_extra)
+    c, _calls = _tick_env(monkeypatch, READY_IDLE, run_extra=run_extra)
     monkeypatch.setattr(vc, "ledger_total_eur", lambda: 100.0)
     attempts = []
 
@@ -1689,7 +1688,7 @@ def test_r11_3_manifest_only_written_into_fresh_dir(sandbox, tmp_path, monkeypat
 
 
 def test_r11_3_done_without_manifest_is_not_accepted(sandbox, tmp_path, monkeypatch):
-    run, out = _vol_dirs(tmp_path, monkeypatch, run_files=("final", "DONE"))
+    run, _out = _vol_dirs(tmp_path, monkeypatch, run_files=("final", "DONE"))
     vc.save_state({"train_run": run})
     assert vc.train_verify_and_publish("ip", "a", run) == "failed"
     assert "no manifest" in vc.load_state()["train_run"]["failed"]
@@ -1792,7 +1791,7 @@ def test_r12_3_manifest_read_failure_keeps_run_unverified_then_retries(sandbox, 
 
 
 def test_r12_3_train_publish_verifies_unverified_run(sandbox, monkeypatch):
-    c, calls = _tick_env(monkeypatch, READY_IDLE, run_extra={"desired": False, "unverified": True})
+    c, _calls = _tick_env(monkeypatch, READY_IDLE, run_extra={"desired": False, "unverified": True})
     vc.update_state(lambda s: s.pop("train"))
     monkeypatch.setattr(vc, "client", lambda: c)
     monkeypatch.setattr(vc, "reconcile", lambda c: None)
@@ -1818,7 +1817,7 @@ def test_r13_1_ready_box_without_marker_is_not_started(sandbox, monkeypatch):
 
 
 def test_r13_1_done_needs_matching_marker(sandbox, monkeypatch):
-    c, calls = _tick_env(monkeypatch, "run=\nready=1\nservice=inactive\ndone=1\nfatal=0\n",
+    c, _calls = _tick_env(monkeypatch, "run=\nready=1\nservice=inactive\ndone=1\nfatal=0\n",
                          box_extra={"started": True})
     assert vc.train_tick(c) == "setup" and not vc.load_state()["train_run"].get("done")
 

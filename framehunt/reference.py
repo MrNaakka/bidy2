@@ -168,7 +168,7 @@ class Session:
 def out_size(w: int, h: int, out_width: int) -> tuple[int, int]:
     """Same rule as the server: cap at crop width, keep aspect, round half up."""
     ow = min(out_width, w)
-    return ow, max(1, int(math.floor(h * ow / w + 0.5)))
+    return ow, max(1, math.floor(h * ow / w + 0.5))
 
 
 def shrink(img: Image.Image, out_width: int) -> np.ndarray:
@@ -283,10 +283,10 @@ class Log:
 
     @classmethod
     def counter_templates(cls, out_width: int) -> dict:
-        x, y, w, h = cls.COUNTER_BOX
+        _x, _y, w, h = cls.COUNTER_BOX
         f = font(*cls.COUNTER_FONT)
         out = {}
-        for n in range(0, 21):
+        for n in range(21):
             im = Image.new("RGB", (w, h))
             d = ImageDraw.Draw(im)
             d.rectangle((0, 0, w - 1, h - 1), fill=(170, 20, 20) if n else (25, 95, 45))
@@ -302,7 +302,7 @@ class Log:
         tm = cls.counter_templates(ow)
 
         def errors_at(f: int) -> int:
-            n, e0, e1 = nearest(s.view(f, cls.COUNTER_BOX, ow, f"read error counter (want >= {k})"), tm)
+            n, _e0, _e1 = nearest(s.view(f, cls.COUNTER_BOX, ow, f"read error counter (want >= {k})"), tm)
             return n
 
         f = first_true(0, last, lambda f: errors_at(f) >= k)
@@ -342,11 +342,11 @@ class Dialogs:
 
     @classmethod
     def badge_templates(cls, out_width: int) -> dict:
-        x, y, w, h = cls.TRACE_BOX
+        _x, _y, w, h = cls.TRACE_BOX
         f = font(*cls.BADGE_FONT)
         bell = (230, 234, 242)
         out = {}
-        for n in range(0, 21):
+        for n in range(21):
             im = Image.new("RGB", (w, h), cls.NAVY)
             d = ImageDraw.Draw(im)
             bx, by = 6, 18

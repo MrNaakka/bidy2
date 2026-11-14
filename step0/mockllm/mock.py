@@ -4,7 +4,10 @@ Turn 1: asks OpenCode to call the MCP tool `probe_show_card`.
 Turn 2+: dumps the full request body to /log so we can see how the tool result
 (the PNG) was forwarded to the "model", then ends the conversation.
 """
-import json, os, time, itertools
+import itertools
+import json
+import os
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 LOG = "/log"

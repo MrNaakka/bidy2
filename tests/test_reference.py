@@ -17,7 +17,7 @@ import pytest
 
 from framehunt import splits
 from framehunt.scenes import make_scene
-from framehunt.server import DEFAULT_BUDGET_PX, FrameHuntEnv, build_mcp
+from framehunt.server import FrameHuntEnv, build_mcp
 
 pytestmark = pytest.mark.reference
 

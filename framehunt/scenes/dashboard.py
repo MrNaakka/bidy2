@@ -59,7 +59,7 @@ def _walk(rng: np.random.Generator, n: int, lo: int, hi: int) -> np.ndarray:
             v = 2 * hi - v
         if v < lo:
             v = 2 * lo - v
-        x[i] = int(round(min(max(v, lo), hi)))
+        x[i] = round(min(max(v, lo), hi))
     return x
 
 
@@ -185,7 +185,7 @@ class DashboardScene(Scene):
         draw_text(d, (16, 64), "Service status", "sans-bold", 17, TEXT)
         # Key metrics table (static parts).
         self._panel(d, TABLE, "Key metrics")
-        x, y, w, h = TABLE
+        x, y, w, _h = TABLE
         d.line((x + 1, y + 40, x + w - 2, y + 40), fill=BORDER)
         for k, (name, unit) in enumerate(self.kpis):
             ry = y + 44 + k * ROW_H
@@ -204,7 +204,7 @@ class DashboardScene(Scene):
         return im
 
     def _row_bgs(self):
-        x, y, w, h = TABLE
+        _x, _y, _w, _h = TABLE
         return [(29, 32, 37) if k % 2 else PANEL for k in range(len(self.kpis))]
 
     def render(self, frame: int) -> Image.Image:

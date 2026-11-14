@@ -51,7 +51,7 @@ import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import fhdata  # noqa: E402
+import fhdata
 
 STOP = {"flag": False}
 
@@ -102,7 +102,7 @@ def load_model(a):
     from transformers import AutoModelForImageTextToText, AutoProcessor
 
     dtype = torch.bfloat16 if a.dtype == "bf16" else torch.float32
-    kw = dict(dtype=dtype, attn_implementation=a.attn)
+    kw = {"dtype": dtype, "attn_implementation": a.attn}
     if a.quant == "4bit":
         from transformers import BitsAndBytesConfig
         kw["quantization_config"] = BitsAndBytesConfig(
@@ -232,7 +232,7 @@ def split_rows(rows: list[dict], eval_frac: float, seed: int) -> tuple[list[dict
     for kind in sorted({r["kind"] for r in rows}):
         kr = sorted((r for r in rows if r["kind"] == kind), key=lambda r: r["id"])
         random.Random(f"{seed}:{kind}").shuffle(kr)
-        n_ev = int(round(len(kr) * eval_frac))
+        n_ev = round(len(kr) * eval_frac)
         ev += kr[:n_ev]
         tr += kr[n_ev:]
     return tr, ev
@@ -272,9 +272,9 @@ def main(argv=None) -> int:
     params = [p for p in model.parameters() if p.requires_grad]
     opt = torch.optim.AdamW(params, lr=a.lr, weight_decay=a.weight_decay, betas=(0.9, 0.999))
     micro_per_epoch = len(train_rows)
-    total_micro = int(math.floor(a.epochs * micro_per_epoch))
+    total_micro = math.floor(a.epochs * micro_per_epoch)
     total_steps = max(1, total_micro // a.grad_accum)
-    warm = max(1, int(round(a.warmup_frac * total_steps)))
+    warm = max(1, round(a.warmup_frac * total_steps))
 
     def lr_lambda(s):
         if s < warm:

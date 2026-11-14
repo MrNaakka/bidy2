@@ -8,12 +8,12 @@ pure functions of (seed, something), so they cannot change the output.
 """
 from __future__ import annotations
 
+import random
 import threading
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
-import random
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -168,7 +168,7 @@ class GlyphAtlas:
         self.masks = masks
 
     @classmethod
-    def get(cls, font_name: str, size: int, cell_w: int, cell_h: int, y_off: int) -> "GlyphAtlas":
+    def get(cls, font_name: str, size: int, cell_w: int, cell_h: int, y_off: int) -> GlyphAtlas:
         key = (font_name, size, cell_w, cell_h, y_off)
         with cls._lock:
             a = cls._registry.get(key)

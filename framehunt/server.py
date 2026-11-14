@@ -22,7 +22,8 @@ import os
 import threading
 import time
 from collections import OrderedDict
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from PIL import Image as PILImage
 
@@ -158,7 +159,7 @@ class FrameHuntEnv:
             raise FrameHuntError(f"{name}={t} is negative; valid range is 0 to {m.duration_s:g} s")
         if t > m.duration_s + 1e-9:
             raise FrameHuntError(f"{name}={t} is past the end of the video; valid range is 0 to {m.duration_s:g} s")
-        return min(int(math.floor(t * m.fps + 0.5)), m.n_frames - 1)
+        return min(math.floor(t * m.fps + 0.5), m.n_frames - 1)
 
     def _crop(self, x: Any, y: Any, w: Any, h: Any) -> tuple[int, int, int, int]:
         m = self.meta
@@ -182,7 +183,7 @@ class FrameHuntEnv:
         if ow < MIN_OUT_WIDTH:
             raise FrameHuntError(f"out_width must be at least {MIN_OUT_WIDTH}, got {ow}")
         ow = min(ow, w)  # no upscaling
-        oh = max(1, int(math.floor(h * ow / w + 0.5)))
+        oh = max(1, math.floor(h * ow / w + 0.5))
         return ow, oh
 
     # -------------------------------------------------------------- rendering
@@ -296,7 +297,7 @@ class FrameHuntEnv:
         cost = n * tw * th
         self._precheck("contact_sheet", args, cost)
 
-        frames = [f0 + int(math.floor(i * (f1 - f0) / (n - 1) + 0.5)) for i in range(n)]
+        frames = [f0 + math.floor(i * (f1 - f0) / (n - 1) + 0.5) for i in range(n)]
         cols = math.ceil(math.sqrt(n))
         rows = math.ceil(n / cols)
         s = SHEET_SEPARATOR_PX
@@ -306,8 +307,8 @@ class FrameHuntEnv:
             sheet.paste(self._tile(idx, box, (tw, th)), (c * (tw + s), r * (th + s)))
         png = self._png(sheet)
         left = self._charge("contact_sheet", args, cost, frames=frames, crop=list(box), out=[tw, th])
-        lines = [f"{n} frames, {cols} columns x {rows} rows, read left to right then top to bottom; "
-                 f"crop=(x={box[0]}, y={box[1]}, w={box[2]}, h={box[3]}) tile={tw}x{th} cost={cost} budget_left={left}"]
+        lines = [(f"{n} frames, {cols} columns x {rows} rows, read left to right then top to bottom; "
+                 f"crop=(x={box[0]}, y={box[1]}, w={box[2]}, h={box[3]}) tile={tw}x{th} cost={cost} budget_left={left}")]
         lines += [f"  tile {i + 1}: t={self._frame_time(idx):.3f}s frame={idx}" for i, idx in enumerate(frames)]
         return png, "\n".join(lines)
 

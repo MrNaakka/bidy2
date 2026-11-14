@@ -47,7 +47,6 @@ import argparse
 import base64
 import io
 import json
-import math
 import multiprocessing as mp
 import random
 import re
@@ -62,19 +61,27 @@ import PIL.ImageFont as _IF
 
 _IF.core.HAVE_RAQM = False   # match the sidecar's Pillow (no libraqm): BASIC text layout
 
-import numpy as np  # noqa: E402
-from PIL import Image  # noqa: E402
+import numpy as np
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "train"))
 
-import fhdata  # noqa: E402
-from framehunt import reference as R  # noqa: E402
-from framehunt.scenes import make_scene  # noqa: E402
-from framehunt.server import (DEFAULT_BUDGET_PX, MAX_SHEET_N, MIN_OUT_WIDTH, MIN_SHEET_N,  # noqa: E402
-                              SHEET_SEPARATOR_PX, FrameHuntEnv, FrameHuntError)
-from framehunt.splits import derive_seed, load_salt, train_items  # noqa: E402
+import fhdata
+
+from framehunt import reference as R
+from framehunt.scenes import make_scene
+from framehunt.server import (
+    DEFAULT_BUDGET_PX,
+    MAX_SHEET_N,
+    MIN_OUT_WIDTH,
+    MIN_SHEET_N,
+    SHEET_SEPARATOR_PX,
+    FrameHuntEnv,
+    FrameHuntError,
+)
+from framehunt.splits import derive_seed, load_salt, train_items
 
 W, H = 1920, 1080
 
@@ -207,12 +214,12 @@ def search_event(ep: Episode, rng, box, ow: int, read, k_desc: str, val_desc, is
     n = sheet_n_for(rng, per_tile, sheet_cap, ep.n_frames) or 6
     tiles, frames, grid = ep.sheet(
         0, ep.last, n, box, ow,
-        pick(rng, [f"Scan the {trace_name} over the whole video with one contact sheet of {n} frames "
-                   f"({tw}x{th} px tiles, {n * per_tile} px) to bracket when it reaches {k_desc}.",
-                   f"A contact sheet of the {trace_name} across the full {ep.last / fps:.0f} s "
-                   f"({n} tiles of {tw}x{th}, cost {n * per_tile}) will show roughly when it reaches {k_desc}.",
-                   f"Coarse pass: {n} evenly spaced frames of just the {trace_name}, tile width {tw} "
-                   f"({n * per_tile} px total), to find the interval where it reaches {k_desc}."]))
+        pick(rng, [(f"Scan the {trace_name} over the whole video with one contact sheet of {n} frames "
+                   f"({tw}x{th} px tiles, {n * per_tile} px) to bracket when it reaches {k_desc}."),
+                   (f"A contact sheet of the {trace_name} across the full {ep.last / fps:.0f} s "
+                   f"({n} tiles of {tw}x{th}, cost {n * per_tile}) will show roughly when it reaches {k_desc}."),
+                   (f"Coarse pass: {n} evenly spaced frames of just the {trace_name}, tile width {tw} "
+                   f"({n * per_tile} px total), to find the interval where it reaches {k_desc}.")]))
     vals = [read(t) for t in tiles]
     hits = [is_hit(v) for v in vals]
     j = hits.index(True)       # the last frame always hits (events end before 90 %)
@@ -270,9 +277,9 @@ def verify_event(ep: Episode, rng, f: int, box, vow: int, read, val_desc, is_hit
     must show the event at f (and, in the 2-tile variant, not at f-1)."""
     fps = ep.fps
     if rng.random() < 0.4:
-        tiles, frames, _ = ep.sheet(f - 1, f, 2, box, vow, pick(rng, [
-            f"Before reading anything at native resolution, verify the event frame at a higher resolution ({vow} px wide): "
-            f"a 2-tile sheet of the {trace_name} at t={ts(f - 1, fps)}s and t={ts(f, fps)}s should show the change between them.",
+        tiles, _frames, _ = ep.sheet(f - 1, f, 2, box, vow, pick(rng, [
+            (f"Before reading anything at native resolution, verify the event frame at a higher resolution ({vow} px wide): "
+            f"a 2-tile sheet of the {trace_name} at t={ts(f - 1, fps)}s and t={ts(f, fps)}s should show the change between them."),
             f"Verify first, sharper than the search looks: {trace_name} at t={ts(f - 1, fps)}s (tile 1) and t={ts(f, fps)}s (tile 2), {vow} px wide."]))
         v0, v1 = read(tiles[0]), read(tiles[1])
         ok = (not is_hit(v0)) and is_hit(v1)
@@ -280,8 +287,8 @@ def verify_event(ep: Episode, rng, f: int, box, vow: int, read, val_desc, is_hit
                    f"{val_desc(v1)}, so t={ts(f, fps)}s (frame {f}) is the first frame of the event.")
     else:
         img = ep.view(f, box, vow, pick(rng, [
-            f"The search says the event starts at t={ts(f, fps)}s (frame {f}). Before spending pixels on the native crop, "
-            f"confirm the {trace_name} there at a higher resolution ({vow} px wide), since the search looks were tiny.",
+            (f"The search says the event starts at t={ts(f, fps)}s (frame {f}). Before spending pixels on the native crop, "
+            f"confirm the {trace_name} there at a higher resolution ({vow} px wide), since the search looks were tiny."),
             f"Double-check the {trace_name} at t={ts(f, fps)}s, the frame I am about to read from, at {vow} px wide so the reading is unambiguous.",
             f"Verification look: {trace_name} at the chosen frame t={ts(f, fps)}s, sharper ({vow} px wide) than the search."]))
         v1 = read(img)
@@ -314,7 +321,7 @@ def maybe_info(ep: Episode, rng) -> None:
 # ============================================================== kinds
 def solve_logstream(ep: Episode, rng, q: dict) -> str:
     L = R.Log
-    k, fps = q["k"], ep.fps
+    k, _fps = q["k"], ep.fps
     maybe_info(ep, rng)
     overview(ep, rng, pick(rng, [ep.last, rng.randrange(ep.n_frames // 3, ep.last)]), (120, 160, 200, 240),
              ", especially the 'errors: N' counter in the bottom status bar")
@@ -367,7 +374,7 @@ def solve_logstream(ep: Episode, rng, q: dict) -> str:
         f"Read the request id at native resolution: a {bw}x{bh} crop of that row{' including req=' if lead else ''} ({bw * bh} px).",
         f"Now one native-resolution crop ({bw}x{bh}, {bw * bh} px) of the request id on row {row + 1}."]))
     sub = crop[padt:padt + L.CELL_H, padl + lead * L.CELL_W:padl + (lead + 8) * L.CELL_W]
-    rid, margin = R.ocr_grid(sub, 8, L.CELL_W, L.CELL_H, L.Y_OFF, "mono", 16, L.FG, L.BG, "0123456789abcdef")
+    rid, _margin = R.ocr_grid(sub, 8, L.CELL_W, L.CELL_H, L.Y_OFF, "mono", 16, L.FG, L.BG, "0123456789abcdef")
     ep.note = f"The crop reads req={rid}."
     return rid
 
@@ -428,7 +435,7 @@ def solve_dialogs(ep: Episode, rng, q: dict) -> str:
     from PIL import ImageDraw
     for dx in (-1, 0, 1):
         for dy in (-1, 0, 1):
-            code, margin = R.ocr_string(crop, (ox + dx, oy + dy), *D.CODE_FONT, D.INK, D.CODE_BOX_RGB,
+            code, _margin = R.ocr_string(crop, (ox + dx, oy + dy), *D.CODE_FONT, D.INK, D.CODE_BOX_RGB,
                                         "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 6, 6)
             im = Image.new("RGB", (crop.shape[1], crop.shape[0]), D.CODE_BOX_RGB)
             ImageDraw.Draw(im).text((ox + dx, oy + dy), code, font=R.font(*D.CODE_FONT), fill=D.INK)
@@ -513,7 +520,7 @@ def solve_dashboard(ep: Episode, rng, q: dict) -> str:
     crop = ep.view(f, box, bw, pick(rng, [
         f"Read the value at native resolution on frame {f}: a {box[2]}x{box[3]} crop{' including the row label' if with_label else ''} ({box[2] * box[3]} px).",
         f"Native crop ({box[2]}x{box[3]}, {box[2] * box[3]} px) of row {row + 1}{' with its label' if with_label else ''} at t={ts(f, fps)}s."]))
-    val, margin = R.ocr_string(crop, (Dh.VALUE_X - x0, padt), "mono", 14, Dh.TEXT, bg, "0123456789", 1, 6)
+    val, _margin = R.ocr_string(crop, (Dh.VALUE_X - x0, padt), "mono", 14, Dh.TEXT, bg, "0123456789", 1, 6)
     ep.note = f"The crop reads {q['kpi']} = {val}."
     return val
 
@@ -626,7 +633,7 @@ def main(argv=None) -> int:
     salt = load_salt(split)
     if salt is None:
         salt = load_salt(split, create=True)
-        print(f"generated a new secret salt for split 'train' (secrets/train.salt); keep it to regenerate the same items")
+        print("generated a new secret salt for split 'train' (secrets/train.salt); keep it to regenerate the same items")
     items = list(train_items(a.per_kind))
     if a.only:
         items = [it for it in items if it[0] in set(a.only)]

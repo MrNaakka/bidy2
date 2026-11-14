@@ -13,9 +13,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from PIL import Image, ImageDraw  # noqa: E402
+from PIL import Image, ImageDraw
 
-from framehunt.scenes import KINDS, make_scene  # noqa: E402
+from framehunt.scenes import KINDS, make_scene
 
 
 def contact_sheet(scene, frames, tile_w=384, cols=4) -> Image.Image:

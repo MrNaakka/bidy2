@@ -3,11 +3,15 @@
 The code exists only in pixels (and in a token-protected endpoint the verifier uses),
 so if the agent reports it correctly, the model really received the image.
 """
-import io, os, secrets, string
+import io
+import os
+import secrets
+import string
 
 from mcp.server.fastmcp import FastMCP, Image
 from mcp.server.transport_security import TransportSecuritySettings
-from PIL import Image as PILImage, ImageDraw, ImageFont
+from PIL import Image as PILImage
+from PIL import ImageDraw, ImageFont
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 

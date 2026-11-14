@@ -205,7 +205,7 @@ def test_evidence_dump_wrong_first_submission(live, tmp_path):
 
 
 def test_evidence_dump_bad_token_writes_nothing(live, tmp_path):
-    env, base = live()
+    _env, base = live()
     ev = tmp_path / "ev"
     with pytest.raises(Exception):
         dump(ev, base=base, token="wrong")
@@ -218,7 +218,7 @@ def test_evidence_dump_bad_token_writes_nothing(live, tmp_path):
 def test_evidence_cli_uses_env_token(live, tmp_path, monkeypatch):
     import framehunt.evidence as evmod
 
-    env, base = live()
+    _env, base = live()
     monkeypatch.setenv("VERIFY_TOKEN", "tok-ev")
     assert evmod.main([str(tmp_path / "ev"), base]) == 0
     assert json.loads((tmp_path / "ev" / "result.json").read_text())["submitted"] is False

@@ -139,12 +139,12 @@ def test_contact_sheet_non_square_grid():
 
 # --------------------------------------------------------- refusals, no charge
 BAD_VIEWS = [
-    dict(t=-0.1), dict(t=float("nan")), dict(t=float("inf")), dict(t=-float("inf")), dict(t=60.01),
-    dict(t=1e308), dict(t=10**400), dict(t="5"), dict(t=None), dict(t=True),
-    dict(t=0, x=-1), dict(t=0, y=-5), dict(t=0, x=1920), dict(t=0, y=1080), dict(t=0, x=10**30),
-    dict(t=0, w=0), dict(t=0, h=0), dict(t=0, w=-10), dict(t=0, h=-1), dict(t=0, x=1915),
-    dict(t=0, out_width=7), dict(t=0, out_width=0), dict(t=0, out_width=-320), dict(t=0, out_width=1.5),
-    dict(t=0, x=0.5), dict(t=0, w=float("nan")), dict(t=0, out_width=float("inf")),
+    {"t": -0.1}, {"t": float("nan")}, {"t": float("inf")}, {"t": -float("inf")}, {"t": 60.01},
+    {"t": 1e308}, {"t": 10**400}, {"t": "5"}, {"t": None}, {"t": True},
+    {"t": 0, "x": -1}, {"t": 0, "y": -5}, {"t": 0, "x": 1920}, {"t": 0, "y": 1080}, {"t": 0, "x": 10**30},
+    {"t": 0, "w": 0}, {"t": 0, "h": 0}, {"t": 0, "w": -10}, {"t": 0, "h": -1}, {"t": 0, "x": 1915},
+    {"t": 0, "out_width": 7}, {"t": 0, "out_width": 0}, {"t": 0, "out_width": -320}, {"t": 0, "out_width": 1.5},
+    {"t": 0, "x": 0.5}, {"t": 0, "w": float("nan")}, {"t": 0, "out_width": float("inf")},
 ]
 
 
@@ -160,11 +160,11 @@ def test_bad_view_args_refused_without_charge(kw):
 
 
 BAD_SHEETS = [
-    dict(t_start=0, t_end=10, n=1), dict(t_start=0, t_end=10, n=17), dict(t_start=0, t_end=10, n=10**12),
-    dict(t_start=0, t_end=10, n=-3), dict(t_start=5, t_end=5, n=2), dict(t_start=10, t_end=5, n=2),
-    dict(t_start=0, t_end=0.2, n=4), dict(t_start=-1, t_end=5, n=2), dict(t_start=0, t_end=61, n=2),
-    dict(t_start=0, t_end=float("nan"), n=2), dict(t_start=0, t_end=10, n=4, out_width=4),
-    dict(t_start=0, t_end=10, n=2.5),
+    {"t_start": 0, "t_end": 10, "n": 1}, {"t_start": 0, "t_end": 10, "n": 17}, {"t_start": 0, "t_end": 10, "n": 10**12},
+    {"t_start": 0, "t_end": 10, "n": -3}, {"t_start": 5, "t_end": 5, "n": 2}, {"t_start": 10, "t_end": 5, "n": 2},
+    {"t_start": 0, "t_end": 0.2, "n": 4}, {"t_start": -1, "t_end": 5, "n": 2}, {"t_start": 0, "t_end": 61, "n": 2},
+    {"t_start": 0, "t_end": float("nan"), "n": 2}, {"t_start": 0, "t_end": 10, "n": 4, "out_width": 4},
+    {"t_start": 0, "t_end": 10, "n": 2.5},
 ]
 
 
@@ -182,7 +182,7 @@ def test_over_budget_refused_without_charge_and_without_render():
         env.view(0, out_width=320)  # 57600 > 1000
     assert env.budget_left == 1000
     assert env.scene.calls == []
-    png, _ = env.view(0, x=0, y=0, w=40, h=25, out_width=40)  # exactly 1000
+    _png, _ = env.view(0, x=0, y=0, w=40, h=25, out_width=40)  # exactly 1000
     assert env.budget_left == 0
     with pytest.raises(FrameHuntError):
         env.view(0, w=8, h=1, out_width=8)
@@ -467,7 +467,7 @@ def test_real_scene_smoke():
         except ImportError:
             continue
         env = FrameHuntEnv(scene, verify_token="t")
-        png, text = env.view(scene.meta.duration_s / 2, out_width=240)
+        png, _text = env.view(scene.meta.duration_s / 2, out_width=240)
         assert png_size(png)[0] == 240
         assert scene.answer not in env.info()
         assert math.isclose(env.pixels_used, 240 * round(scene.meta.height * 240 / scene.meta.width), abs_tol=240)

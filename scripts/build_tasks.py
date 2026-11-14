@@ -43,9 +43,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from framehunt.scenes import make_scene  # noqa: E402
-from framehunt.server import DEFAULT_BUDGET_PX, MAX_SHEET_N, MIN_OUT_WIDTH, MIN_SHEET_N, SHEET_SEPARATOR_PX  # noqa: E402
-from framehunt.splits import SPLITS, derive_seed, load_salt, salt_path  # noqa: E402
+from framehunt.scenes import make_scene
+from framehunt.server import (
+    DEFAULT_BUDGET_PX,
+    MAX_SHEET_N,
+    MIN_OUT_WIDTH,
+    MIN_SHEET_N,
+    SHEET_SEPARATOR_PX,
+)
+from framehunt.splits import SPLITS, derive_seed, load_salt, salt_path
 
 # Pinned to uv.lock (Python 3.12 resolution).
 SIDECAR_PIP = ["mcp==1.30.0", "pillow==13.0.0", "numpy==2.5.4"]
@@ -278,8 +284,8 @@ def build_item(out: Path, split: str, item_id: str, kind: str, seed: int, budget
     (d / "tests").mkdir()
     (d / "solution").mkdir()
 
-    fmt = dict(item_id=item_id, kind=kind, seed=scene_seed, evidence_dir=EVIDENCE_DIR, split=split, budget=budget, token=token, host=MCP_HOST,
-               agent_timeout=AGENT_TIMEOUT_SEC, verifier_timeout=VERIFIER_TIMEOUT_SEC)
+    fmt = {"item_id": item_id, "kind": kind, "seed": scene_seed, "evidence_dir": EVIDENCE_DIR, "split": split, "budget": budget, "token": token, "host": MCP_HOST,
+               "agent_timeout": AGENT_TIMEOUT_SEC, "verifier_timeout": VERIFIER_TIMEOUT_SEC}
     (d / "task.toml").write_text(TASK_TOML.format(**fmt))
     (d / "instruction.md").write_text(INSTRUCTION_MD.format(
         question=scene.question, answer_format=scene.answer_format, width=m.width, height=m.height, fps=m.fps,

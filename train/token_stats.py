@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import fhdata  # noqa: E402
+import fhdata
 
 DEFAULT_PROCESSOR = Path(__file__).resolve().parent / "hf" / "Qwen3.8-27B"
 

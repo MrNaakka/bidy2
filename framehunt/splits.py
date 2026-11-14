@@ -195,7 +195,7 @@ def derive_seed(split: str, item_id: str, salt: str | bytes | None = None) -> in
     key = salt.encode("utf-8") if isinstance(salt, str) else bytes(salt)
     if not key:
         raise ValueError("salt must not be empty")
-    mac = hmac.new(key, f"{split}:{item_id}".encode("utf-8"), hashlib.sha256).digest()
+    mac = hmac.new(key, f"{split}:{item_id}".encode(), hashlib.sha256).digest()
     return int.from_bytes(mac[:8], "big")
 
 

@@ -40,7 +40,6 @@ import copy
 import io
 import json
 from pathlib import Path
-from typing import Any
 
 HERE = Path(__file__).resolve().parent
 CAPTURE = HERE / "capture"

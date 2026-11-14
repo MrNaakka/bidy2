@@ -16,8 +16,8 @@ import fcntl
 import hashlib
 import io
 import json
-import re
 import os
+import re
 import secrets
 import shutil
 import signal
@@ -2403,7 +2403,7 @@ def cmd_ledger(args) -> None:
     for cr, end, hrs, cost in rows:
         cur = cr.get("currency", "eur")
         total[cur] = total.get(cur, 0) + cost
-        print(f"{cr['kind']:<9}{cr['type']:<18}{str(cr.get('spot', '')):<6}{cr['price_per_hour']:>9.4f} "
+        print(f"{cr['kind']:<9}{cr['type']:<18}{cr.get('spot', '')!s:<6}{cr['price_per_hour']:>9.4f} "
               f"{hrs:>7.3f} {cost:>8.4f}  {'closed' if end else 'OPEN'} {cur} {cr['id'][:8]}")
     print(f"total: €{total['eur']:.3f}" + (f" + ${total['usd']:.3f}" if total.get("usd") else "")
           + "  (OPEN rows accrue until deleted; volumes are billed while they exist)")
