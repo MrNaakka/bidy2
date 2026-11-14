@@ -1,0 +1,16 @@
+{
+    "task": {
+        "path": "tasks/eval/dialogs-7101",
+        "source": "eval"
+    },
+    "trial_name": "dialogs-7101__rPpJKks",
+    "trials_dir": "runs/fh-eval-opencode-run1",
+    "agent": {
+        "name": "opencode",
+        "model_name": "anthropic/claude-opus-5-5",
+        "kwargs": {
+            "version": "1.19.5"
+        }
+    },
+    "job_id": "7b004800-07eb-437d-8e05-a940a5e881c3"
+}

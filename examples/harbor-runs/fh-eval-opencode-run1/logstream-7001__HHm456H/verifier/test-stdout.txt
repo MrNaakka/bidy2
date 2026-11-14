@@ -1,0 +1,3 @@
+result: {"submitted":true,"answer":"8d49d962","correct":false,"reward":0.0,"pixels_used":118980,"n_calls":12}
+calls logged: 12
+reward=0

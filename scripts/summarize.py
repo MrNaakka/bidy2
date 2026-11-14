@@ -22,7 +22,7 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-KINDS = ("logstream", "dialogs", "dashboard")
+KINDS = ("logstream", "dialogs", "toasts", "leaderboard", "dashboard")
 ORDER = ["reference", "nop", "stop-early"]
 
 
@@ -176,11 +176,12 @@ def to_markdown(jobs: list[dict]) -> str:
     total = [j["cost_usd"] for j in jobs if j["cost_usd"]]
     if total:
         L += ["", f"Total API cost: ${sum(total):.2f}"]
+    present = [k for k in KINDS if any(k in j["per_kind"] for j in jobs)]
     L += ["", "## Per kind (mean reward / mean pixels)", "",
-          "| job | " + " | ".join(KINDS) + " |", "| --- |" + " --- |" * len(KINDS)]
+          "| job | " + " | ".join(present) + " |", "| --- |" + " --- |" * len(present)]
     for j in jobs:
         cells = []
-        for k in KINDS:
+        for k in present:
             pk = j["per_kind"].get(k)
             cells.append(f"{fmt(pk['mean_reward'], 2)} / {fmt(pk['mean_pixels_used'], 0)}" if pk else "-")
         L.append(f"| {j['job']} | " + " | ".join(cells) + " |")

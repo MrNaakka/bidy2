@@ -1,0 +1,3 @@
+result: {"submitted":true,"answer":"HCAQKE","correct":true,"reward":1.0,"pixels_used":119192,"n_calls":8}
+calls logged: 8
+reward=1

@@ -22,6 +22,12 @@ spend pixels on *one* sharp crop of *where* the answer is written.
 4. **Answer text needs resolution.** The answer text is unreadable when the frame is
    downscaled to ≤ 1/4 of native width, and readable from a native-resolution crop.
    The trace is readable at 1/8 native width (240×135 for a 1920×1080 video).
+   "Unreadable" means for a reader that looks at the image (a vision model, a person,
+   generic OCR; tested by OCR on the 1/4 crop blown back up). A scripted matched filter
+   that knows the bundled font and the exact sub-pixel origin of the text *can* decode
+   most 1/4-scale crops, on every kind. That only saves pixels: it still has to find the
+   event frame and the right row or toast first, and pixels used don't change the
+   reward. Fonts small enough to defeat it would also be unreadable at native.
 5. **No hidden information.** The instruction states the budget, the tool costs and
    the question. Screen elements named in the question are visible on every frame.
 
@@ -45,6 +51,86 @@ All 1920×1080, 10 fps, 3–8 minutes long (n_frames chosen from the seed).
 
 K and event times are random. Events sit in roughly the 10–90 % range of the video.
 
+### Second slice: toasts and leaderboard; the EVAL v2 set
+
+Opus 5.5 scored 3/10 on logstream but 8–10/10 on dialogs and dashboard (EVAL v1).
+Logstream is hard because being slightly wrong still yields a confident wrong answer:
+one frame early, the (K-1)-th ERROR line is on screen as a convincing distractor; a few
+frames late, newer lines have scrolled in, so "the newest line" is wrong. In dialogs and
+dashboard the answer holds for seconds on both sides of the event, sits at a fixed spot
+and has no look-alike on screen, so an imprecise search still lands on it. The two new
+kinds carry logstream's mechanism into other settings.
+
+**EVAL v2 (final): logstream + dialogs + toasts, 10 each.** The setting is triage when a
+screen recording is the only artifact: E2E test videos (Playwright, Cypress), users'
+bug-report recordings, terminal recordings of a failed deploy. Logstream is the hard
+case: verifying the event frame and finding the row need extra looks, which Opus
+doesn't spend. Dialogs is the common E2E case. Toasts is the explicit **control**: it
+has the same mechanism (a lasting counter pins the event, the answer is only briefly
+where you'd look, look-alikes before and after), but verification is cheap and in the
+same place (the badge right above the stack). Opus verifies there and succeeds (pilots
+below), which shows its logstream failures come from verification cost, not from the
+mechanism or the UI. Leaderboard stays in DEV and TRAIN as a replication experiment
+(Opus DEV pilot 2/6, below); dashboard is in EVAL_V1, DEV and TRAIN.
+
+- `toasts`: the same desktop app as `dialogs`, with non-modal toast notifications
+  stacking at the top right: Info (blue), Warning (amber), Error (red), each with a
+  6-character code (all codes in a scene share a 2-character prefix). The newest toast
+  takes the top slot and pushes the others down; at most 5 are visible; each lives
+  4–6 s (or until 5 newer ones arrive). Toasts come in bursts (an incident: 0.2–0.9 s
+  apart, mostly Errors) separated by calm stretches (1–3 s apart, mostly Info), so 2–4
+  red Error toasts with the same prefix are often on screen together. The bell
+  badge counts Error toasts only. Question: "What code was shown on the K-th Error
+  toast?" Guarantees: K ≥ 2 and on frame f-1 the (K-1)-th Error toast is still on
+  screen as the newest red toast (same prefix); the next toast arrives 0.2–0.6 s after
+  f, so a few frames late the target is no longer on top (it stays visible lower in the
+  stack, for at least 1 s), and the (K+1)-th Error arrives within 1.5 s, so soon after
+  f "the newest red toast" is a look-alike, not the target. The level of every toast is visible at 1/8 from its 24-px colour stripe.
+- `leaderboard`: an API error tracker. The "Endpoints by errors / min" table lists 10
+  endpoints (all always visible), sorted by value, and refreshes every 0.5 s (5 frames):
+  values change and rows move (an endpoint changes row on about a third of the
+  refreshes). Endpoint names are sans-bold 18 (readable at 1/2); values
+  are small monospace digits (mono 13), readable only at native resolution. Trace: a
+  big `alerts fired: N` counter (top right). Question: "What errors/min value did
+  endpoint E show on the first frame where the alerts counter reached K?" Every alert
+  fires on a table refresh, so the value is shown for exactly [f, f+4] (0.5 s). E's
+  value and E's row both differ on f-1 and on f+5, and no other row shows the same number on
+  f. Unlike `dashboard` (KPI holds ≥ 1 s on both sides), there is no slack before f.
+
+What the agent must decide in both: find the exact event frame on the cheap trace and
+**verify it** before reading (one frame early is a confident wrong answer), then read on
+**that same frame**, after **re-finding the moving target** there (the top toast is
+only the target for 0.2–0.6 s; the endpoint's row moves every half second). The reference
+does exactly this: binary search on the trace at ≤ 1/8, a 1/8 check of the top toast's
+stripe (toasts) or a 1/4 look at the name column to find E's row (leaderboard), then one
+native crop. It needs at most 41k (toasts) and 48k (leaderboard) pixels of the 120k.
+
+Pilot and tuning (DEV, Opus 5.5, 6 items per kind): the first version (toasts: next
+toast 0.3–1.5 s after f; leaderboard: 1 s refresh, sans-bold 22 names) scored 5/6 on
+both kinds. Both failures were the targeted mechanism (read one frame early: the
+(K-1)-th Error toast's code; E's previous value). The successes found the exact frame
+with dense contact sheets and then read up to 5 frames late, which those wide windows
+forgave, and found E's row with a cheap look. Tuned to the parameters above: a 0.2–0.6 s
+top-slot window with a red successor half the time, a 0.5 s value window, and names that
+need a deliberate 1/2-scale crop of the name column.
+
+Re-pilot after tuning (6 fresh DEV items per kind): leaderboard 2/6. All 4 failures are
+the targeted decisions: read 1 to 3 frames early (E's previous value, twice), read 9
+frames late (E's next value), and one misread of the counter on 24-px contact-sheet
+tiles that was never checked at a legible scale. Toasts 6/6: even when Opus read 1 to 7
+frames late, it combined the badge count with the stack order and the red stripe to pick
+the right toast lower in the stack (Error toasts are a minority, so usually only one or
+two are visible). Toasts were then reworked: 4–6 s lives (a realistic default), and
+Error-heavy bursts, so several red look-alikes surround the target and the (K+1)-th
+Error follows within 1.5 s.
+
+Toasts re-pilot after that rework (6 fresh DEV items, on Modal): 5/6, so toasts still
+does not show a gap. Opus pinned f to within 1 to 5 frames on every item and usually
+re-read the badge on the frame it read the toast from, which tells it which red toast is
+the K-th even after the stack moves. The one failure is the targeted one: it read 3
+frames late, the badge already showed K+1, and it took the top toast, which was the
+(K+1)-th Error. The look-alikes only catch an agent that skips that same-frame check.
+
 ## Interfaces
 
 ### Package `framehunt/` (scene generation)
@@ -63,14 +149,15 @@ class Scene(ABC):
     meta: SceneMeta
     question: str        # natural language; names on-screen elements
     answer: str          # canonical exact answer (already normalized)
-    answer_format: str   # shown to the agent, e.g. "6 characters, A-Z and 0-9"
+    answer_format: str   # shown to the agent; states the exact alphabet, e.g.
+                         # "6 characters: uppercase letters A-Z except I and O, and digits 0-9"
     def render(self, frame: int) -> PIL.Image.Image: ...
         # RGB, meta.width × meta.height. Pure function of (seed, frame).
     def debug_info(self) -> dict: ...
         # key frames of events etc. For tests/analysis only; the server never exposes it.
 
 # framehunt/scenes/__init__.py
-KINDS: tuple[str, ...] = ("logstream", "dialogs", "dashboard")
+KINDS: tuple[str, ...] = ("logstream", "dialogs", "dashboard", "toasts", "leaderboard")
 def make_scene(kind: str, seed: int) -> Scene: ...
 
 # framehunt/answers.py
@@ -118,7 +205,8 @@ reward binary leaves no term to farm.
 ### Harbor tasks
 
 `scripts/build_tasks.py --split eval` writes `tasks/eval/<item_id>/` for the split's
-fixed, committed item ids in `framehunt/splits.py`. The scene seed of each item is
+fixed, committed item ids in `framehunt/splits.py` (`--split eval --v1` builds the first
+EVAL set, `EVAL_V1`, into `tasks/eval-v1/`). The scene seed of each item is
 secret (see "Item secrecy"). Each task follows the step0 probe layout: `task.toml`
 with the MCP server `framehunt` at `http://fh-mcp:8000/mcp`, `instruction.md`
 (question + rules + budget), `environment/docker-compose.yaml` (the `fh-mcp` sidecar

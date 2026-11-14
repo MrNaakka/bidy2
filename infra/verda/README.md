@@ -164,7 +164,7 @@ data/, runs/, adapters/        training inputs, runs, published adapters
 
 ## Serving config
 
-- vLLM 0.33.0, served as `qwen3.8-27b`. Flags: `--enable-auto-tool-choice --tool-call-parser qwen3_coder
+- vLLM 0.33.0 (the Qwen3.8 recipe needs >= 0.17.0), served as `qwen3.8-27b`. Flags: `--enable-auto-tool-choice --tool-call-parser qwen3_coder
   --reasoning-parser qwen3 --max-model-len 65536 --max-num-seqs 32 --kv-cache-dtype fp8 --gpu-memory-utilization 0.92
   --limit-mm-per-prompt '{"image": 64, "video": 0}'`, plus tensor parallel across all GPUs.
 - 75 GB of GPU memory or more uses BF16, less uses the official FP8 checkpoint, and GPUs under 44 GB also

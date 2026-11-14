@@ -29,7 +29,13 @@ def guess(answer_format: str, rng: random.Random):
         return str(rng.randint(10 ** (nd - 1), 10 ** nd - 1))
     m = re.search(r"(\d+) characters", fmt)
     n = int(m.group(1)) if m else 6
-    alphabet = "0123456789ABCDEF" if "hex" in fmt else "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    if "hex" in fmt:
+        alphabet = "0123456789ABCDEF"
+    else:
+        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        if m := re.search(r"except ([a-z])((?:, [a-z])*) and ([a-z])\b", fmt):
+            excluded = {m.group(1), m.group(3)} | set(re.findall(r"[a-z]", m.group(2)))
+            alphabet = "".join(c for c in alphabet if c.lower() not in excluded)
     return "".join(rng.choice(alphabet) for _ in range(n))
 
 

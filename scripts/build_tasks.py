@@ -1,6 +1,7 @@
 """Write one Harbor task directory per FrameHunt item.
 
     uv run python scripts/build_tasks.py --split eval [--out tasks/eval] [--budget 120000] [--only ID ...]
+    uv run python scripts/build_tasks.py --split eval --v1     # the first EVAL set, into tasks/eval-v1
 
 Layout per item (follows step0/probe):
     task.toml                      MCP server `framehunt` at http://fh-mcp:8000/mcp
@@ -51,7 +52,7 @@ from framehunt.server import (
     MIN_SHEET_N,
     SHEET_SEPARATOR_PX,
 )
-from framehunt.splits import SPLITS, derive_seed, load_salt, salt_path
+from framehunt.splits import EVAL_V1, SPLITS, derive_seed, load_salt, salt_path
 
 # Pinned to uv.lock (Python 3.12 resolution).
 SIDECAR_PIP = ["mcp==1.30.0", "pillow==13.0.0", "numpy==2.5.4", "stretchable==1.1.8", "attrs==25.4.0"]
@@ -310,13 +311,19 @@ def main(argv=None) -> int:
     ap.add_argument("--split", required=True, choices=sorted(SPLITS))
     ap.add_argument("--out", type=Path, default=None, help="default: tasks/<split>")
     ap.add_argument("--budget", type=int, default=DEFAULT_BUDGET_PX)
-    ap.add_argument("--only", nargs="*", default=None, help="build only these item ids")
+    ap.add_argument("--only", nargs="*", default=None,
+                    help="build only these item ids (otherwise the full list is built and other task dirs are removed)")
+    ap.add_argument("--v1", action="store_true",
+                    help="with --split eval: build the first evaluation set (EVAL_V1: logstream, dialogs, "
+                         "dashboard), whose results the README reports as v1. Default out: tasks/eval-v1")
     a = ap.parse_args(argv)
+    if a.v1 and a.split != "eval":
+        ap.error("--v1 needs --split eval")
     if a.budget <= 0:
         ap.error("--budget must be positive")
-    out = a.out or ROOT / "tasks" / a.split
+    out = a.out or ROOT / "tasks" / ("eval-v1" if a.v1 else a.split)
     out.mkdir(parents=True, exist_ok=True)
-    items = SPLITS[a.split]
+    items = EVAL_V1 if a.v1 else SPLITS[a.split]
     if a.only:
         unknown = set(a.only) - {i for i, _, _ in items}
         if unknown:
@@ -327,6 +334,14 @@ def main(argv=None) -> int:
         salt = load_salt(a.split, create=True)
         print(f"generated a new secret salt for split {a.split!r}: {salt_path(a.split)} "
               "(keep it to rebuild these exact items; never commit it)")
+    if not a.only:
+        # A full build owns the directory: drop generated tasks that are not in this item
+        # list (e.g. EVAL v1 items left in tasks/eval), so a run never evaluates stale items.
+        keep = {i for i, _, _ in items}
+        for d in sorted(out.iterdir()):
+            if d.is_dir() and d.name not in keep and (d / "task.toml").is_file():
+                shutil.rmtree(d)
+                print(f"removed stale task {d.name} (not in this item list)")
     for item_id, kind, seed in items:
         d = build_item(out, a.split, item_id, kind, seed, a.budget, salt=salt)
         print(d.relative_to(ROOT) if d.is_relative_to(ROOT) else d)

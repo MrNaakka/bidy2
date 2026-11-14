@@ -1,0 +1,3 @@
+result: {"submitted":true,"answer":"YSW43R","correct":true,"reward":1.0,"pixels_used":116460,"n_calls":12}
+calls logged: 12
+reward=1

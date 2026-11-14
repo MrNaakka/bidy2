@@ -81,3 +81,43 @@ def test_reference_solves_item(serve, item_id, kind, seed):
     assert r["pixels_used"] <= MAX_PIXELS
     # Only the agent's tools were used.
     assert {t["tool"] for t in res["trace"]} <= {"info", "view", "contact_sheet", "submit"}
+
+
+# ------------------------------------------------------------ many seeds, in-process
+class _InProcess:
+    """The reference's MCP client, short-circuited to FrameHuntEnv (same tools, same bytes)."""
+
+    def __init__(self, env: FrameHuntEnv):
+        self.env = env
+
+    def call(self, tool: str, args: dict):
+        from PIL import Image
+
+        fn = getattr(self.env, tool)
+        if tool in ("view", "contact_sheet"):
+            png, text = fn(**args)
+            return Image.open(io.BytesIO(png)).convert("RGB"), text
+        return None, fn(**args)
+
+
+N_MANY = int(os.environ.get("FH_REF_N", "200"))
+
+
+@pytest.mark.parametrize("kind", ["toasts", "leaderboard"])
+def test_reference_many_seeds(kind):
+    """The reference solves every one of N_MANY random 64-bit seeds of the new kinds."""
+    from framehunt.reference import _run
+
+    fails, px = [], []
+    for i in range(N_MANY):
+        seed = splits.derive_seed("refcheck", f"{kind}-{i}", "reference-many-seeds")
+        env = FrameHuntEnv(make_scene(kind, seed), verify_token="t")
+        _run(_InProcess(env), None, time.time())
+        r = env.result()
+        px.append(r["pixels_used"])
+        if not r["correct"]:
+            fails.append((i, seed, r["answer"]))
+    print(json.dumps({"kind": kind, "n": N_MANY, "solved": N_MANY - len(fails), "max_px": max(px),
+                      "mean_px": round(sum(px) / len(px))}))
+    assert not fails, fails
+    assert max(px) <= MAX_PIXELS

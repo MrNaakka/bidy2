@@ -1,0 +1,21 @@
+{
+    "job_name": "fh-eval-opencode-run1",
+    "jobs_dir": "runs",
+    "retry": {
+        "max_retries": 2
+    },
+    "agents": [
+        {
+            "name": "opencode",
+            "model_name": "anthropic/claude-opus-5-5",
+            "kwargs": {
+                "version": "1.19.5"
+            }
+        }
+    ],
+    "datasets": [
+        {
+            "path": "tasks/eval"
+        }
+    ]
+}

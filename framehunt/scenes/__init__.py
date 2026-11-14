@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from .base import Scene, SceneMeta
 
-KINDS: tuple[str, ...] = ("logstream", "dialogs", "dashboard")
+KINDS: tuple[str, ...] = ("logstream", "dialogs", "dashboard", "toasts", "leaderboard")
 
 
 def make_scene(kind: str, seed: int) -> Scene:
@@ -16,6 +16,12 @@ def make_scene(kind: str, seed: int) -> Scene:
     if kind == "dashboard":
         from .dashboard import DashboardScene
         return DashboardScene(seed)
+    if kind == "toasts":
+        from .toasts import ToastsScene
+        return ToastsScene(seed)
+    if kind == "leaderboard":
+        from .leaderboard import LeaderboardScene
+        return LeaderboardScene(seed)
     raise ValueError(f"unknown scene kind {kind!r}; expected one of {KINDS}")
 
 

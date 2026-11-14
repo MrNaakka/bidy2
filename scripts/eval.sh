@@ -10,7 +10,9 @@
 #
 # Options: -n N (concurrent trials, default 4), --runs R (agent runs, default 3),
 #          --model M (default anthropic/claude-opus-5-5; "qwen" = Qwen3.8-27B via infra/verda,
-#          "qwen-fh" = the same with our LoRA adapter), --split S (default eval).
+#          "qwen-fh" = the same with our LoRA adapter), --split S (default eval),
+#          --env E (Harbor environment for every job, default docker; e.g. "modal", which
+#          needs harbor[modal] and MODAL_TOKEN_ID / MODAL_TOKEN_SECRET in the environment).
 #   scripts/eval.sh --stage agents --model qwen --fleet                       # Qwen runs in parallel, one Verda
 #   scripts/eval.sh --stage agents --model qwen-fh --lora train/out/R --fleet # box per run with its own vLLM
 #          (infra/verda/fh eval-up + eval-wait; -n defaults to 15 per box there; long: run it under systemd-run)
@@ -27,6 +29,7 @@ N=
 RUNS=3
 MODEL="anthropic/claude-opus-5-5"
 SPLIT=eval
+HARBOR_ENV=docker
 OPENCODE_VERSION=1.19.5
 FLEET=0
 LORA=
@@ -37,9 +40,10 @@ while [ $# -gt 0 ]; do
     --runs) RUNS="$2"; shift 2 ;;
     --model) MODEL="$2"; shift 2 ;;
     --split) SPLIT="$2"; shift 2 ;;
+    --env) HARBOR_ENV="$2"; shift 2 ;;
     --fleet) FLEET=1; shift ;;
     --lora) LORA="$2"; shift 2 ;;
-    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -47,9 +51,20 @@ case "$STAGE" in all|baselines|agents|summarize) ;; *) echo "bad --stage: $STAGE
 if [ "$FLEET" = 1 ]; then
   case "$MODEL" in qwen) ;; qwen-fh) [ -n "$LORA" ] || { echo "--model qwen-fh --fleet needs --lora DIR" >&2; exit 2; } ;;
     *) echo "--fleet runs Qwen only (--model qwen or qwen-fh)" >&2; exit 2 ;; esac
+  # Harbor runs on the eval boxes, with Docker there.
+  [ "$HARBOR_ENV" = docker ] || { echo "--fleet runs Harbor with Docker on the Verda boxes; drop --env" >&2; exit 2; }
   N="${N:-15}"
 else
   N="${N:-4}"
+fi
+# Default (docker) passes nothing, so the plain command is exactly Harbor's default.
+ENV_ARGS=()
+[ "$HARBOR_ENV" = docker ] || ENV_ARGS=(-e "$HARBOR_ENV")
+if [ "$HARBOR_ENV" = modal ] && [ "$STAGE" != summarize ]; then
+  if [ -z "${MODAL_TOKEN_ID:-}" ] || [ -z "${MODAL_TOKEN_SECRET:-}" ]; then
+    echo "--env modal needs MODAL_TOKEN_ID and MODAL_TOKEN_SECRET in the environment." >&2
+    exit 2
+  fi
 fi
 
 TASKS="tasks/$SPLIT"
@@ -71,7 +86,7 @@ job() {  # job name, then harbor run args
   # sees anything. Other start/build/healthcheck errors are not retried: with the separate
   # verifier, Harbor can raise them after the agent has run, and a retry would hand the agent
   # a fresh pixel budget. Failures after the agent started count as failures.
-  harbor run -p "$TASKS" --job-name "$name" -o "$OUT" -n "$N" -r 2 \
+  harbor run -p "$TASKS" --job-name "$name" -o "$OUT" -n "$N" -r 2 ${ENV_ARGS[@]+"${ENV_ARGS[@]}"} \
     --retry-include AgentSetupTimeoutError -y "$@"
   stage_time "$name" $((SECONDS - t0))
 }
@@ -97,8 +112,19 @@ if [ "$STAGE" = all ] || [ "$STAGE" = baselines ]; then
   PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" job "fh-$SPLIT-stop-early" -a framehunt.baselines.stop_early:StopEarly
 fi
 
+ensure_tasks() {
+  # Build if missing or if the task dir doesn't hold exactly the split's items (e.g. it
+  # was built from an older item list).
+  local want have=""
+  want="$(uv run python -c "from framehunt.splits import SPLITS; print(' '.join(sorted(i for i, _, _ in SPLITS['$SPLIT'])))")"
+  if [ -d "$TASKS" ]; then
+    have="$(find "$TASKS" -mindepth 2 -maxdepth 2 -name task.toml -printf '%h\n' | xargs -rn1 basename | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+  fi
+  [ "$want" = "$have" ] || uv run python scripts/build_tasks.py --split "$SPLIT"
+}
+
 if { [ "$STAGE" = all ] || [ "$STAGE" = agents ]; } && [ "$FLEET" = 1 ]; then
-  [ -d "$TASKS" ] || uv run python scripts/build_tasks.py --split "$SPLIT"
+  ensure_tasks
   LABEL="$MODEL"
   UP=(--tasks "$TASKS" --label "$LABEL" --runs "$RUNS" -n "$N")
   [ "$MODEL" = qwen-fh ] && UP+=(--lora "$LORA")
@@ -108,7 +134,7 @@ if { [ "$STAGE" = all ] || [ "$STAGE" = agents ]; } && [ "$FLEET" = 1 ]; then
   infra/verda/fh eval-wait --fleet "$SPLIT-$LABEL" || FLEET_RC=$?
   stage_time "fleet-$SPLIT-$LABEL" $((SECONDS - t0))
 elif [ "$STAGE" = all ] || [ "$STAGE" = agents ]; then
-  [ -d "$TASKS" ] || uv run python scripts/build_tasks.py --split "$SPLIT"
+  ensure_tasks
   # Give Harbor only the one key the model needs, not the whole .env.
   KEYENV="$(mktemp)"; trap 'rm -f "$KEYENV"' EXIT
   envval() { local v="${!1:-}"; [ -n "$v" ] || v="$(grep -m1 "^$1=" .env 2>/dev/null | cut -d= -f2- || true)"; printf '%s' "$v"; }

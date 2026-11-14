@@ -31,3 +31,4 @@ build 0s
 fh-eval-reference 158s
 fh-eval-nop 149s
 fh-eval-stop-early 187s
+fh-eval-opencode-run3 1648s

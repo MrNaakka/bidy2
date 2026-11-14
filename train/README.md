@@ -103,6 +103,22 @@ Images are ~75 tokens each: Qwen's processor upsamples every small image to >= 6
 
 ## 2. Train on a Verda H100
 
+`infra/verda/fh` does all of the below on a SkyPilot box (`infra/verda/train.yaml`, see
+`infra/verda/README.md`); the manual commands further down are what its job runs.
+
+```bash
+infra/verda/fh volume                     # once per machine: SkyPilot learns the fh-qwen volume
+infra/verda/fh download                   # once: BF16 + FP8 checkpoints and the vLLM venv onto fh-qwen
+infra/verda/fh train-up --run sft-v1 --data train/data/sft-v1 --epochs 1 --max-usd 45
+scripts/watchdog.sh train <logfile> <stopfile>   # train-ensure every 2 min: spot loss, budget, fetch at the end
+infra/verda/fh train-status               # loss, eval loss, spend
+infra/verda/fh train-fetch --run sft-v1   # final/ and logs to train/out/sft-v1/ (train-ensure does it when done)
+infra/verda/fh train-down                 # stop; train-up with the same --run and arguments resumes
+```
+
+`train-up` refuses while `serve-*` holds `fh-qwen` (one box per block volume). The eval boxes use their own
+volumes (`fh-eval-<i>`), so evals can run while training does.
+
 Memory plan (bf16 LoRA, no quantization). Weights 27B x 2 B = 54 GB. LoRA r=16 on full-attention
 q/k/v/o (16 layers) and MLP gate/up/down (64 layers) is ~80M parameters; with fp32 AdamW states,
 ~1 GB. Gradient checkpointing keeps one 5120-wide bf16 hidden state per layer and token
@@ -151,6 +167,15 @@ include to match OpenCode. Without `flash-linear-attention` the 48 Gated DeltaNe
 PyTorch reference kernels and the run is several times slower.
 
 ## 3. Serve the adapter and evaluate with Harbor
+
+Parallel eval (three boxes, each serving the base model and the adapter shipped from `train/out/<run>/final`):
+
+```bash
+infra/verda/fh eval-up --tasks tasks/eval --lora train/out/sft-v1 --runs 3 -n 15 && infra/verda/fh eval-wait
+# or: scripts/eval.sh --stage agents --model qwen-fh --lora train/out/sft-v1 --fleet
+```
+
+Single endpoint on `fh-qwen` instead (the rest of this section):
 
 A finished run's `final/` (PEFT adapter, ~300 MB) lands in `/mnt/fh/adapters/<run>/`.
 `infra/verda/fh serve-up --lora /mnt/fh/adapters/sft-v1` adds these flags to the vLLM command in
