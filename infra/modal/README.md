@@ -9,7 +9,7 @@ infra/modal/fh <command>      # run from the repo root; Modal token from env, ~/
 
 | file | what it is |
 | --- | --- |
-| `app.py` | The Modal app `fh-qwen`: `download_weights`, `serve` (one vLLM container per call), `train` / `train_cc`. |
+| `app.py` | The Modal app `fh-qwen`: `download_weights`, `serve` (one vLLM container per call), `train`. |
 | `fh_modal.py` | Local CLI (`fh` wraps it with `uv run --with modal==1.6.4`). Reuses `infra/verda/fh.py` for the Harbor agent entry, hashing and trainer flags. |
 | `probe_gpus.py` | nvidia-smi on each GPU type, with time to start. |
 
@@ -27,7 +27,7 @@ Modal objects: volume `fh-qwen-weights` (`models/Qwen3.8-27B` + `.REVISION` mark
 | `test [--tag T]` | Vision + tool-call request per served name and a streamed throughput probe through the public URL; writes `last_test.json`. |
 | `serve-down [--tag T \| --all]`, `status` | Stop endpoints; show endpoint and training state. |
 | `eval --tasks DIR [--lora DIR] [--runs 3] [-n 15] [--label L] [--only 2,3] [--sequential]` | Per run: its own endpoint, wait until healthy, Harbor JobConfig with `base_url` = endpoint + `/v1`, `harbor run -e modal -n N` as job `fh-<split>-<label>-run<i>` in `runs/`, then stop the endpoint. Runs go in parallel (20 s apart). Default label `qwen-modal` / `qwen-fh-modal`, so Verda runs in `runs/` are not overwritten. |
-| `train-up --run R --data DIR [--epochs 1 --lr 1e-4 --grad-accum 8 --lora-r 16 --save-every 10] [--gpu H100] [--causal-conv1d]` | Uploads the data (content-addressed), spawns `train` on the GPU. The same `--run` with the same arguments resumes from the newest checkpoint; a different definition is refused (`manifest.json`). |
+| `train-up --run R --data DIR [--epochs 1 --lr 1e-4 --grad-accum 8 --lora-r 16 --save-every 10] [--gpu H100]` | Uploads the data (content-addressed), spawns `train` on the GPU. The same `--run` with the same arguments resumes from the newest checkpoint; a different definition is refused (`manifest.json`). |
 | `train-status [--run R]`, `train-fetch --run R`, `train-down --run R` | Loss / s per step; copy `final/` and logs to `train/out/R/`; stop (SIGTERM -> checkpoint at the next step -> exit, then cancel). |
 | `stop-all` | Stops every endpoint and training call this machine started, then `modal app stop fh-qwen`. |
 
@@ -65,5 +65,6 @@ journalctl --user -u fh-modal-eval-qwen -f
 lost container; Modal retries a failed call twice, and every attempt resumes from the newest complete
 checkpoint. When `DONE` is written the adapter is copied to `fh-train:adapters/<run>`; `train-fetch` brings
 it to `train/out/<run>/final` (what `eval --lora train/out/<run>` takes). The image installs
-`train/requirements.txt` + `requirements-gpu.txt` (same pins as `infra/verda/train.yaml`); `train_cc` adds
-`causal-conv1d==1.7.0` built for sm_90/sm_100.
+`train/requirements.txt` + `requirements-gpu.txt` (same pins as `infra/verda/train.yaml`, so
+flash-linear-attention is in). causal-conv1d is not: 1.7.0 has no prebuilt wheel for CUDA 13 / torch 2.15 and
+the source build failed, so the GDN conv uses transformers' PyTorch fallback, as on Verda.

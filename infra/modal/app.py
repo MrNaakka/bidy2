@@ -11,9 +11,8 @@ The local side (spawning, waiting, Harbor, fetching) is fh_modal.py; see README.
   per-request timeout; vLLM does the batching). Publishes url/phase/GPU/vllm command in the Dict
   fh-qwen-state under the call's tag. Exits on a stop flag, after idle_min without requests, after
   max_hours, or when vLLM dies; the function timeout is the hard backstop.
-- train / train_cc: train/sft_lora.py against the weights volume, data and runs on the volume fh-train,
-  resuming from the newest checkpoint (Modal retries the call after a preemption). train_cc's image also
-  has causal-conv1d.
+- train: train/sft_lora.py against the weights volume, data and runs on the volume fh-train,
+  resuming from the newest checkpoint (Modal retries the call after a preemption).
 """
 
 from __future__ import annotations
@@ -75,15 +74,8 @@ train_base = (modal.Image.from_registry(CUDA_BASE, add_python="3.12")
                                             str(ROOT / "train/requirements-gpu.txt")])
               .env({"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True", "HF_HUB_OFFLINE": "1",
                     "TOKENIZERS_PARALLELISM": "false", "CUDA_HOME": "/usr/local/cuda"}))
-# causal-conv1d has no wheel on PyPI: its setup.py fetches a prebuilt wheel from GitHub when one matches
-# torch/CUDA/Python, else compiles (sm_90/sm_100 only, to keep the build short).
-# A failed install leaves the image without it (and says so in the build log); the trainer then falls back.
-train_cc_base = train_base.run_commands(
-    "pip install -q packaging wheel setuptools ninja && "
-    "( TORCH_CUDA_ARCH_LIST='9.0;10.0' MAX_JOBS=16 timeout 1500 pip install --no-build-isolation causal-conv1d==1.7.0 "
-    "&& python -c 'import causal_conv1d, causal_conv1d_cuda; print(\"causal-conv1d OK\", causal_conv1d.__version__)' "
-    "|| ( pip uninstall -y causal-conv1d; echo 'causal-conv1d UNAVAILABLE' ) )",
-)
+# causal-conv1d: not installed. 1.7.0 is sdist-only on PyPI, GitHub has no prebuilt wheel for cu13/torch2.15/cp312,
+# and the source build in this image failed (tried 2026-11-14), so the GDN conv uses transformers' PyTorch fallback.
 
 
 def _with_code(img: modal.Image) -> modal.Image:
@@ -93,7 +85,6 @@ def _with_code(img: modal.Image) -> modal.Image:
 
 
 train_image = _with_code(train_base)
-train_cc_image = _with_code(train_cc_base)
 
 
 # ---------------------------------------------------------------------------------------------- weights
@@ -287,7 +278,3 @@ _TRAIN_KW = dict(gpu=TRAIN_GPU, volumes={W: weights, T: trainvol}, timeout=TRAIN
 def train(run: str, trainer_args: list[str], manifest: str) -> dict:
     return _train_impl(run, trainer_args, manifest)
 
-
-@train_app.function(image=train_cc_image, **_TRAIN_KW)
-def train_cc(run: str, trainer_args: list[str], manifest: str) -> dict:
-    return _train_impl(run, trainer_args, manifest)

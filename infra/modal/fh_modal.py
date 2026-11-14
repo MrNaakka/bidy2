@@ -410,10 +410,9 @@ def cmd_train_up(args) -> None:
     targs = verda.trainer_args(args.run, f"/t/{remote}", args)
     targs = [a.replace(f"{verda.MNT}/models/", "/w/models/").replace(f"{verda.MNT}/runs/", "/t/runs/") for a in targs]
     code_sha = verda.sha_files([ROOT / "train" / f for f in verda.TRAIN_CODE_FILES])
-    run = {"run": args.run, "data_sha": dsha, "code_sha": code_sha, "trainer_args": targs, "backend": "modal",
-           "causal_conv1d": args.causal_conv1d}
+    run = {"run": args.run, "data_sha": dsha, "code_sha": code_sha, "trainer_args": targs, "backend": "modal"}
     manifest = json.dumps(run, sort_keys=True)
-    f = fn("train_cc" if args.causal_conv1d else "train")
+    f = fn("train")
     if args.gpu != "H100":
         f = f.with_options(gpu=args.gpu)
     remote_dict().pop(f"trainstop:{args.run}", None)
@@ -539,7 +538,6 @@ def main(argv=None) -> None:
     s.add_argument("--save-every", type=int, default=10)
     s.add_argument("--trainer-arg", action="append")
     s.add_argument("--gpu", default="H100")
-    s.add_argument("--causal-conv1d", action="store_true", help="image with causal-conv1d (train_cc)")
     s.set_defaults(fn=cmd_train_up)
     s = sub.add_parser("train-status")
     s.add_argument("--run")
