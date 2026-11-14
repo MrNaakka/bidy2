@@ -44,7 +44,7 @@ import numpy as np
 from anyio.from_thread import start_blocking_portal
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 FONT_DIR = Path(os.environ.get("FH_FONT_DIR") or Path(__file__).resolve().parent / "assets" / "fonts")
 FONT_FILES = {"sans": "DejaVuSans.ttf", "sans-bold": "DejaVuSans-Bold.ttf",
@@ -118,7 +118,7 @@ class Session:
         x, y, w, h = box
         args = {"t": round(frame / self.fps, 4), "x": x, "y": y, "w": w, "h": h, "out_width": out_width}
         img, text = self.c.call("view", args)
-        got = int(re.search(r"frame=(\d+)", text).group(1))
+        got = int(re.search(r"(?:frame|page)=(\d+)", text).group(1))
         if got != frame:
             raise RuntimeError(f"asked for frame {frame}, got {got}: {text}")
         self._log({"tool": "view", "args": args, "purpose": purpose, "frame": frame,
@@ -234,6 +234,10 @@ def parse_question(q: str) -> dict:
         return {"kind": "toasts", "k": int(m.group(1))}
     if m := re.search(r'the endpoint "([^"]+)" show in that table.*?"alerts fired" counter.*?reached (\d+)', q):
         return {"kind": "leaderboard", "endpoint": m.group(1), "k": int(m.group(2))}
+    if m := re.search(r'the note titled "([^"]+)" has a table "([^"]+)".*?for "([^"]+)" in the column "([^"]+)" '
+                      r'at 31 December (\d{4})', q):
+        return {"kind": "scandoc", "title": m.group(1), "table": m.group(2), "row": m.group(3), "col": m.group(4),
+                "year": int(m.group(5))}
     raise ValueError(f"unrecognised question: {q!r}")
 
 
@@ -572,6 +576,275 @@ class Board:
                      "ocr_margin": round(margin, 2)}
 
 
+# ============================================================== scanned document
+class Doc:
+    """Scanned annual report (kind ``scandoc``): page index = frame index.
+
+    Plan: find the Contents page (header title at 1/4), find the note's row in the
+    contents by its title (title column at 1/4), read its printed page number (1/4),
+    jump to that PDF index and correct by the printed page number found there until the
+    two agree (the printed numbering is shifted by the front matter and by unnumbered
+    inserted pages), then step through the note's pages reading only the table date
+    (1/4) until the asked year, find the row (row labels at 1/4) and the column (column
+    headers at 1/4), and read the amount from one native crop.
+
+    Every page is a scan: shifted by up to 4 px and skewed by up to 0.12 degrees. Each
+    low-res read therefore searches a small grid of shifts; the native read searches
+    every 1-px shift around the estimate.
+    """
+    PW, PH = 1240, 1754
+    ML, MR = 100, 1140
+    CUE = ("sans-bold", 36)
+    TOC_FONT = ("sans", 36)
+    HEADER_Y, RULE_Y = 48, 104
+    TOC_Y0, TOC_PITCH, TOC_MAX_ROWS, TOC_TITLE_X = 180, 60, 22, 290
+    DATE_Y, COLHEAD_Y, ROW_Y0, ROW_PITCH, MAX_ROWS = 205, 300, 380, 64, 9
+    COL_R = (820, 1140)
+    AMOUNT_FONT, CELL, AMOUNT_DY = ("mono", 17), 11, 12
+    INK = 28
+    SOFTEN = ImageFilter.Kernel((3, 3), (1, 2, 1, 2, 4, 2, 1, 2, 1), 16)
+    SCALE = 4                                  # cue reads at 1/4
+    LEFT_BOX = (80, 30, 440, 90)               # header title (+ left end of the rule)
+    FOLIO_BOX = (900, 30, 260, 90)             # printed page number (+ right end of the rule)
+    TITLES_W = 280                             # first ~14 characters of each contents title
+    LABELS_W = 230
+
+    # ---------------------------------------------------------------- imaging
+    @staticmethod
+    def norm(obs: np.ndarray) -> np.ndarray:
+        """Grey levels mapped to 0 (ink) .. 1 (paper), per crop."""
+        g = obs.astype(np.float32).mean(-1)
+        paper = max(float(np.percentile(g, 90)), 120.0)
+        return np.clip((g - 24.0) / (paper - 24.0), 0.0, 1.0)
+
+    @classmethod
+    def template(cls, box, items, shift=(0, 0), out_width: int | None = None) -> np.ndarray:
+        """Render text items [(x, y, text, font, size, align)] and rectangles [("rect", x0, y0, x1, y1)]
+        in page coordinates, shifted by `shift`, inside `box`; soften; downscale like the server."""
+        bx, by, bw, bh = box
+        dx, dy = shift
+        im = Image.new("L", (bw, bh), 255)
+        d = ImageDraw.Draw(im)
+        for it in items:
+            if it[0] == "rect":
+                _, x0, y0, x1, y1 = it
+                d.rectangle((x0 - bx + dx, y0 - by + dy, x1 - bx + dx, y1 - by + dy), fill=cls.INK)
+                continue
+            if it[0] == "dot":
+                _, x, y = it
+                d.ellipse((x - bx + dx, y - by + dy, x + 4 - bx + dx, y + 4 - by + dy), fill=120)
+                continue
+            x, y, text, fname, size, align = it
+            f = font(fname, size)
+            if align == "right":
+                x -= f.getlength(text)
+            d.text((x - bx + dx, y - by + dy), text, font=f, fill=cls.INK)
+        im = im.filter(cls.SOFTEN)
+        if out_width is not None and out_width < bw:
+            im = im.resize(out_size(bw, bh, out_width), RESAMPLE)
+        a = np.asarray(im, np.float32)
+        return np.clip((a - cls.INK) / (255.0 - cls.INK), 0.0, 1.0)
+
+    @staticmethod
+    def err(a: np.ndarray, b: np.ndarray) -> float:
+        h, w = min(a.shape[0], b.shape[0]), min(a.shape[1], b.shape[1])
+        return float(np.abs(a[:h, :w] - b[:h, :w]).mean())
+
+    SHIFTS = [(dx, dy) for dx in (-4, -2, 0, 2, 4) for dy in (-4, -2, 0, 2, 4)]
+
+    @classmethod
+    def best_shift(cls, obs: np.ndarray, box, items, out_width, shifts=None):
+        """(error, shift) of the best-matching shift of a known layout."""
+        return min((cls.err(obs, cls.template(box, items, sh, out_width)), sh) for sh in (shifts or cls.SHIFTS))
+
+    @staticmethod
+    def near(sh, r=1):
+        return [(sh[0] + a, sh[1] + b) for a in range(-r, r + 1) for b in range(-r, r + 1)]
+
+    # ---------------------------------------------------------------- reads
+    @classmethod
+    def read_header_left(cls, s: Session, page: int, title: str, purpose: str):
+        """Does page show `title` at the top left? Returns (match error, blank error, shift)."""
+        box, ow = cls.LEFT_BOX, cls.LEFT_BOX[2] // cls.SCALE
+        obs = cls.norm(s.view(page, box, ow, purpose))
+        rule = ("rect", cls.ML, cls.RULE_Y, cls.MR, cls.RULE_Y + 2)
+        e, sh = cls.best_shift(obs, box, [rule, (cls.ML, cls.HEADER_Y, title, *cls.CUE, "left")], ow)
+        e0 = min(cls.err(obs, cls.template(box, its, (0, 0), ow)) for its in ([], [rule]))
+        return e, e0, sh
+
+    @classmethod
+    def read_folio(cls, s: Session, page: int, purpose: str, max_folio: int = 520):
+        """Printed (arabic) page number at the top right, or None (no number: an inserted page)."""
+        box, ow = cls.FOLIO_BOX, cls.FOLIO_BOX[2] // cls.SCALE
+        obs = cls.norm(s.view(page, box, ow, purpose))
+        rule = ("rect", cls.ML, cls.RULE_Y, cls.MR, cls.RULE_Y + 2)
+        e_rule, sh = cls.best_shift(obs, box, [rule], ow)
+        e_none = cls.err(obs, cls.template(box, [], (0, 0), ow))
+        if e_rule >= e_none:           # no header rule: unnumbered page
+            return None, sh
+        def items(n):
+            return [rule, (cls.MR, cls.HEADER_Y, str(n), *cls.CUE, "right")]
+
+        top = sorted((cls.err(obs, cls.template(box, items(n), sh, ow)), n) for n in range(1, max_folio + 1))[:5]
+        _, sh = cls.best_shift(obs, box, items(top[0][1]), ow, cls.near(sh))
+        _, n = min((cls.err(obs, cls.template(box, items(m), sh, ow)), m) for _, m in top)
+        return n, sh
+
+    @classmethod
+    def toc_row_items(cls, folio: str, title_end: float, k: int):
+        y = cls.TOC_Y0 + k * cls.TOC_PITCH
+        items = [(cls.MR, y, folio, *cls.CUE, "right")]
+        x1 = cls.MR - font(*cls.CUE).getlength(folio) - 16
+        x = title_end + 16
+        x += (-x) % 18
+        while x < x1:
+            items.append(("dot", x, y + 30))
+            x += 18
+        return items
+
+    @classmethod
+    def solve(cls, s: Session, q: dict) -> tuple[str, dict]:
+        # 1. the Contents page: within the first few pages, header "Contents" at the top left
+        toc_page, toc_shift = None, (0, 0)
+        for p in range(1, 6):
+            e, e0, sh = cls.read_header_left(s, p, "Contents", "is this the Contents page? (header title at 1/4)")
+            if e < 0.75 * e0:
+                toc_page, toc_shift = p, sh
+                break
+        if toc_page is None:
+            raise RuntimeError("Contents page not found")
+        # 2. the note's row: its title in the title column at 1/4
+        nrows = cls.TOC_MAX_ROWS
+        box = (cls.TOC_TITLE_X - 10, cls.TOC_Y0 - 10, cls.TITLES_W, nrows * cls.TOC_PITCH + 10)
+        ow = box[2] // cls.SCALE
+        obs = cls.norm(s.view(toc_page, box, ow, f"find \"{q['title']}\" in the contents (title column at 1/4)"))
+        rh = cls.TOC_PITCH / cls.SCALE
+        errs = []
+        for k in range(nrows):
+            y0, y1 = int(k * rh), int((k + 1) * rh) + 2
+            e = min(cls.err(obs[y0:y1], cls.template(box, [(cls.TOC_TITLE_X, cls.TOC_Y0 + k * cls.TOC_PITCH, q["title"], *cls.TOC_FONT, "left")], sh, ow)[y0:y1])
+                    for sh in cls.near(toc_shift, 2)[::2])
+            errs.append((e, k))
+        errs.sort()
+        row = errs[0][1]
+        # 3. its printed page number (right column, 1/4)
+        yr = cls.TOC_Y0 + row * cls.TOC_PITCH
+        fbox = (cls.MR - 150, yr - 10, 170, 60)
+        fow = fbox[2] // cls.SCALE
+        fobs = cls.norm(s.view(toc_page, fbox, fow, "read the note's printed page number in the contents (1/4)"))
+        title_end = cls.TOC_TITLE_X + font(*cls.TOC_FONT).getlength(q["title"])
+        printed = min((cls.err(fobs, cls.template(fbox, cls.toc_row_items(str(n), title_end, row), sh, fow)), n)
+                      for n in range(1, 520) for sh in cls.near(toc_shift, 2)[::4])[1]
+        # 4. jump: printed page numbers are not PDF indexes; correct by the number found
+        idx, hops = printed, []
+        for _ in range(10):
+            idx = min(max(idx, 0), s.n_frames - 1)
+            folio, sh = cls.read_folio(s, idx, f"printed page number at PDF page {idx} (want {printed})")
+            hops.append((idx, folio))
+            if folio == printed:
+                break
+            idx += 1 if folio is None else printed - folio
+        else:
+            raise RuntimeError(f"could not reach printed page {printed}: {hops}")
+        note_page = idx
+        # 5. the table for the asked year: read only the date line of the following pages
+        years = (q["year"], q["year"] + 1, q["year"] - 1)
+        dbox = (cls.ML - 10, cls.DATE_Y - 10, 440, 60)
+        dow = dbox[2] // cls.SCALE
+        table_page, seen = None, []
+        for p in range(note_page, min(note_page + 8, s.n_frames)):
+            dobs = cls.norm(s.view(p, dbox, dow, f"table date on PDF page {p} (want 31 December {q['year']})"))
+            res = {y: cls.best_shift(dobs, dbox, [(cls.ML, cls.DATE_Y, f"31 December {y}", *cls.CUE, "left")], dow)
+                   for y in years}
+            e_blank = cls.err(dobs, cls.template(dbox, [], (0, 0), dow))
+            ybest = min(res, key=lambda y: res[y][0])
+            seen.append((p, ybest, round(res[ybest][0], 3), round(e_blank, 3)))
+            if ybest == q["year"] and res[ybest][0] < 0.6 * e_blank:
+                table_page, tshift = p, res[ybest][1]
+                break
+        if table_page is None:
+            raise RuntimeError(f"table for {q['year']} not found: {seen}")
+        # 6. the row (labels at 1/4) and the column (headers at 1/4)
+        lbox = (cls.ML - 10, cls.ROW_Y0 - 10, cls.LABELS_W, cls.MAX_ROWS * cls.ROW_PITCH)
+        low = lbox[2] // cls.SCALE
+        lobs = cls.norm(s.view(table_page, lbox, low, f"find the row \"{q['row']}\" (row labels at 1/4)"))
+        rh = cls.ROW_PITCH / cls.SCALE
+        rerrs = []
+        for k in range(cls.MAX_ROWS - 1):
+            y0, y1 = int(k * rh), int((k + 1) * rh)
+            e = min(cls.err(lobs[y0:y1], cls.template(lbox, [(cls.ML, cls.ROW_Y0 + k * cls.ROW_PITCH, q["row"], "sans", 36, "left")], sh, low)[y0:y1])
+                    for sh in cls.near(tshift, 2)[::2])
+            rerrs.append((e, k))
+        rerrs.sort()
+        trow = rerrs[0][1]
+        cbox = (500, cls.COLHEAD_Y - 10, 660, 60)
+        cow = cbox[2] // cls.SCALE
+        cobs = cls.norm(s.view(table_page, cbox, cow, f"which column is \"{q['col']}\"? (headers at 1/4)"))
+        cerrs = sorted((min(cls.err(cobs, cls.template(cbox, [(cls.COL_R[c], cls.COLHEAD_Y, q["col"], *cls.CUE, "right")], sh, cow))
+                            for sh in cls.near(tshift, 2)[::2]), c) for c in (0, 1))
+        col = cerrs[0][1]
+        # 7. one native crop of the amount
+        ry = cls.ROW_Y0 + trow * cls.ROW_PITCH + cls.AMOUNT_DY
+        n_cells = 7
+        m = 8
+        abox = (cls.COL_R[col] - n_cells * cls.CELL - m, ry - m, n_cells * cls.CELL + 2 * m, 17 + 6 + 2 * m)
+        aobs = cls.norm(s.view(table_page, abox, abox[2], "read the amount at native resolution"))
+        val, margin = cls.ocr_amount(aobs, abox, cls.COL_R[col], ry)
+        return val, {"toc_page": toc_page, "toc_row": row, "printed_page": printed, "hops": hops,
+                     "note_page": note_page, "table_page": table_page, "row": trow, "col": col,
+                     "ocr_margin": round(margin, 3)}
+
+    _cells: dict = {}
+
+    @classmethod
+    def cell_templates(cls) -> dict:
+        if not cls._cells:
+            f = font(*cls.AMOUNT_FONT)
+            for ch in "0123456789 ":
+                im = Image.new("L", (cls.CELL + 6, 30), 255)
+                ImageDraw.Draw(im).text((3, 3), ch.strip(), font=f, fill=cls.INK)
+                a = np.asarray(im.filter(cls.SOFTEN), np.float32)
+                cls._cells[ch] = np.clip((a - cls.INK) / (255.0 - cls.INK), 0, 1)[3:27, 3:3 + cls.CELL]
+        return cls._cells
+
+    @classmethod
+    def ocr_amount(cls, obs: np.ndarray, box, right: int, top: int) -> tuple[str, float]:
+        """Read 'ddd ddd' right-aligned at `right` (one glyph per 11-px cell), searching 1-px shifts."""
+        tm = cls.cell_templates()
+        best = None
+        for dy in range(-6, 7):
+            for dx in range(-6, 7):
+                y0 = top - box[1] + dy
+                if y0 < 0 or y0 + 24 > obs.shape[0]:
+                    continue
+                if right - 7 * cls.CELL - box[0] + dx < 0 or right - box[0] + dx > obs.shape[1]:
+                    continue
+                total, picks = 0.0, []
+                for k in range(1, 8):          # cells from the right
+                    x0 = right - k * cls.CELL - box[0] + dx
+                    cell = obs[y0:y0 + 24, x0:x0 + cls.CELL]
+                    errs = sorted((float(np.abs(cell - t).mean()), c) for c, t in tm.items())
+                    if k == 4:                 # the thousands separator is always blank
+                        total += float(np.abs(cell - tm[" "]).mean())
+                        picks.append((" ", math.inf))
+                        continue
+                    if k <= 3:                 # always digits
+                        errs = [e for e in errs if e[1] != " "]
+                    total += errs[0][0]
+                    picks.append((errs[0][1], errs[1][0] - errs[0][0]))
+                text, margin = "", math.inf
+                for k, (c, mg) in enumerate(picks, start=1):
+                    if k == 4:
+                        continue
+                    if c == " ":
+                        break
+                    text = c + text
+                    margin = min(margin, mg)
+                if best is None or total < best[0]:
+                    best = (total, text, margin)
+        return best[1], best[2]
+
+
 # ============================================================== main
 def run(url: str, out=sys.stdout) -> dict:
     t0 = time.time()
@@ -586,6 +859,10 @@ def _run(c: MCPClient, out, t0: float) -> dict:
     s = Session(c, out=out)
     info = s.info()
     q = parse_question(info["question"])
+    if q["kind"] == "scandoc":
+        answer, note = Doc.solve(s, q)
+        note = {"kind": q["kind"], **note}
+        return _finish(s, info, q, answer, note, out, t0)
     ov = s.view(s.n_frames - 1, (0, 0, W, H), W // 8, "overview of the last frame at 1/8")
     seen = overview_kind(ov)
     if q["kind"] == "logstream":
@@ -599,6 +876,10 @@ def _run(c: MCPClient, out, t0: float) -> dict:
     else:
         answer, note = Dash.solve(s, q, ov)
     note = {"kind": q["kind"], "overview_kind": seen, **note}
+    return _finish(s, info, q, answer, note, out, t0)
+
+
+def _finish(s: Session, info: dict, q: dict, answer: str, note: dict, out, t0: float) -> dict:
     s.submit(answer, note)
     summary = {"summary": True, "kind": q["kind"], "answer": answer, "pixels_used": s.pixels_used,
                "budget_total": int(info["budget_total"]), "n_calls": len(s.trace),
