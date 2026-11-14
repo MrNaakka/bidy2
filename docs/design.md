@@ -66,13 +66,15 @@ leaderboard (10 each); dialogs and dashboard stay in the code, in DEV and in TRA
   stacking at the top right: Info (blue), Warning (amber), Error (red), each with a
   6-character code (all codes in a scene share a 2-character prefix). The newest toast
   takes the top slot and pushes the others down; at most 5 are visible; each lives
-  8–12 s (or until 5 newer ones arrive). Arrivals are 0.2–3 s apart, in bursts. The bell
+  4–6 s (or until 5 newer ones arrive). Toasts come in bursts (an incident: 0.2–0.9 s
+  apart, mostly Errors) separated by calm stretches (1–3 s apart, mostly Info), so 2–4
+  red Error toasts with the same prefix are often on screen together. The bell
   badge counts Error toasts only. Question: "What code was shown on the K-th Error
   toast?" Guarantees: K ≥ 2 and on frame f-1 the (K-1)-th Error toast is still on
   screen as the newest red toast (same prefix); the next toast arrives 0.2–0.6 s after
   f, so a few frames late the target is no longer on top (it stays visible lower in the
-  stack), and half the time that next toast is the (K+1)-th Error, so "the newest red
-  toast" is wrong as well. The level of every toast is visible at 1/8 from its 24-px colour stripe.
+  stack, for at least 1 s), and the (K+1)-th Error arrives within 1.5 s, so soon after
+  f "the newest red toast" is a look-alike, not the target. The level of every toast is visible at 1/8 from its 24-px colour stripe.
 - `leaderboard`: an API error tracker. The "Endpoints by errors / min" table lists 10
   endpoints (all always visible), sorted by value, and refreshes every 0.5 s (5 frames):
   values change and rows move (an endpoint changes row on about a third of the
@@ -107,7 +109,9 @@ frames late (E's next value), and one misread of the counter on 24-px contact-sh
 tiles that was never checked at a legible scale. Toasts 6/6: even when Opus read 1 to 7
 frames late, it combined the badge count with the stack order and the red stripe to pick
 the right toast lower in the stack (Error toasts are a minority, so usually only one or
-two are visible). The toast mechanism does not bite yet (open issue).
+two are visible). Toasts were then reworked: 4–6 s lives (a realistic default), and
+Error-heavy bursts, so several red look-alikes surround the target and the (K+1)-th
+Error follows within 1.5 s.
 
 ## Interfaces
 

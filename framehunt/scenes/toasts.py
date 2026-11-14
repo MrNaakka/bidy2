@@ -2,8 +2,10 @@
 
 Toasts (Info blue, Warning amber, Error red) pop up in a column at the top right. The
 newest toast takes the top slot and pushes the others down; at most 5 are visible, and
-each one lives 8-12 s (or until 5 newer toasts have pushed it out). Every toast carries
-a 6-character code, and all codes in a scene share a 2-character prefix.
+each one lives 4-6 s (or until 5 newer toasts have pushed it out). Toasts come in
+bursts (an incident: fast, Error-heavy) separated by calm stretches (slow, mostly Info),
+so 2-4 red Error toasts with the same code prefix are often visible together. Every
+toast carries a 6-character code, and all codes in a scene share a 2-character prefix.
 
 Question: the code on the K-th Error toast. Trace: the notification bell's badge counts
 Error toasts shown so far (lasting, monotonic, legible at 1/8).
@@ -13,9 +15,11 @@ Construction guarantees (what makes being slightly off a confident wrong answer)
     Error toast is still on screen, red and with the same code prefix, as the newest
     red toast, so reading one frame early gives a convincing wrong code;
   * the next toast arrives 0.2-0.6 s after f, so the target leaves the top slot: a
-    few frames late, "the top toast" is a different toast, and half the time it is
-    the (K+1)-th Error, so "the newest red toast" is wrong too.
-The target stays on screen for its whole 8-12 s life, only in a different slot.
+    few frames late, "the top toast" is a different toast (often the next Error);
+  * the (K+1)-th Error arrives within 1.5 s of f, so soon after f the target is one of
+    several red look-alikes lower in the stack, no longer the newest red toast.
+The target stays on screen for at least 1 s (usually its whole 4-6 s life), only in a
+different slot.
 """
 from __future__ import annotations
 
@@ -57,6 +61,8 @@ CODE_BOX_RGB = (241, 243, 245)
 MAX_ERRORS = 99                             # badge stays 1-2 digits
 
 LEVELS = ("info", "warning", "error")
+BURST_WEIGHTS = (25, 20, 55)                # info, warning, error
+CALM_WEIGHTS = (65, 27, 8)
 LEVEL_RGB = {"info": BLUE, "warning": (230, 160, 0), "error": RED}
 LEVEL_TINT = {"info": (234, 242, 255), "warning": (255, 247, 224), "error": (253, 234, 234)}
 LEVEL_WORD = {"info": "Info", "warning": "Warning", "error": "Error"}
@@ -120,9 +126,11 @@ class ToastsScene(Scene):
             burst = rr.random() < 0.5
             while f < n_frames:
                 arrivals.append(f)
-                levels.append(rr.choices(LEVELS, [50, 32, 18])[0])
-                lives.append(rr.randint(80, 120))           # 8-12 s
-                if rr.random() < 0.3:
+                # Bursts are fast and Error-heavy (an incident); calm stretches are slow
+                # and mostly Info, so several red look-alikes are on screen in a burst.
+                levels.append(rr.choices(LEVELS, BURST_WEIGHTS if burst else CALM_WEIGHTS)[0])
+                lives.append(rr.randint(40, 60))            # 4-6 s
+                if rr.random() < (0.2 if burst else 0.07):     # bursts ~5 toasts, calm ~15
                     burst = not burst
                 f += rr.randint(2, 9) if burst else rr.randint(10, 30)   # 0.2-3 s apart
             n = len(arrivals)
@@ -130,17 +138,21 @@ class ToastsScene(Scene):
             ends = [min(a + life, arrivals[i + N_SLOTS] if i + N_SLOTS < n else a + life)
                     for i, (a, life) in enumerate(zip(arrivals, lives))]
             errs = [i for i, lv in enumerate(levels) if lv == "error"]
-            if not 2 <= len(errs) <= MAX_ERRORS - 1:   # room to promote the successor
+            if not 3 <= len(errs) <= MAX_ERRORS:
                 continue
             cands = []
-            for k in range(2, len(errs) + 1):
-                i, j = errs[k - 1], errs[k - 2]
+            for k in range(2, len(errs)):
+                i, j, nx = errs[k - 1], errs[k - 2], errs[k]
                 fk = arrivals[i]
-                if not (0.1 * n_frames <= fk <= 0.9 * n_frames) or i + 1 >= n:
+                if not (0.1 * n_frames <= fk <= 0.9 * n_frames):
                     continue
                 if not arrivals[j] <= fk - 1 < ends[j]:     # (K-1)-th Error still visible
                     continue
                 if not 2 <= arrivals[i + 1] - fk <= 6:      # next toast 0.2-0.6 s later
+                    continue
+                if not arrivals[nx] - fk <= 15:              # (K+1)-th Error within 1.5 s
+                    continue
+                if ends[i] < fk + 10:                         # target on screen >= 1 s
                     continue
                 cands.append(k)
             if cands:
@@ -148,10 +160,6 @@ class ToastsScene(Scene):
         else:  # pragma: no cover
             raise RuntimeError("could not build toast timeline")
         self.k = rr.choice(cands)
-        nxt = errs[self.k - 1] + 1
-        if levels[nxt] != "error" and rr.random() < 0.5:   # half the time the next one is an Error
-            levels[nxt] = "error"
-            errs = [i for i, lv in enumerate(levels) if lv == "error"]
         prefix = "".join(rr.choice(CODE_ALPHABET) for _ in range(2))
         codes: list[str] = []
         seen: set[str] = set()

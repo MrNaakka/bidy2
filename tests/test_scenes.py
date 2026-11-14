@@ -482,12 +482,18 @@ def test_toast_texts_fit():
             assert text_width(f"{LEVEL_WORD[lv]}: {title}", "sans-bold", 18) <= TOAST_W - 116
 
 
-def test_toasts_next_is_often_an_error():
-    """Half the time (plus the base rate) the toast right after the target is the
-    (K+1)-th Error, so "the newest red toast" a few frames late is wrong."""
-    hits = 0
+def test_toasts_lookalikes_around_the_event():
+    """The (K+1)-th Error arrives within 1.5 s of f, so a second late the target is no
+    longer the newest red toast, and on most items several red toasts are on screen."""
+    many_red = 0
     for seed in range(100):
         sc = make_scene("toasts", seed)
-        t = sc.debug_info()["target_index"]
-        hits += sc.toasts[t + 1]["level"] == "error"
-    assert 40 <= hits <= 80, hits
+        info = sc.debug_info()
+        f, k, t = info["event_frame"], info["k"], info["target_index"]
+        assert info["errors"][k]["arrive_frame"] - f <= 15            # (K+1)-th Error
+        reds = [i for i in sc.visible_at(f + 15) if sc.toasts[i]["level"] == "error"]
+        assert reds[0] != t
+        many_red += len(reds) >= 2
+        assert all(40 <= tt["end"] - tt["arrive"] <= 60 or tt["end"] - tt["arrive"] < 40
+                   for tt in sc.toasts)                                 # 4-6 s, or evicted
+    assert many_red >= 80, many_red
