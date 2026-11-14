@@ -676,6 +676,7 @@ EVAL_RELAY_URL = "http://172.17.0.1:18000/v1"   # socat on the box's Docker brid
 OPENCODE_VERSION = "1.19.5"
 EVAL_TERMINAL = {"SUCCEEDED", "FAILED", "FAILED_SETUP", "FAILED_DRIVER", "FAILED_PRECHECKS", "CANCELLED"}
 EVAL_FETCH_TRIES = 3
+LEAK_WINDOW_S = 30 * 60
 EVAL_NAME_RE = r"[a-z0-9][a-z0-9-]{0,15}"
 LORA_FILES = ("adapter_config.json", "adapter_model.safetensors")
 EVAL_PROBE = r"""
@@ -879,12 +880,48 @@ def cmd_eval_up(args) -> None:
                 if cluster_status(box["cluster"]) is not None:
                     down(box["cluster"])
         save_evals(evals)
+        for note in sweep_leaks([fleet["boxes"][str(i)]["cluster"] for i, rc in rcs.items() if rc != 0]):
+            log(f"eval: {note}")
     for i in runs:
         b = fleet["boxes"][str(i)]
         log(f"eval {defn['fleet']} run {i}: {b['cluster']} {b['state']}")
     if any(rc != 0 for rc in rcs.values()):
         log(f"eval: some launches failed (no capacity?); see the launch logs in {STAGE_DIR}; "
-            f"retry with eval-up ... --only N")
+            f"retry with eval-up ... --only N. Run eval-wait (or eval-down): it keeps deleting instances a "
+            f"timed-out launch leaves behind for {LEAK_WINDOW_S // 60} minutes.")
+
+
+def verda_client():
+    from sky.adaptors.verda import VerdaClient
+
+    return VerdaClient()
+
+
+def sweep_leaks(clusters: list[str]) -> list[str]:
+    """Delete Verda instances and volumes named after eval clusters that SkyPilot does not know (any more).
+
+    The fork treats a timed-out create call (Verda's API is slow at times) as no capacity and forgets the
+    instance, which Verda then boots anyway; a failed boot can also stay behind. Names are
+    `<cluster>-<user hash>-head` (instance and OS volume), so only `fh-ev-*` resources can match.
+    """
+    gone = [c for c in clusters if c.startswith("fh-ev-") and cluster_status(c) is None]
+    if not gone:
+        return []
+    client, notes = verda_client(), []
+
+    def ours(name: str) -> bool:
+        return any(name.startswith(c + "-") for c in gone)
+
+    for inst in client.instances_get():
+        if ours(inst.hostname):
+            vols = [inst.os_volume_id] if inst.os_volume_id else None
+            client.instance_action(inst.instance_id, "delete", volume_ids=vols)
+            notes.append(f"deleted leaked Verda instance {inst.hostname} ({inst.status})")
+    for vol in client.volumes_get():
+        if ours(vol.name) and vol.status == "detached":
+            client.volume_delete(vol.id)
+            notes.append(f"deleted leaked Verda volume {vol.name}")
+    return notes
 
 
 def pick_fleet(evals: dict, name: str | None) -> str:
@@ -988,7 +1025,13 @@ def eval_tick(fleet: dict) -> list[str]:
             notes.append(f"run {i}: cost cap; deleted {box['cluster']} ({status})")
     if over:
         notes.append(f"cost cap reached: {total:.2f} >= {fleet['max_usd']}")
+    notes += sweep_leaks([b["cluster"] for b in fleet["boxes"].values() if b["state"] not in ("running", "launching")])
     return notes
+
+
+def sweeping(box: dict) -> bool:
+    """A box whose launch failed or that is gone may still have an instance coming up on Verda for a while."""
+    return box["state"] in ("launch_failed", "lost") and time.time() - box.get("launched_at", 0) < LEAK_WINDOW_S
 
 
 def cmd_eval_status(args) -> None:
@@ -1046,7 +1089,7 @@ def cmd_eval_wait(args) -> None:
             for note in eval_tick(fleet):
                 log(f"eval {name}: {note}")
             save_evals(evals)
-            active = [i for i, b in fleet["boxes"].items() if b["state"] in ("running", "launching")]
+            active = [i for i, b in fleet["boxes"].items() if b["state"] in ("running", "launching") or sweeping(b)]
         if not active:
             states = {i: b["state"] for i, b in fleet["boxes"].items()}
             log(f"eval {name}: no box left running; {states}")
@@ -1074,6 +1117,8 @@ def cmd_eval_down(args) -> None:
                 box["state"] = "stopped"
             log(f"run {i}: {box['cluster']} deleted ({box['state']})")
         save_evals(evals)
+        for note in sweep_leaks([b["cluster"] for i, b in fleet["boxes"].items() if not args.only or int(i) in args.only]):
+            log(f"eval: {note}")
 
 
 def add_eval_parsers(sub) -> None:

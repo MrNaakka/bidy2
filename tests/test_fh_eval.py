@@ -14,8 +14,32 @@ import fh
 from test_fh_infra import sandbox  # noqa: F401  (autouse fixture: no cloud, no tunnel, records down())
 
 
+class FakeVerda:
+    def __init__(self, instances, volumes):
+        self.instances, self.volumes, self.deleted = instances, volumes, []
+
+    def instances_get(self):
+        return self.instances
+
+    def volumes_get(self):
+        return self.volumes
+
+    def instance_action(self, iid, action, volume_ids=None):
+        self.deleted.append((iid, action, volume_ids))
+
+    def volume_delete(self, vid):
+        self.deleted.append((vid, "volume"))
+
+
 @pytest.fixture
-def evalbox(tmp_path, monkeypatch):
+def verda(monkeypatch):
+    fake = FakeVerda([], [])
+    monkeypatch.setattr(fh, "verda_client", lambda: fake)
+    return fake
+
+
+@pytest.fixture
+def evalbox(tmp_path, monkeypatch, verda):
     for name, fname in [("EVAL_STATE_PATH", "evals.json"), ("EVAL_LOCK_PATH", "evals.lock"), ("RUNS_DIR", "runs")]:
         monkeypatch.setattr(fh, name, tmp_path / fname)
     fh.ENV_PATH.write_text("QWEN_API_KEY=k\n")
@@ -199,6 +223,28 @@ def test_tick_gives_up_fetching_after_a_few_tries(evalbox, sandbox, monkeypatch)
     for _ in range(fh.EVAL_FETCH_TRIES):
         fh.eval_tick(fleet)
     assert fleet["boxes"]["1"]["state"] == "failed" and sandbox.down == ["fh-ev-dev-qwen-1"]
+
+
+def test_sweep_deletes_only_leaked_instances_of_clusters_skypilot_lost(verda, monkeypatch):
+    inst = lambda iid, host, vol: SimpleNamespace(instance_id=iid, hostname=host, status="running", os_volume_id=vol)
+    verda.instances = [inst("a", "fh-ev-dev-qwen-2-f5c0b31c-head", "va"),     # leaked by a timed-out create
+                       inst("b", "fh-ev-dev-qwen-1-f5c0b31c-head", "vb"),     # SkyPilot still has this cluster
+                       inst("c", "fhbot-serve-9768facc16ac", "vc"),           # the live endpoint
+                       inst("d", "fh-ev-dev-qwen-22-f5c0b31c-head", "vd")]    # another cluster's name prefix
+    verda.volumes = [SimpleNamespace(id="v1", name="fh-ev-dev-qwen-2-f5c0b31c-head", status="detached"),
+                     SimpleNamespace(id="q", name="fh-qwen", status="detached"),
+                     SimpleNamespace(id="v2", name="fh-ev-dev-qwen-2-x-head", status="attached")]
+    monkeypatch.setattr(fh, "cluster_status", lambda n: "UP" if n == "fh-ev-dev-qwen-1" else None)
+    notes = fh.sweep_leaks(["fh-ev-dev-qwen-1", "fh-ev-dev-qwen-2", "fh-serve"])
+    assert verda.deleted == [("a", "delete", ["va"]), ("v1", "volume")] and len(notes) == 2
+
+
+def test_wait_keeps_sweeping_after_a_failed_launch_for_a_while(evalbox, sandbox, monkeypatch):
+    fleet = fleet_state(evalbox, ["launch_failed"])
+    fleet["boxes"]["1"]["launched_at"] = fh.time.time()
+    assert fh.sweeping(fleet["boxes"]["1"])
+    fleet["boxes"]["1"]["launched_at"] -= fh.LEAK_WINDOW_S + 1
+    assert not fh.sweeping(fleet["boxes"]["1"])
 
 
 def test_probe_parsing():
