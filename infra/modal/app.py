@@ -30,7 +30,7 @@ from pathlib import Path
 import modal
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
+ROOT = HERE.parents[1] if len(HERE.parents) > 1 else HERE   # in the container app.py is /root/app.py
 
 APP_NAME = "fh-qwen"
 MODEL_REPO = "Qwen/Qwen3.8-27B"
