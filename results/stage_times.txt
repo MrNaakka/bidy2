@@ -3,3 +3,16 @@ build 1s
 fh-eval-reference 534s
 fh-eval-nop 493s
 fh-eval-stop-early 497s
+# stage wall times, 2026-11-14T02:44:23Z, stage=all n=4
+build 1s
+fh-eval-reference 458s
+fh-eval-nop 436s
+fh-eval-stop-early 566s
+fh-eval-opencode-run1 2930s
+# stage wall times, 2026-11-14T04:04:06Z, stage=agents n=4
+fh-eval-opencode-run1 2077s
+# stage wall times, 2026-11-14T05:13:02Z, stage=agents n=4
+fh-eval-opencode-run2 2844s
+# stage wall times, 2026-11-14T05:34:40Z, stage=agents n=8
+# stage wall times, 2026-11-14T05:34:47Z, stage=agents n=8
+# stage wall times, 2026-11-14T08:36:18Z, stage=agents n=4
