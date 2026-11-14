@@ -370,7 +370,8 @@ def assert_renders(row: dict, wire: list[dict], tools: list[dict], out: Path, pr
                                  f"messages, {enc['n_images']} images for {len(im_row)}")
 
 
-def convert_trial(t: dict, run: Path, meta: dict, tasks: Path | None, require_submit: bool = True) -> dict:
+def convert_trial(t: dict, run: Path, meta: dict, tasks: Path | None, require_submit: bool = True,
+                  check_calls: bool = True) -> dict:
     rdir = run / "requests" / trial_key(harbor_project(t["trial"]))
     if not (rdir / "log.jsonl").is_file():
         raise Reject(f"no request log ({rdir.relative_to(run)})")
@@ -385,11 +386,11 @@ def convert_trial(t: dict, run: Path, meta: dict, tasks: Path | None, require_su
             raise Reject("instruction differs from the task's instruction.md")
         if 'split = "train"' not in (tasks / t["item_id"] / "task.toml").read_text():
             raise Reject("task.toml is not a train-split task")
-    unmatched = check_server_log(msgs, t["calls"])
+    unmatched = check_server_log(msgs, t["calls"]) if check_calls else 0
     tools_used = [tc["function"]["name"] for m in msgs if m.get("role") == "assistant" for tc in m.get("tool_calls") or []]
     bm = BUDGET_RE.search(msgs[1]["content"])
     v = t["verifier"]
-    return {"wire": msgs, "date": date, "tools": tools, "tools_used": tools_used, "info": info,
+    return {"wire": msgs, "date": date, "tools": tools, "tools_used": tools_used, "info": info, "records": records,
             "unmatched_calls": unmatched, "budget": int(bm.group(1)) if bm else None,
             "answer": v.get("answer"), "pixels_used": v.get("pixels_used"),
             "provenance": {"source": "rollout", "run": run.name, "trial": t["trial"], "item_id": t["item_id"],

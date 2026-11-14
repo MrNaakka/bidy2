@@ -25,6 +25,15 @@ included), images are stored once per trial: a `data:image/...;base64,...` URL b
 `fhtools:<sha256>` with <trial>/tools/<sha256>.json. This is only done when it is lossless (re-encoding
 gives the same base64 text and restoring gives the same JSON); `restore()` undoes it exactly.
 
+Async GRPO mode (--policy-file F): every chat request that names the public model (qwen3.8-27b-fh) is
+rewritten before forwarding: `model` becomes the policy version the trial is pinned to (F holds
+{"version": N, "name": "fh-vN"}; a trial is pinned to the version current at its first request, so one
+trajectory is sampled from one policy), and "logprobs": true, "top_logprobs": 0,
+"return_tokens_as_token_ids": true are added. The response goes back to OpenCode with the logprobs removed
+(set to null, as vLLM sends them when not asked) and `model` restored, so OpenCode sees a normal reply. The
+log keeps the request exactly as OpenCode sent it, plus "policy_version" and the behaviour log-probs of
+every generated token (response.logprobs = [[token_id, logprob], ...], response.completion_tokens).
+
 Trial identification: OpenCode sends no trial id, so the relay maps the client's IP to its container
 (`docker inspect` of the running containers) and uses the container's Docker Compose project, which
 Harbor names after the trial (`<trial_name>__env`, lowercased), looked up when the request arrives. The lookup is cached per (IP, OpenCode
@@ -77,7 +86,7 @@ def assemble_sse(raw: bytes) -> dict:
     `delta.reasoning` (vLLM may send both with the same text). A tool call's id, type and name come from
     its first delta (per `index`), its arguments from all deltas.
     """
-    content, reasoning, calls = [], [], {}
+    content, reasoning, calls, lps = [], [], {}, []
     out: dict = {"stream": True, "finish_reason": None, "usage": None, "done": False, "bad_lines": 0}
     for line in raw.decode("utf-8", "replace").splitlines():
         if not line.startswith("data:"):
@@ -119,12 +128,29 @@ def assemble_sse(raw: bytes) -> dict:
                     calls[i] = {"id": tc.get("id"), "type": tc.get("type") or "function",
                                 "function": {"name": f.get("name") or "", "arguments": ""}}
                 calls[i]["function"]["arguments"] += f.get("arguments") or ""
+            for t in ((c.get("logprobs") or {}).get("content") or []):
+                tok = t.get("token") or ""
+                lps.append([int(tok[9:]) if tok.startswith("token_id:") else tok, t.get("logprob")])
             if c.get("finish_reason"):
                 out["finish_reason"] = c["finish_reason"]
+    if lps:
+        out["logprobs"] = lps
     out["content"] = "".join(content)
     out["reasoning"] = "".join(reasoning) if reasoning else None
     out["tool_calls"] = [calls[i] for i in sorted(calls)]
     return out
+
+
+def logprobs_json(raw: bytes) -> list | None:
+    try:
+        ch = (json.loads(raw).get("choices") or [{}])[0]
+    except (ValueError, AttributeError):
+        return None
+    out = []
+    for t in ((ch.get("logprobs") or {}).get("content") or []):
+        tok = t.get("token") or ""
+        out.append([int(tok[9:]) if tok.startswith("token_id:") else tok, t.get("logprob")])
+    return out or None
 
 
 def assemble_json(raw: bytes) -> dict:
@@ -165,6 +191,85 @@ def decode_body(raw: bytes, encoding: str | None) -> bytes | None:
     except (OSError, EOFError, zlib.error):
         return None
     return None   # br / zstd: forwarded untouched, not parsed
+
+
+# ---------------------------------------------------------------------- async GRPO rewriting
+PUBLIC_MODEL = "qwen3.8-27b-fh"
+
+
+class Policy:
+    """The current policy version (from --policy-file) and the version each trial is pinned to."""
+
+    def __init__(self, path: Path):
+        self.path = path
+        self._lock = threading.Lock()
+        self._pins: dict[str, dict] = {}
+
+    def current(self) -> dict:
+        return json.loads(self.path.read_text())
+
+    def for_trial(self, key: str) -> dict:
+        with self._lock:
+            if key not in self._pins:
+                self._pins[key] = self.current()
+            return self._pins[key]
+
+
+def rewrite_request(body: bytes, pol: dict) -> bytes | None:
+    """The body to forward (model -> the pinned version, logprobs requested), or None to forward as is."""
+    try:
+        b = json.loads(body)
+    except ValueError:
+        return None
+    if not isinstance(b, dict) or b.get("model") != PUBLIC_MODEL:
+        return None
+    b = {**b, "model": pol["name"], "logprobs": True, "top_logprobs": 0, "return_tokens_as_token_ids": True}
+    return json.dumps(b, ensure_ascii=False, separators=(",", ":")).encode()
+
+
+def strip_event(ev: bytes, model: str) -> bytes:
+    """One SSE event (or a JSON body) with the logprobs removed and `model` restored."""
+    m = re.match(rb"(\s*data:\s?)(.*?)(\s*)$", ev, re.S)
+    if not m or m.group(2).strip() in (b"", b"[DONE]") or not m.group(2).lstrip().startswith(b"{"):
+        return ev
+    try:
+        ch = json.loads(m.group(2))
+    except ValueError:
+        return ev
+    return m.group(1) + strip_obj(ch, model) + m.group(3)
+
+
+def strip_obj(ch, model: str) -> bytes:
+    if isinstance(ch, dict):
+        if "model" in ch:
+            ch["model"] = model
+        for c in ch.get("choices") or []:
+            if isinstance(c, dict) and "logprobs" in c:
+                c["logprobs"] = None
+    return json.dumps(ch, ensure_ascii=False, separators=(",", ":")).encode()
+
+
+class SSEStripper:
+    """Feed upstream bytes, get back whole events with the logprobs stripped (an event ends with a blank line)."""
+
+    def __init__(self, model: str):
+        self.model = model
+        self.buf = b""
+
+    def feed(self, piece: bytes) -> bytes:
+        self.buf += piece
+        out = []
+        while True:
+            i = self.buf.find(b"\n\n")
+            if i < 0:
+                break
+            ev, self.buf = self.buf[:i], self.buf[i + 2:]
+            out.append(strip_event(ev, self.model) + b"\n\n")
+        return b"".join(out)
+
+    def flush(self) -> bytes:
+        rest, self.buf = self.buf, b""
+        return strip_event(rest, self.model) if rest else b""
 
 
 # ---------------------------------------------------------------------- blob store
@@ -378,6 +483,7 @@ class Handler(BaseHTTPRequestHandler):
     upstream: tuple[str, int] = ("127.0.0.1", 8000)
     request_log: RequestLog | None = None
     resolver: TrialResolver | None = None
+    policy: Policy | None = None
 
     def log_message(self, fmt, *args):  # quiet; errors go through log()
         pass
@@ -422,11 +528,23 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:   # never break the agent's run
                 log(f"trial lookup failed: {type(e).__name__}: {e}")
                 who = (f"unresolved-{ip}", None)
+        pol, fwd = None, body
+        if logging and self.policy is not None:
+            try:
+                pol = self.policy.for_trial(who[0])
+                fwd = rewrite_request(body, pol)
+            except Exception as e:   # never break the agent's run: forward unchanged
+                log(f"policy rewrite failed: {type(e).__name__}: {e}")
+                fwd = None
+            if fwd is None:
+                pol, fwd = None, body
+            headers["Content-Length"] = str(len(fwd))
+        self._pol = pol
         watch = None
         conn = self._upstream()
         try:
             try:
-                conn.request(self.command, self.path, body=body, headers=headers)
+                conn.request(self.command, self.path, body=fwd, headers=headers)
                 watch = ClientWatch(self.connection, conn.sock)
                 resp = conn.getresponse()
             except (http.client.RemoteDisconnected, BrokenPipeError, ConnectionResetError):
@@ -435,7 +553,7 @@ class Handler(BaseHTTPRequestHandler):
                     if watch.gone.is_set():
                         raise
                 conn.close()   # a stale keep-alive connection: one retry on a fresh one
-                conn.request(self.command, self.path, body=body, headers=headers)
+                conn.request(self.command, self.path, body=fwd, headers=headers)
                 watch = ClientWatch(self.connection, conn.sock)
                 resp = conn.getresponse()
         except (OSError, http.client.HTTPException) as e:
@@ -454,11 +572,23 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(msg)
             return
+        ctype_in = (resp.getheader("Content-Type") or "").lower()
+        strip_sse = strip_json = None
+        if pol is not None and not resp.getheader("Content-Encoding"):
+            if "text/event-stream" in ctype_in:
+                strip_sse = SSEStripper(PUBLIC_MODEL)
+            elif "json" in ctype_in:
+                strip_json = True
+        if strip_json:
+            self._forward_json(t0, who, body, resp, watch, conn, logging)
+            return
         self.send_response_only(resp.status, resp.reason)
         length = resp.getheader("Content-Length")
+        if strip_sse is not None:
+            length = None   # events are re-serialized: always chunked to the client
         chunked_out = length is None and self.command != "HEAD" and resp.status not in (204, 304)
         for k, v in resp.getheaders():
-            if k.lower() not in HOP_BY_HOP:
+            if k.lower() not in HOP_BY_HOP and not (strip_sse is not None and k.lower() == "content-length"):
                 self.send_header(k, v)
         if chunked_out:
             self.send_header("Transfer-Encoding", "chunked")
@@ -480,9 +610,21 @@ class Handler(BaseHTTPRequestHandler):
                 if resp.length:           # EOF before Content-Length was satisfied (read1 doesn't raise)
                     log(f"upstream closed with {resp.length} bytes missing")
                     upstream_ok = False
+                if strip_sse is not None and upstream_ok:
+                    rest = strip_sse.flush()
+                    if rest:
+                        try:
+                            self.wfile.write(b"%x\r\n%s\r\n" % (len(rest), rest))
+                            self.wfile.flush()
+                        except OSError:
+                            client_ok = False
                 break
             if captured is not None:
                 captured.append(piece)
+            if strip_sse is not None:
+                piece = strip_sse.feed(piece)
+                if not piece:
+                    continue
             try:
                 if chunked_out:
                     self.wfile.write(b"%x\r\n%s\r\n" % (len(piece), piece))
@@ -513,6 +655,61 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:   # logging must never break the agent's run
                 log(f"logging failed: {type(e).__name__}: {e}")
 
+    def _forward_json(self, t0, who, body, resp, watch, conn, logging) -> None:
+        """A non-streamed reply in policy mode: read it whole, strip the logprobs, send it with its new length."""
+        client_ok = upstream_ok = True
+        try:
+            raw = resp.read()
+        except (OSError, http.client.HTTPException) as e:
+            raw, upstream_ok = b"", False
+            if watch.gone.is_set():
+                client_ok = False
+            else:
+                log(f"upstream read error: {e}")
+        watch.stop()
+        if not upstream_ok or watch.gone.is_set():
+            self.close_connection = True
+            conn.close()
+            self._conn = None
+            if not client_ok or watch.gone.is_set():
+                client_ok = False
+            else:
+                msg = json.dumps({"error": {"message": "relay: upstream failed mid-response"}}).encode()
+                try:
+                    self.send_response(502)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(msg)))
+                    self.end_headers()
+                    self.wfile.write(msg)
+                except OSError:
+                    client_ok = False
+        else:
+            try:
+                out = strip_obj(json.loads(raw), PUBLIC_MODEL)
+            except ValueError:
+                out = raw
+            try:
+                self.send_response_only(resp.status, resp.reason)
+                for k, v in resp.getheaders():
+                    if k.lower() not in HOP_BY_HOP and k.lower() != "content-length":
+                        self.send_header(k, v)
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
+                self.wfile.flush()
+            except OSError:
+                client_ok = False
+                self.close_connection = True
+        if resp.getheader("Connection", "").lower() == "close":
+            self.close_connection = True
+            conn.close()
+            self._conn = None
+        if logging:
+            try:
+                self._log(t0, who, body, resp, raw, client_ok, upstream_ok)
+            except Exception as e:
+                log(f"logging failed: {type(e).__name__}: {e}")
+
     def _log(self, t0: float, who: tuple[str, str | None], body: bytes, resp, raw: bytes, client_ok: bool,
              upstream_ok: bool) -> None:
         ip = self.client_address[0]
@@ -532,6 +729,15 @@ class Handler(BaseHTTPRequestHandler):
                "headers": {h: self.headers.get(h) for h in LOGGED_HEADERS if self.headers.get(h) is not None},
                "body_len": len(body), "body_sha256": hashlib.sha256(body).hexdigest(),
                "resp_len": len(raw), "resp_sha256": hashlib.sha256(raw).hexdigest(), "response": parsed}
+        pol = getattr(self, "_pol", None)
+        if pol is not None:
+            rec["policy_version"] = pol["version"]
+            rec["policy_name"] = pol["name"]
+            # completion_tokens from usage lets the converter check that every generated token has a log-prob
+            rec["response"]["completion_tokens"] = ((parsed.get("usage") or {}).get("completion_tokens")
+                                                    if isinstance(parsed, dict) else None)
+        if isinstance(parsed, dict) and parsed.get("stream") is False and pol is not None:
+            parsed["logprobs"] = logprobs_json(raw)
         self.request_log.write(key, rec, body)
 
     def finish(self):
@@ -554,9 +760,10 @@ class Server(ThreadingHTTPServer):
 
 
 def make_server(listen: tuple[str, int], upstream: tuple[str, int], log_dir: Path | None,
-                resolver: TrialResolver | None = None) -> Server:
+                resolver: TrialResolver | None = None, policy_file: Path | None = None) -> Server:
     handler = type("BoundHandler", (Handler,), {
         "upstream": upstream,
+        "policy": Policy(policy_file) if policy_file else None,
         "request_log": RequestLog(log_dir) if log_dir else None,
         "resolver": resolver if resolver is not None else (TrialResolver() if log_dir else None)})
     return Server(listen, handler)
@@ -572,10 +779,11 @@ def main(argv=None) -> int:
     ap.add_argument("--listen", type=hostport, required=True, help="host:port, e.g. 172.17.0.1:18000")
     ap.add_argument("--upstream", type=hostport, required=True, help="host:port of vLLM, e.g. 127.0.0.1:8000")
     ap.add_argument("--log-dir", type=Path, required=True)
+    ap.add_argument("--policy-file", type=Path, help="async GRPO: pin trials to policy versions, log logprobs")
     a = ap.parse_args(argv)
     os.umask(0o077)
     a.log_dir.mkdir(parents=True, exist_ok=True)
-    srv = make_server(a.listen, a.upstream, a.log_dir)
+    srv = make_server(a.listen, a.upstream, a.log_dir, policy_file=a.policy_file)
     log(f"listening on {a.listen[0]}:{a.listen[1]} -> {a.upstream[0]}:{a.upstream[1]}, logs in {a.log_dir}")
     srv.serve_forever()
     return 0

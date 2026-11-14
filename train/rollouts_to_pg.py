@@ -71,6 +71,42 @@ def advantages(rewards: list[float]) -> tuple[float, float, list[float]]:
     return mean, std, [(r - mean) / (std + EPS) for r in rewards]
 
 
+def synthetic_reward(trial: str) -> float:
+    """Pipeline tests with a random model (real rewards ~0): a deterministic coin per trial name."""
+    import hashlib
+    return float(hashlib.sha256(trial.encode()).digest()[0] & 1)
+
+
+def behavior(records: list[dict], msgs: list[dict]) -> tuple[list, list]:
+    """Behaviour log-probs per assistant message of msgs (async GRPO relay, --policy-file), and the policy
+    versions that served the trajectory.
+
+    The response of a request with n messages is assistant message n (OpenCode sends it back next); a
+    record counts only if its reassembled response equals that message (r2s.same_turn), so a retried or
+    aborted request never lends its log-probs to the turn that was kept. Each entry: {"ids": token ids,
+    "lp": log-probs, "complete": every generated token has one (count == usage.completion_tokens)} or None.
+    """
+    asst = [i for i, m in enumerate(msgs) if m.get("role") == "assistant"]
+    by_idx: dict[int, dict] = {}
+    versions = set()
+    for r in records:
+        if "_req" not in r or not r2s.usable(r):
+            continue
+        if r.get("policy_version") is not None:
+            versions.add(r["policy_version"])
+        idx = len(r["_req"]["messages"])
+        resp = r["response"]
+        lps = resp.get("logprobs")
+        if idx >= len(msgs) or idx in by_idx or not lps or not r2s.same_turn(resp, msgs[idx]):
+            continue
+        ids = [x[0] for x in lps]
+        if not all(isinstance(t, int) for t in ids):
+            continue
+        by_idx[idx] = {"ids": ids, "lp": [float(x[1]) for x in lps], "version": r.get("policy_version"),
+                       "complete": resp.get("completion_tokens") == len(ids)}
+    return [by_idx.get(i) for i in asst], sorted(versions)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("runs", nargs="+", type=Path, help="Harbor run dirs with requests/")
@@ -79,6 +115,12 @@ def main(argv=None) -> int:
     ap.add_argument("--processor", help="HF processor dir: also compare chat-template renderings")
     ap.add_argument("--min-group", type=int, default=4, help="drop groups with fewer counted trials")
     ap.add_argument("--force", action="store_true", help="replace an existing --out")
+    ap.add_argument("--behavior", action="store_true",
+                    help="async GRPO: attach behaviour log-probs and policy versions from the relay log")
+    ap.add_argument("--synthetic-reward", action="store_true",
+                    help="pipeline tests only: reward = a deterministic coin per trial (not the verifier's)")
+    ap.add_argument("--no-call-check", action="store_true",
+                    help="pipeline tests only: skip the MCP call-log check (a random model makes no tool calls)")
     a = ap.parse_args(argv)
     if len({p.resolve() for p in a.runs}) != len(a.runs):
         ap.error("a run dir is given twice (its rewards would be counted twice)")
@@ -104,6 +146,8 @@ def main(argv=None) -> int:
         for td in r2s.find_trials(run):
             t = r2s.load_trial(td)
             t["reward"], t["exception"] = trial_reward(td)
+            if a.synthetic_reward and t["reward"] is not None:
+                t["reward"] = synthetic_reward(t["trial"])
             trials.append((run, meta, t))
     bad = sorted({f"{run.name}/{t['trial']} ({t['item_id']})" for run, _, t in trials
                   if r2s.train_kind(t["item_id"]) is None})
@@ -152,7 +196,7 @@ def main(argv=None) -> int:
             try:
                 if keys[(run, r2s.trial_key(r2s.harbor_project(t["trial"])))] > 1:
                     raise r2s.Reject("two trials map to the same request log (trial names differ only in case)")
-                c = r2s.convert_trial(t, run, meta, a.tasks, require_submit=False)
+                c = r2s.convert_trial(t, run, meta, a.tasks, require_submit=False, check_calls=not a.no_call_check)
                 row_id = f"{run.name}__{t['trial']}"
                 body, pngs = r2s.make_row(row_id, c["wire"], tmp)
                 row = {"id": row_id, "item_id": item_id, "kind": kind, "split": "train", "answer": c["answer"],
@@ -161,6 +205,11 @@ def main(argv=None) -> int:
                        "pixels_used": c["pixels_used"], "budget": c["budget"], "n_calls": len(c["tools_used"]),
                        "n_images": len(pngs), "tools_used": c["tools_used"], "date": c["date"],
                        "provenance": c["provenance"], "messages": body["messages"]}
+                if a.behavior:
+                    beh, versions = behavior(c["records"], c["wire"])
+                    if not versions:
+                        raise r2s.Reject("no policy version in the relay log")
+                    row.update(behavior=beh, policy_versions=versions, policy_version=min(versions))
                 img_dir = tmp / "images" / row_id
                 img_dir.mkdir(parents=True)
                 for i, png in enumerate(pngs):
