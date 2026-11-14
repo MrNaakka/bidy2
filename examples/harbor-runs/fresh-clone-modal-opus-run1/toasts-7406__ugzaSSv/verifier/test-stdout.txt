@@ -1,0 +1,3 @@
+result: {"submitted":true,"answer":"R31VAF","correct":true,"reward":1.0,"pixels_used":90080,"n_calls":7}
+calls logged: 7
+reward=1

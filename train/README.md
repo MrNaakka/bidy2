@@ -232,6 +232,20 @@ Results on real rows (14.3k tokens, 13 images each), tiny model:
 On a busy CPU box pass `--threads 1` or `2`: thread oversubscription made the PyTorch Gated
 DeltaNet fallback ~10x slower in our test.
 
+## Results (EVAL v2, Harbor, 3 runs each)
+
+| model | data | mean reward | submitted | mean pixels |
+| --- | --- | --- | --- | --- |
+| Qwen3.8-27B base | - | 0.250 (0.200 / 0.275 / 0.275) | 18-25 of 40 (19 of 120 trials hit the 1800 s timeout) | 97-102k |
+| + SFT v2 (30 items, no scandoc) | 900 rows: logstream, dialogs, toasts | 0.611 (0.700 / 0.500 / 0.633) | 30 of 30 | 56-63k |
+| + SFT v3 | 1,200 rows, including scandoc | 0.617 (0.650 / 0.550 / 0.650) | 39-40 of 40 | 62-74k |
+
+SFT v3: LoRA r=16, 1 epoch (145 optimizer steps), lr 1e-4, 4xH100 DDP, held-out eval loss
+0.015 (logs in `docs/results/data/`). Per kind, v3 vs base: logstream 0.90 vs 0.33,
+dialogs 0.40 vs 0.30, toasts 0.90 vs 0.37, scandoc 0.27 vs 0.00. The scandoc rows were
+generated with the video tools' descriptions, a small mismatch with the eval tasks.
+Charts and tables: [docs/results/](../docs/results/tables.md).
+
 ## Toward RL
 
 Rows are complete OpenCode requests, so the same pieces serve an RL loop: roll out the current

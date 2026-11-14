@@ -1,0 +1,3 @@
+result: {"submitted":true,"answer":"12450","correct":false,"reward":0.0,"pixels_used":117090,"n_calls":13}
+calls logged: 13
+reward=0

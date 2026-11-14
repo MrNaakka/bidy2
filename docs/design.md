@@ -1,4 +1,8 @@
-# FrameHunt design (v0)
+# FrameHunt design
+
+> Results (EVAL v2, 40 items: reference 1.000, Opus 5.5 0.650, Qwen3.8-27B 0.250 base and
+> 0.617 after our SFT) are in [README.md](../README.md) and [docs/results/](results/tables.md).
+> Pilot numbers quoted below are from DEV items during design and tuning.
 
 FrameHunt is an RL environment for **active video sampling under a pixel budget**.
 The agent gets a question about a long screen recording. It can't watch the video.
@@ -70,7 +74,7 @@ doesn't spend. Dialogs is the common E2E case. Toasts is the explicit **control*
 has the same mechanism (a lasting counter pins the event, the answer is only briefly
 where you'd look, look-alikes before and after), but verification is cheap and in the
 same place (the badge right above the stack). Opus verifies there and succeeds (pilots
-below). That fits the hypothesis that its logstream failures come from verification cost
+below; on EVAL, toasts 0.80 vs logstream 0.43 over three runs). That fits the hypothesis that its logstream failures come from verification cost
 rather than from the mechanism. It isn't proof: the kinds also differ in layout and
 distractors, and only a matched intervention would isolate the cause. Leaderboard stays in DEV and TRAIN as a replication experiment
 (Opus DEV pilot 2/6, below); dashboard is in EVAL_V1, DEV and TRAIN.
@@ -147,8 +151,9 @@ nothing about those 30 (the scandoc instruction, `info()` text and tool docstrin
 separate templates selected by `DOCUMENT_KINDS`, and the video code paths are unchanged;
 before and after the merge, the question/answer/format/meta hashes, rendered frames,
 `instruction.md`, `task.toml`, `info()` text, MCP tool list and the reference's full
-trace and pixel use were identical for all 30). **EVAL results for scandoc are pending**;
-the numbers below are the DEV pilot.
+trace and pixel use were identical for all 30). EVAL results for scandoc (reference
+10/10, Opus 5.5 0.60 / 0.50 / 0.40 over three runs) are in the README and
+[docs/results/](results/tables.md); the numbers below are the DEV pilot.
 
 **The document** (`framehunt/scenes/scandoc.py`, all planned from the seed): 150–400
 pages of 1240×1754 (A4 at 150 dpi). Front matter numbered in lower-case roman numerals
@@ -386,6 +391,12 @@ they were run with. So after publishing EVAL v1 logs, EVAL v2 got a fresh salt i
 checkout; the old one is kept privately as `secrets/eval-v1.salt`, and
 `build_tasks.py --split eval --v1` uses it to rebuild the v1 items. Never publish logs of
 the salt you are still evaluating with.
+
+The EVAL v2 salt was rotated once more, after a results summary that listed submitted
+answers was accidentally pushed (`scripts/summarize.py` no longer writes answers). Opus's
+30 video-item runs were made under the previous v2 salt; everything else (reference,
+baselines, Opus scandoc, all Qwen runs) under the current one. Same generators and item
+ids, different instances.
 
 This doesn't hide anything the task needs. The agent gets exactly the same
 `info()`, instruction and tools as before. Rule 5 ("no hidden information") is about

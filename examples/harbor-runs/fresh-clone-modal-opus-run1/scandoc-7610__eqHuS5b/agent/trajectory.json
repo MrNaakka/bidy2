@@ -1,0 +1,463 @@
+{
+  "schema_version": "ATIF-v1.7",
+  "session_id": "ses_e24304d8affekVxmgdyzcfM7Hn",
+  "agent": {
+    "name": "opencode",
+    "version": "1.19.5",
+    "model_name": "anthropic/claude-opus-5-5"
+  },
+  "steps": [
+    {
+      "step_id": 1,
+      "source": "user",
+      "message": "# FrameHunt\n\nAnswer a question about a long scanned document. You can't open the file. You can only\nrequest individual page images from the MCP server `framehunt`. Pages can be cropped\nand downscaled, and every image pixel the server returns is charged against a fixed\npixel budget.\n\n## Question\n\nThis is a scanned PDF of the Aurora Industries Annual Report 2024. In the notes to the financial statements, the note titled \"Provisions\" has a table \"Provisions by country\" (amounts in EUR thousand). What amount does that table give for \"Norway\" in the column \"Non-current\" at 31 December 2024?\n\nAnswer format: integer of 4 to 6 digits (the amount in EUR thousand as printed; the space used as a thousands separator does not matter)\n\n## Document\n\n- A scanned PDF of 336 pages: page images only, there is no text layer.\n- Each page image is 1240 x 1754 pixels (A4 at 150 dpi).\n- Pages are addressed by their 0-based PDF page index `t`, from 0 to 335:\n  `t=0` is the first page of the PDF (the cover), `t=335` the last one. The MCP\n  tools call it `t` because the same server also serves videos; here `t` is simply the\n  page index (it is rounded to the nearest integer).\n- The page numbers printed on the pages and in the document's contents are the\n  document's own numbering. They are not PDF page indexes.\n\n## Pixel budget\n\nYou have 120000 pixels in total. For scale, one full page at native resolution is\n2174960 pixels, so reading everything is far out of reach.\n\n## Tools and costs\n\n- `info()`: shows the question, answer format, document facts, `budget_left` and these\n  rules. Free.\n- `view(t, x=0, y=0, w=None, h=None, out_width=320)`: returns one page as a PNG image\n  and one line of text with the PDF page index, the crop, output size, cost and\n  `budget_left`.\n  - `t` is the PDF page index, from 0 to 335.\n  - `x, y, w, h` give a crop rectangle in native pixels. The default is the whole\n    page. The crop is clipped to the page.\n  - The crop is resized to `out_width` pixels wide, keeping its aspect ratio.\n    `out_width` must be at least 8. It is capped at the crop width, so images\n    are never upscaled.\n  - **Cost = output width x output height.**\n- `contact_sheet(t_start, t_end, n, x=0, y=0, w=None, h=None, out_width=160)`: returns\n  one grid image of `n` evenly spaced pages from page index `t_start` to `t_end` (both\n  included), plus a text list of their page indexes. Tiles are read left to right, then\n  top to bottom.\n  - `n` is from 2 to 16. The same crop and `out_width` rules as `view`\n    apply to each tile.\n  - **Cost = n x tile output width x tile output height.** The 2-pixel separators\n    between tiles are free.\n- `submit(answer)`: records your answer. Free. **Only the first submission counts.**\n  Later submissions are refused. No feedback on correctness is given.\n\nA request that costs more than your remaining budget is refused and charges nothing.\nInvalid requests are refused and charge nothing.\n\n## Scoring\n\nThe score is 1 if your submitted answer matches the correct answer exactly, ignoring\ncase and whitespace. Otherwise it is 0. Not submitting scores 0. The budget is a hard\nlimit. Pixels you don't use don't change the score.\n"
+    },
+    {
+      "step_id": 2,
+      "timestamp": "2026-11-14T20:46:26.619000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "toolu_01NDPCQsLPX69q6uSQRyGHoA",
+          "function_name": "framehunt_view",
+          "arguments": {
+            "t": 2,
+            "out_width": 90
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "toolu_01NDPCQsLPX69q6uSQRyGHoA",
+            "content": "page=2 crop=(x=0, y=0, w=1240, h=1754) output=90x127 cost=11430 budget_left=108570"
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 11977,
+        "completion_tokens": 74,
+        "cached_tokens": 11973,
+        "cost_usd": 0.0164256,
+        "extra": {
+          "reasoning_tokens": 316,
+          "cache_write_tokens": 1243
+        }
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 3,
+      "timestamp": "2026-11-14T20:46:31.785000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "toolu_017DbUydjVJAfDreW3YVuBHd",
+          "function_name": "framehunt_view",
+          "arguments": {
+            "t": 2,
+            "x": 80,
+            "y": 1000,
+            "w": 1100,
+            "h": 650,
+            "out_width": 220
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "toolu_017DbUydjVJAfDreW3YVuBHd",
+            "content": "page=2 crop=(x=80, y=1000, w=1100, h=650) output=220x130 cost=28600 budget_left=79970"
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 13218,
+        "completion_tokens": 160,
+        "cached_tokens": 13216,
+        "cost_usd": 0.0159462,
+        "extra": {
+          "reasoning_tokens": 384,
+          "cache_write_tokens": 483
+        }
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 4,
+      "timestamp": "2026-11-14T20:46:38.756000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "toolu_01L2Au5x9gtq7CSgBuSuEakR",
+          "function_name": "framehunt_view",
+          "arguments": {
+            "t": 2,
+            "x": 80,
+            "y": 640,
+            "w": 1100,
+            "h": 370,
+            "out_width": 220
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "toolu_01L2Au5x9gtq7CSgBuSuEakR",
+            "content": "page=2 crop=(x=80, y=640, w=1100, h=370) output=220x74 cost=16280 budget_left=63690"
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 13701,
+        "completion_tokens": 159,
+        "cached_tokens": 13699,
+        "cost_usd": 0.0105628,
+        "extra": {
+          "reasoning_tokens": 68,
+          "cache_write_tokens": 655
+        }
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 5,
+      "timestamp": "2026-11-14T20:46:41.771000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "toolu_01DunnAY8oCrTPfcvDcuT74F",
+          "function_name": "framehunt_view",
+          "arguments": {
+            "t": 285,
+            "y": 1640,
+            "h": 114,
+            "out_width": 250
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "toolu_01DunnAY8oCrTPfcvDcuT74F",
+            "content": "page=285 crop=(x=0, y=1640, w=1240, h=114) output=250x23 cost=5750 budget_left=57940"
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 14356,
+        "completion_tokens": 117,
+        "cached_tokens": 14354,
+        "cost_usd": 0.0096438,
+        "extra": {
+          "reasoning_tokens": 141,
+          "cache_write_tokens": 321
+        }
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 6,
+      "timestamp": "2026-11-14T20:46:44.966000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "toolu_01266cXX8joQpspN2t86C9jS",
+          "function_name": "framehunt_view",
+          "arguments": {
+            "t": 285,
+            "h": 120,
+            "out_width": 250
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "toolu_01266cXX8joQpspN2t86C9jS",
+            "content": "page=285 crop=(x=0, y=0, w=1240, h=120) output=250x24 cost=6000 budget_left=51940"
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 14677,
+        "completion_tokens": 95,
+        "cached_tokens": 14675,
+        "cost_usd": 0.007013,
+        "extra": {
+          "reasoning_tokens": 24,
+          "cache_write_tokens": 338
+        }
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 7,
+      "timestamp": "2026-11-14T20:46:46.779000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "toolu_01N4MNxNzNvQgfs1xBwfu9zy",
+          "function_name": "framehunt_contact_sheet",
+          "arguments": {
+            "t_start": 291,
+            "t_end": 295,
+            "n": 5,
+            "out_width": 50
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "toolu_01N4MNxNzNvQgfs1xBwfu9zy",
+            "content": "5 pages, 3 columns x 2 rows, read left to right then top to bottom; crop=(x=0, y=0, w=1240, h=1754) tile=50x71 cost=17750 budget_left=34190\n  tile 1: page=291\n  tile 2: page=292\n  tile 3: page=293\n  tile 4: page=294\n  tile 5: page=295"
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 15015,
+        "completion_tokens": 125,
+        "cached_tokens": 15013,
+        "cost_usd": 0.0101006,
+        "extra": {
+          "reasoning_tokens": 180,
+          "cache_write_tokens": 198
+        }
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 8,
+      "timestamp": "2026-11-14T20:46:51.373000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "toolu_01NYiPBWVPdZsqo1Tp1k2eso",
+          "function_name": "framehunt_view",
+          "arguments": {
+            "t": 294,
+            "x": 80,
+            "y": 330,
+            "w": 300,
+            "h": 900,
+            "out_width": 70
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "toolu_01NYiPBWVPdZsqo1Tp1k2eso",
+            "content": "page=294 crop=(x=80, y=330, w=300, h=900) output=70x210 cost=14700 budget_left=19490"
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 15213,
+        "completion_tokens": 158,
+        "cached_tokens": 15211,
+        "cost_usd": 0.0193252,
+        "extra": {
+          "reasoning_tokens": 534,
+          "cache_write_tokens": 487
+        }
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 9,
+      "timestamp": "2026-11-14T20:47:00.263000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "toolu_01G1rECgF2Kb5pAkJSDcz6Sd",
+          "function_name": "framehunt_view",
+          "arguments": {
+            "t": 294,
+            "x": 380,
+            "y": 745,
+            "w": 800,
+            "h": 65,
+            "out_width": 260
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "toolu_01G1rECgF2Kb5pAkJSDcz6Sd",
+            "content": "page=294 crop=(x=380, y=745, w=800, h=65) output=260x21 cost=5460 budget_left=14030"
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 15700,
+        "completion_tokens": 158,
+        "cached_tokens": 15698,
+        "cost_usd": 0.0138726,
+        "extra": {
+          "reasoning_tokens": 182,
+          "cache_write_tokens": 785
+        }
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 10,
+      "timestamp": "2026-11-14T20:47:04.635000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "toolu_01HYBbjkPF4tTy1egNYygmLF",
+          "function_name": "framehunt_view",
+          "arguments": {
+            "t": 294,
+            "x": 600,
+            "y": 260,
+            "w": 640,
+            "h": 90,
+            "out_width": 200
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "toolu_01HYBbjkPF4tTy1egNYygmLF",
+            "content": "page=294 crop=(x=600, y=260, w=640, h=90) output=200x28 cost=5600 budget_left=8430"
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 16485,
+        "completion_tokens": 158,
+        "cached_tokens": 16483,
+        "cost_usd": 0.0111596,
+        "extra": {
+          "reasoning_tokens": 130,
+          "cache_write_tokens": 419
+        }
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 11,
+      "timestamp": "2026-11-14T20:47:08.113000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "toolu_01VCaPnFswuoCU4hY3eB3RyC",
+          "function_name": "framehunt_view",
+          "arguments": {
+            "t": 294,
+            "x": 1020,
+            "y": 760,
+            "w": 160,
+            "h": 40,
+            "out_width": 160
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "toolu_01VCaPnFswuoCU4hY3eB3RyC",
+            "content": "page=294 crop=(x=1020, y=760, w=160, h=40) output=160x40 cost=6400 budget_left=2030"
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 16904,
+        "completion_tokens": 159,
+        "cached_tokens": 16902,
+        "cost_usd": 0.0102934,
+        "extra": {
+          "reasoning_tokens": 95,
+          "cache_write_tokens": 365
+        }
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 12,
+      "timestamp": "2026-11-14T20:47:11.542000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "toolu_013j2yqnEGdhnnvzsbtho7Fc",
+          "function_name": "framehunt_submit",
+          "arguments": {
+            "answer": "4355"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "toolu_013j2yqnEGdhnnvzsbtho7Fc",
+            "content": "Answer recorded. Only the first submission counts, so this answer is final. No correctness feedback is given."
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 17269,
+        "completion_tokens": 53,
+        "cached_tokens": 17267,
+        "cost_usd": 0.0062014,
+        "extra": {
+          "cache_write_tokens": 336
+        }
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 13,
+      "timestamp": "2026-11-14T20:47:16.770000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "I submitted **4355** (printed as \"4 355\", EUR thousand). There's no feedback on whether it's correct.\n\n- **Finding the note:** the contents page puts Note 3, \"Provisions\", on printed pages 281\u2013285. A page header showed printed page 275 at PDF index 285, so the note sits at indexes 291\u2013295.\n- **Finding the table:** PDF page 294 has the country table, with rows Spain, Estonia, France, Germany, Finland, Sweden, Norway and Total. Its two value columns are \"Current\" and \"Non-current\", with Non-current on the right.\n- **Reading the value:** the Norway row reads \"8 211\" under Current. At low resolution the Non-current figure looked like \"6 355\". A full-resolution crop showed \"4 355\", so I went with that reading.\n\n**Unconfirmed:**\n- I couldn't read the table's title, so I'm assuming this is \"Provisions by country\" because it's the only country-by-country table in the note.\n- I also couldn't check that the column is for 31 December 2024 and not a prior-year comparison.\n\nI used 117,970 of the 120,000-pixel budget, which left too little to check either point.",
+      "metrics": {
+        "prompt_tokens": 17605,
+        "completion_tokens": 381,
+        "cached_tokens": 17603,
+        "cost_usd": 0.0116036,
+        "extra": {
+          "cache_write_tokens": 91
+        }
+      },
+      "llm_call_count": 1
+    }
+  ],
+  "final_metrics": {
+    "total_prompt_tokens": 182120,
+    "total_completion_tokens": 1797,
+    "total_cached_tokens": 182094,
+    "total_cost_usd": 0.1421478,
+    "total_steps": 13
+  }
+}

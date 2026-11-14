@@ -1,0 +1,80 @@
+{
+    "id": "2bbea6a9-11d8-498f-9448-b72cc43b902a",
+    "started_at": "2026-11-14T22:44:53.367410",
+    "updated_at": "2026-11-14T22:48:43.383215",
+    "finished_at": "2026-11-14T22:48:43.383215",
+    "n_total_trials": 40,
+    "stats": {
+        "n_completed_trials": 40,
+        "n_errored_trials": 0,
+        "n_running_trials": 0,
+        "n_pending_trials": 0,
+        "n_cancelled_trials": 0,
+        "n_retries": 0,
+        "evals": {
+            "opencode__claude-opus-5-5__eval": {
+                "n_trials": 40,
+                "n_errors": 0,
+                "metrics": [
+                    {
+                        "mean": 0.7
+                    }
+                ],
+                "pass_at_k": {},
+                "reward_stats": {
+                    "reward": {
+                        "0.0": [
+                            "dialogs-7101__T2dii3h",
+                            "dialogs-7103__A6RNaEr",
+                            "dialogs-7104__hD68uPE",
+                            "dialogs-7110__Zcrne8u",
+                            "logstream-7002__B3QShmc",
+                            "logstream-7004__WX4DfYp",
+                            "logstream-7006__BH3x2M4",
+                            "logstream-7007__rV8BzMN",
+                            "logstream-7009__NQbhcJZ",
+                            "scandoc-7601__oQekbqi",
+                            "scandoc-7607__twxWmGa",
+                            "scandoc-7610__eqHuS5b"
+                        ],
+                        "1.0": [
+                            "dialogs-7102__hJQLr7k",
+                            "dialogs-7105__hKMmvF3",
+                            "dialogs-7106__QhFs6e6",
+                            "dialogs-7107__axFAzHG",
+                            "dialogs-7108__D9hLVad",
+                            "dialogs-7109__82RVZvb",
+                            "logstream-7001__AZLadxx",
+                            "logstream-7003__tnjCbYK",
+                            "logstream-7005__oB6ZpD7",
+                            "logstream-7008__BBKYBHh",
+                            "logstream-7010__Q4S7oNt",
+                            "scandoc-7602__XeYWNMz",
+                            "scandoc-7603__xiJG5Ub",
+                            "scandoc-7604__rAh9Dzp",
+                            "scandoc-7605__BJ2BGg4",
+                            "scandoc-7606__hSdKAQe",
+                            "scandoc-7608__oja2MbJ",
+                            "scandoc-7609__5UMcgVW",
+                            "toasts-7401__fYstJ4p",
+                            "toasts-7402__2V8jsL9",
+                            "toasts-7403__3wp8ibg",
+                            "toasts-7404__BaoF6Nn",
+                            "toasts-7405__nsVMMDu",
+                            "toasts-7406__ugzaSSv",
+                            "toasts-7407__tzf2N4v",
+                            "toasts-7408__Haf7rTx",
+                            "toasts-7409__P3cpD8n",
+                            "toasts-7410__wH6SvnS"
+                        ]
+                    }
+                },
+                "exception_stats": {}
+            }
+        },
+        "n_input_tokens": 6980417,
+        "n_cache_tokens": 6979419,
+        "n_output_tokens": 74111,
+        "cost_usd": 5.7165508
+    }
+}

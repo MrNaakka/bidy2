@@ -1,0 +1,398 @@
+{
+  "schema_version": "ATIF-v1.7",
+  "session_id": "ses_e24302e88ffeCD8rFyHVrMsSv7",
+  "agent": {
+    "name": "opencode",
+    "version": "1.19.5",
+    "model_name": "anthropic/claude-opus-5-5"
+  },
+  "steps": [
+    {
+      "step_id": 1,
+      "source": "user",
+      "message": "# FrameHunt\n\nAnswer a question about a screen recording. You can't watch the video. You can only\nrequest individual frames from the MCP server `framehunt`. Frames can be cropped and\ndownscaled, and every image pixel the server returns is charged against a fixed pixel\nbudget.\n\n## Question\n\nToast notifications pop up in the top-right corner of this app: blue Info, amber Warning and red Error toasts. The newest toast appears at the top of the stack and pushes the older ones down. What code was shown on the 16th Error toast? The red badge on the notification bell in the top bar counts the Error toasts shown so far.\n\nAnswer format: 6 characters: uppercase letters A-Z except I and O, and digits 0-9\n\n## Video\n\n- Size: 1920 x 1080 pixels\n- Frame rate: 10 fps\n- Length: 4715 frames, 471.5 seconds. Frame `i` is shown at time `i / 10` s.\n\n## Pixel budget\n\nYou have 120000 pixels in total. For scale, one full frame at native resolution is\n2073600 pixels.\n\n## Tools and costs\n\n- `info()`: shows the question, answer format, video facts, `budget_left` and these\n  rules. Free.\n- `view(t, x=0, y=0, w=None, h=None, out_width=320)`: returns one frame as a PNG image\n  and one line of text with the actual frame time, frame index, output size, cost and\n  `budget_left`.\n  - `t` is in seconds, from 0 to 471.5, and is snapped to the nearest frame.\n  - `x, y, w, h` give a crop rectangle in native pixels. The default is the whole\n    frame. The crop is clipped to the frame.\n  - The crop is resized to `out_width` pixels wide, keeping its aspect ratio.\n    `out_width` must be at least 8. It is capped at the crop width, so images\n    are never upscaled.\n  - **Cost = output width x output height.**\n- `contact_sheet(t_start, t_end, n, x=0, y=0, w=None, h=None, out_width=160)`: returns\n  one grid image of `n` evenly spaced frames from `t_start` to `t_end` (both included),\n  plus a text list of the frame times. Tiles are read left to right, then top to bottom.\n  - `n` is from 2 to 16. The same crop and `out_width` rules as `view`\n    apply to each tile.\n  - **Cost = n x tile output width x tile output height.** The 2-pixel separators\n    between tiles are free.\n- `submit(answer)`: records your answer. Free. **Only the first submission counts.**\n  Later submissions are refused. No feedback on correctness is given.\n\nA request that costs more than your remaining budget is refused and charges nothing.\nInvalid requests are refused and charge nothing.\n\n## Scoring\n\nThe score is 1 if your submitted answer matches the correct answer exactly, ignoring\ncase and whitespace. Otherwise it is 0. Not submitting scores 0. The budget is a hard\nlimit. Pixels you don't use don't change the score.\n"
+    },
+    {
+      "step_id": 2,
+      "timestamp": "2026-11-14T20:46:34.321000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "toolu_012MBqoHiNgjXbc5EPH7owra",
+          "function_name": "framehunt_view",
+          "arguments": {
+            "t": 235,
+            "out_width": 240
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "toolu_012MBqoHiNgjXbc5EPH7owra",
+            "content": "t=235.000s frame=2350 crop=(x=0, y=0, w=1920, h=1080) output=240x135 cost=32400 budget_left=87600"
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 11934,
+        "completion_tokens": 74,
+        "cached_tokens": 11930,
+        "cost_usd": 0.009717,
+        "extra": {
+          "reasoning_tokens": 21,
+          "cache_write_tokens": 1083
+        }
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 3,
+      "timestamp": "2026-11-14T20:46:38.740000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "toolu_01UHTmzFRt1eoARBcGvjf2tw",
+          "function_name": "framehunt_contact_sheet",
+          "arguments": {
+            "t_start": 235,
+            "t_end": 471,
+            "n": 16,
+            "x": 1820,
+            "y": 10,
+            "w": 70,
+            "h": 50,
+            "out_width": 35
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "toolu_01UHTmzFRt1eoARBcGvjf2tw",
+            "content": "16 frames, 4 columns x 4 rows, read left to right then top to bottom; crop=(x=1820, y=10, w=70, h=50) tile=35x25 cost=14000 budget_left=73600\n  tile 1: t=235.000s frame=2350\n  tile 2: t=250.700s frame=2507\n  tile 3: t=266.500s frame=2665\n  tile 4: t=282.200s frame=2822\n  tile 5: t=297.900s frame=2979\n  tile 6: t=313.700s frame=3137\n  tile 7: t=329.400s frame=3294\n  tile 8: t=345.100s frame=3451\n  tile 9: t=360.900s frame=3609\n  tile 10: t=376.600s frame=3766\n  tile 11: t=392.300s frame=3923\n  tile 12: t=408.100s frame=4081\n  tile 13: t=423.800s frame=4238\n  tile 14: t=439.500s frame=4395\n  tile 15: t=455.300s frame=4553\n  tile 16: t=471.000s frame=4710"
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 13015,
+        "completion_tokens": 210,
+        "cached_tokens": 13013,
+        "cost_usd": 0.0114356,
+        "extra": {
+          "reasoning_tokens": 176,
+          "cache_write_tokens": 221
+        }
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 4,
+      "timestamp": "2026-11-14T20:46:43.645000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "toolu_01FXhVRp9pj1wQqxa8dzsW9J",
+          "function_name": "framehunt_view",
+          "arguments": {
+            "t": 235,
+            "x": 1600,
+            "y": 0,
+            "w": 320,
+            "h": 80,
+            "out_width": 160
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "toolu_01FXhVRp9pj1wQqxa8dzsW9J",
+            "content": "t=235.000s frame=2350 crop=(x=1600, y=0, w=320, h=80) output=160x40 cost=6400 budget_left=67200"
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 13236,
+        "completion_tokens": 159,
+        "cached_tokens": 13234,
+        "cost_usd": 0.0116198,
+        "extra": {
+          "reasoning_tokens": 91,
+          "cache_write_tokens": 793
+        }
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 5,
+      "timestamp": "2026-11-14T20:46:54.123000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "toolu_01LByMHreHRK9rq2p6SMbUne",
+          "function_name": "framehunt_contact_sheet",
+          "arguments": {
+            "t_start": 235,
+            "t_end": 471,
+            "n": 16,
+            "x": 1610,
+            "y": 0,
+            "w": 160,
+            "h": 70,
+            "out_width": 40
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "toolu_01LByMHreHRK9rq2p6SMbUne",
+            "content": "16 frames, 4 columns x 4 rows, read left to right then top to bottom; crop=(x=1610, y=0, w=160, h=70) tile=40x18 cost=11520 budget_left=55680\n  tile 1: t=235.000s frame=2350\n  tile 2: t=250.700s frame=2507\n  tile 3: t=266.500s frame=2665\n  tile 4: t=282.200s frame=2822\n  tile 5: t=297.900s frame=2979\n  tile 6: t=313.700s frame=3137\n  tile 7: t=329.400s frame=3294\n  tile 8: t=345.100s frame=3451\n  tile 9: t=360.900s frame=3609\n  tile 10: t=376.600s frame=3766\n  tile 11: t=392.300s frame=3923\n  tile 12: t=408.100s frame=4081\n  tile 13: t=423.800s frame=4238\n  tile 14: t=439.500s frame=4395\n  tile 15: t=455.300s frame=4553\n  tile 16: t=471.000s frame=4710"
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 14029,
+        "completion_tokens": 210,
+        "cached_tokens": 14027,
+        "cost_usd": 0.0102334,
+        "extra": {
+          "reasoning_tokens": 76,
+          "cache_write_tokens": 340
+        }
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 6,
+      "timestamp": "2026-11-14T20:46:57.417000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "toolu_0111vkxEFsruCqMMH9kNV79V",
+          "function_name": "framehunt_contact_sheet",
+          "arguments": {
+            "t_start": 251,
+            "t_end": 266,
+            "n": 16,
+            "x": 1610,
+            "y": 0,
+            "w": 160,
+            "h": 70,
+            "out_width": 40
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "toolu_0111vkxEFsruCqMMH9kNV79V",
+            "content": "16 frames, 4 columns x 4 rows, read left to right then top to bottom; crop=(x=1610, y=0, w=160, h=70) tile=40x18 cost=11520 budget_left=44160\n  tile 1: t=251.000s frame=2510\n  tile 2: t=252.000s frame=2520\n  tile 3: t=253.000s frame=2530\n  tile 4: t=254.000s frame=2540\n  tile 5: t=255.000s frame=2550\n  tile 6: t=256.000s frame=2560\n  tile 7: t=257.000s frame=2570\n  tile 8: t=258.000s frame=2580\n  tile 9: t=259.000s frame=2590\n  tile 10: t=260.000s frame=2600\n  tile 11: t=261.000s frame=2610\n  tile 12: t=262.000s frame=2620\n  tile 13: t=263.000s frame=2630\n  tile 14: t=264.000s frame=2640\n  tile 15: t=265.000s frame=2650\n  tile 16: t=266.000s frame=2660"
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 14369,
+        "completion_tokens": 210,
+        "cached_tokens": 14367,
+        "cost_usd": 0.0148964,
+        "extra": {
+          "reasoning_tokens": 219,
+          "cache_write_tokens": 687
+        }
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 7,
+      "timestamp": "2026-11-14T20:47:02.704000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "toolu_01JeLRnuegdSYqYwPnVum9f3",
+          "function_name": "framehunt_contact_sheet",
+          "arguments": {
+            "t_start": 258.1,
+            "t_end": 259,
+            "n": 10,
+            "x": 1610,
+            "y": 0,
+            "w": 160,
+            "h": 70,
+            "out_width": 40
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "toolu_01JeLRnuegdSYqYwPnVum9f3",
+            "content": "10 frames, 4 columns x 3 rows, read left to right then top to bottom; crop=(x=1610, y=0, w=160, h=70) tile=40x18 cost=7200 budget_left=36960\n  tile 1: t=258.100s frame=2581\n  tile 2: t=258.200s frame=2582\n  tile 3: t=258.300s frame=2583\n  tile 4: t=258.400s frame=2584\n  tile 5: t=258.500s frame=2585\n  tile 6: t=258.600s frame=2586\n  tile 7: t=258.700s frame=2587\n  tile 8: t=258.800s frame=2588\n  tile 9: t=258.900s frame=2589\n  tile 10: t=259.000s frame=2590"
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 15056,
+        "completion_tokens": 212,
+        "cached_tokens": 15054,
+        "cost_usd": 0.0224288,
+        "extra": {
+          "reasoning_tokens": 551,
+          "cache_write_tokens": 830
+        }
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 8,
+      "timestamp": "2026-11-14T20:47:11.460000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "toolu_01ANN7YJDKc1AjLheJwbvaVU",
+          "function_name": "framehunt_view",
+          "arguments": {
+            "t": 258.6,
+            "x": 1450,
+            "y": 80,
+            "w": 470,
+            "h": 130,
+            "out_width": 235
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "toolu_01ANN7YJDKc1AjLheJwbvaVU",
+            "content": "t=258.600s frame=2586 crop=(x=1450, y=80, w=470, h=130) output=235x65 cost=15275 budget_left=21685"
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 15886,
+        "completion_tokens": 161,
+        "cached_tokens": 15884,
+        "cost_usd": 0.0134448,
+        "extra": {
+          "reasoning_tokens": 88,
+          "cache_write_tokens": 1056
+        }
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 9,
+      "timestamp": "2026-11-14T20:47:14.912000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "toolu_01Bd5X2Z6S78gL9CrkszwPVe",
+          "function_name": "framehunt_view",
+          "arguments": {
+            "t": 258.6,
+            "x": 1460,
+            "y": 195,
+            "w": 240,
+            "h": 40,
+            "out_width": 240
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "toolu_01Bd5X2Z6S78gL9CrkszwPVe",
+            "content": "t=258.600s frame=2586 crop=(x=1460, y=195, w=240, h=40) output=240x40 cost=9600 budget_left=12085"
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 16942,
+        "completion_tokens": 161,
+        "cached_tokens": 16940,
+        "cost_usd": 0.010866,
+        "extra": {
+          "reasoning_tokens": 124,
+          "cache_write_tokens": 354
+        }
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 10,
+      "timestamp": "2026-11-14T20:47:18.773000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "",
+      "tool_calls": [
+        {
+          "tool_call_id": "toolu_015tdCJtK28CGvGahLSiWxKH",
+          "function_name": "framehunt_submit",
+          "arguments": {
+            "answer": "49L8GZ"
+          }
+        }
+      ],
+      "observation": {
+        "results": [
+          {
+            "source_call_id": "toolu_015tdCJtK28CGvGahLSiWxKH",
+            "content": "Answer recorded. Only the first submission counts, so this answer is final. No correctness feedback is given."
+          }
+        ]
+      },
+      "metrics": {
+        "prompt_tokens": 17296,
+        "completion_tokens": 57,
+        "cached_tokens": 17294,
+        "cost_usd": 0.0065118,
+        "extra": {
+          "cache_write_tokens": 381
+        }
+      },
+      "llm_call_count": 1
+    },
+    {
+      "step_id": 11,
+      "timestamp": "2026-11-14T20:47:23.323000+00:00",
+      "source": "agent",
+      "model_name": "anthropic/claude-opus-5-5",
+      "message": "I submitted **49L8GZ** as the code on the 16th Error toast. The answer is final, and the tool gives no feedback on whether it's correct.\n\n1. **Finding when the count reached 16:** I tracked the red badge on the notification bell. It read 14 at about 251\u2013257 s, then 15, and showed **16** only from 258.3 s to 258.6 s. At 258.7 s it jumped to 17, so the next Error toast came almost right after.\n2. **Reading the toast:** At 258.6 s the badge still read 16, so the newest toast at the top of the stack was the 16th Error. It was the red \"Error: Export failed\" toast (\"Batch INV-68500 was rejected by the bank.\"). A full-resolution crop of its code field read **49L8GZ**, which fits the answer format.\n\nI used about 108,000 of the 120,000-pixel budget.",
+      "metrics": {
+        "prompt_tokens": 17677,
+        "completion_tokens": 286,
+        "cached_tokens": 17675,
+        "cost_usd": 0.009738,
+        "extra": {
+          "cache_write_tokens": 95
+        }
+      },
+      "llm_call_count": 1
+    }
+  ],
+  "final_metrics": {
+    "total_prompt_tokens": 149440,
+    "total_completion_tokens": 1740,
+    "total_cached_tokens": 149418,
+    "total_cost_usd": 0.12089159999999999,
+    "total_steps": 11
+  }
+}

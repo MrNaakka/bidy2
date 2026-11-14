@@ -1,5 +1,9 @@
 # Handoff: finding more failure scenarios (written 2026-11-14, ~15:20 local)
 
+> **Superseded.** This was the working handoff for finding new scene kinds. The final state
+> (EVAL v2: logstream, dialogs, toasts, scandoc; results; training) is in
+> [README.md](../README.md) and [docs/results/](results/tables.md). Kept for history.
+
 This file gets a fresh agent on a fresh machine working right away. Read it first, then
 `AGENTS.md` (judging criteria), `README.md` (results, failure analysis, how to run) and
 `docs/design.md` (item rules, interfaces, reward integrity). `docs/framing.md` is the demo pitch.

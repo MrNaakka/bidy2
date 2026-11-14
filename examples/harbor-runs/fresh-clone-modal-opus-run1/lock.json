@@ -1,0 +1,1712 @@
+{
+    "schema_version": 3,
+    "created_at": "2026-11-14T20:44:54.651669Z",
+    "harbor": {
+        "version": "0.25.0",
+        "is_editable": false
+    },
+    "n_concurrent_trials": 40,
+    "retry": {
+        "max_retries": 2,
+        "include_exceptions": [
+            "AgentSetupTimeoutError"
+        ],
+        "exclude_exceptions": [
+            "RewardFileNotFoundError",
+            "VerifierTimeoutError",
+            "ModelNotFoundError",
+            "AgentAuthenticationError",
+            "VerifierOutputParseError",
+            "AgentSafetyRefusalError",
+            "ApiUsageLimitError",
+            "AgentTimeoutError",
+            "RewardFileEmptyError",
+            "UnsupportedModelParametersError"
+        ],
+        "wait_multiplier": 1.0,
+        "min_wait_sec": 1.0,
+        "max_wait_sec": 60.0
+    },
+    "trials": [
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "dialogs-7101",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:e6d669e2e8f91db97658d8c8d6fe162ad2a055669d7f9626b0b224824272af48",
+                "source": "eval",
+                "path": "tasks/eval/dialogs-7101"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "dialogs-7102",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:a59b3394135404f1c82523947c31382e90324683fd3ebb0861e67e61bb9d2796",
+                "source": "eval",
+                "path": "tasks/eval/dialogs-7102"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "dialogs-7103",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:a68d4bb7380d688fe43134bc29c385f8586180e465c730c2e049d3db69f9e49a",
+                "source": "eval",
+                "path": "tasks/eval/dialogs-7103"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "dialogs-7104",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:19bf3879ae5738064d63d5670d26051ae9a86d3ef4ab13a0935956a3d49a6e97",
+                "source": "eval",
+                "path": "tasks/eval/dialogs-7104"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "dialogs-7105",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:b55c7d89dcd718675dfedb490f8ec3d165a562c902d45736abe48b4de68f2c1c",
+                "source": "eval",
+                "path": "tasks/eval/dialogs-7105"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "dialogs-7106",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:6cca044d507bca43e1cdc4f7b414833251c5e0a57c74a2f5a4dd29025aebb92c",
+                "source": "eval",
+                "path": "tasks/eval/dialogs-7106"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "dialogs-7107",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:16409318b7150371a209542bc15a0737dd39318468057db657dad6ef1b93666d",
+                "source": "eval",
+                "path": "tasks/eval/dialogs-7107"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "dialogs-7108",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:5b7ecaa4427eb43d5efbed757242a67263be28097875bf90050b8d7678dc1b20",
+                "source": "eval",
+                "path": "tasks/eval/dialogs-7108"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "dialogs-7109",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:74e0f2642ee5383bde922828df06d14b3e41283af1d14235315a48dad2b1176d",
+                "source": "eval",
+                "path": "tasks/eval/dialogs-7109"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "dialogs-7110",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:6f4c84a700b55c3717b39b65455388510df488cbd8ea0aadf991e5f23f678d49",
+                "source": "eval",
+                "path": "tasks/eval/dialogs-7110"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "logstream-7001",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:761dc370eeb621afaa24804bc93dedb5adb270544cceb520f2b3f9795fc764a8",
+                "source": "eval",
+                "path": "tasks/eval/logstream-7001"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "logstream-7002",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:006edd6c8536291d3f236337aa2e5df61b160977739004e98ff013f832f71c1a",
+                "source": "eval",
+                "path": "tasks/eval/logstream-7002"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "logstream-7003",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:4acb62bbea43453f7da82835953ddcc9e27419a22586a55189f5633863d88935",
+                "source": "eval",
+                "path": "tasks/eval/logstream-7003"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "logstream-7004",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:50fe7c8dd6a79882cf87739ff723f3b5b80912967f70f6ff9de36e5b7ac9bede",
+                "source": "eval",
+                "path": "tasks/eval/logstream-7004"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "logstream-7005",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:47981c15ed33b31dda4d41f2d39f0060ddab1bb892f41ec8b189b1ab9136ec4d",
+                "source": "eval",
+                "path": "tasks/eval/logstream-7005"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "logstream-7006",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:ffda24725a0ba79ae01b86a2af30c07f3c60aa1f5157bdbb858edd500b4dd86b",
+                "source": "eval",
+                "path": "tasks/eval/logstream-7006"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "logstream-7007",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:f5b84410477b55d3b9c347ede8746ad3dd8509c211febca9bbb13a98fcec72c0",
+                "source": "eval",
+                "path": "tasks/eval/logstream-7007"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "logstream-7008",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:3c29a5bdfdfbd1f9f78a13d82b69ac2c1aecdbe4496db84e6d162c943152efb8",
+                "source": "eval",
+                "path": "tasks/eval/logstream-7008"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "logstream-7009",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:870452470caa91bfec1428f639550ffe7b4d1b89b9fe18ac623fae2ec4a597a0",
+                "source": "eval",
+                "path": "tasks/eval/logstream-7009"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "logstream-7010",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:d061785e472cb25d87bd4a8e5ce191f194e98667535953f72ff8addc9d0c9758",
+                "source": "eval",
+                "path": "tasks/eval/logstream-7010"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "scandoc-7601",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:fc3bed3a6c962ea0f7509733e58cf9ec775b9e6c145fba1e0ae731c1b6d7f470",
+                "source": "eval",
+                "path": "tasks/eval/scandoc-7601"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "scandoc-7602",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:751c5376ec99a227dfd5c8233d1c39e63382296af540ff7faec6911b9eb23430",
+                "source": "eval",
+                "path": "tasks/eval/scandoc-7602"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "scandoc-7603",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:d86385bfe69f3b2fdefeb149cf906a1f51202e0b6f93f7ea8359942d557daed1",
+                "source": "eval",
+                "path": "tasks/eval/scandoc-7603"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "scandoc-7604",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:926a1ed507bf7accd4d5e9ca334b1e092b0b83e04d2ea42935bc1615d5a61f9b",
+                "source": "eval",
+                "path": "tasks/eval/scandoc-7604"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "scandoc-7605",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:1836446071a861cc869a6b1848f07c10ac8aaaa36592a658c5bf42a0a9a3f699",
+                "source": "eval",
+                "path": "tasks/eval/scandoc-7605"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "scandoc-7606",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:3870f2e52b8b8d230617be26fb0ef165cefe64e9d7ff715cdb557e9915a5da11",
+                "source": "eval",
+                "path": "tasks/eval/scandoc-7606"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "scandoc-7607",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:9693403336b173eb8476508679a6f1d61ed6f51a187008f3d5d6b94d5ee2fdf9",
+                "source": "eval",
+                "path": "tasks/eval/scandoc-7607"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "scandoc-7608",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:e8b5163cdcdcb6bd46b50e1cfed2542cc2badfd991a6ad35193d6cd320918783",
+                "source": "eval",
+                "path": "tasks/eval/scandoc-7608"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "scandoc-7609",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:2598ad49b6c635e4a08720ec6ccddc4ce9106beb7696c3723959735f26a3d7d1",
+                "source": "eval",
+                "path": "tasks/eval/scandoc-7609"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "scandoc-7610",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:3f31b63482cb7a5618f3140535ce6a55609cc7bd4f2968700c74f987dbc14be4",
+                "source": "eval",
+                "path": "tasks/eval/scandoc-7610"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "toasts-7401",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:5300d949af8b9db3a3d321a1bea979212d630c6136673b1f384776860a4e8192",
+                "source": "eval",
+                "path": "tasks/eval/toasts-7401"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "toasts-7402",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:746bb6f5dd6822010e9f2f596a1a436f6e87f42eb1e88c5c2d08c21c599d3cda",
+                "source": "eval",
+                "path": "tasks/eval/toasts-7402"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "toasts-7403",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:8996ef8a1137dc80af6114dfefcc5ddd4fa0187e99855cd2674e3a38a3a5cc7b",
+                "source": "eval",
+                "path": "tasks/eval/toasts-7403"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "toasts-7404",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:a5a65ca422a7e02741dab215fcb083dda79799dd34ef3d5d2f85916e08ae9a3b",
+                "source": "eval",
+                "path": "tasks/eval/toasts-7404"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "toasts-7405",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:35045972be8c18eeaee5932ebf91020315a1f43787868bd783ee386e7f668772",
+                "source": "eval",
+                "path": "tasks/eval/toasts-7405"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "toasts-7406",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:beb453b7cc71f35ab00d95c55a68e1370d96d91774be307580854800ce852448",
+                "source": "eval",
+                "path": "tasks/eval/toasts-7406"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "toasts-7407",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:2235f80b48bbf054ed3059e946f2c4d10759f39ec1205fb07b33f588ee3db096",
+                "source": "eval",
+                "path": "tasks/eval/toasts-7407"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "toasts-7408",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:94cbdfab9f15707499694ff8e4a864bee9129374f91a4bb615440333228d1751",
+                "source": "eval",
+                "path": "tasks/eval/toasts-7408"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "toasts-7409",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:c7595fdb4ca6706ab86eadba73f6e0d565dff0de8828b35be891d79eea4607a8",
+                "source": "eval",
+                "path": "tasks/eval/toasts-7409"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        },
+        {
+            "schema_version": 2,
+            "task": {
+                "name": "toasts-7410",
+                "version": "0.1.0",
+                "type": "local",
+                "digest": "sha256:d18012051f5985a9be1fad835ed819bd963d6b49a11a3d9dac10b1e12ccd8786",
+                "source": "eval",
+                "path": "tasks/eval/toasts-7410"
+            },
+            "install_only": false,
+            "timeout_multiplier": 1.0,
+            "agent": {
+                "name": "opencode",
+                "model_name": "anthropic/claude-opus-5-5",
+                "skip_model_parsing": false,
+                "skills": [],
+                "resume_trajectory": false,
+                "extra_allowed_hosts": [],
+                "kwargs": {
+                    "version": "1.19.5"
+                },
+                "mcp_servers": []
+            },
+            "bridge_inputs": {},
+            "skills": [],
+            "environment": {
+                "type": "modal",
+                "force_build": false,
+                "delete": true,
+                "stream": false,
+                "cpu_enforcement_policy": "auto",
+                "memory_enforcement_policy": "auto",
+                "extra_docker_compose": [],
+                "kwargs": {},
+                "extra_allowed_hosts": []
+            },
+            "verifier": {
+                "disable": false,
+                "environment_mode": "separate"
+            }
+        }
+    ]
+}

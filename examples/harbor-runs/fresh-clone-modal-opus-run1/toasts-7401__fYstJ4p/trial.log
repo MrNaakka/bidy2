@@ -1,0 +1,93 @@
+Selected strategy: _ModalDinD
+Waiting for Docker daemon inside DinD sandbox...
+Docker daemon is ready
+DinD mode uses host networking: no port isolation between services, no Docker DNS service discovery (extra_hosts entries map service names to 127.0.0.1 instead), and no network namespace isolation. Use --ek modal_vm_runtime=true to use the VM runtime instead which does not use host networking.
+Building compose services inside DinD sandbox...
+Starting compose services inside DinD sandbox...
+Waiting for main container to be running...
+Main container is running
+Running command: set -euo pipefail; if ldd --version 2>&1 | grep -qi musl || [ -f /etc/alpine-release ]; then node --version && npm --version; else curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.2/install.sh | env -u NODE_VERSION bash && export NVM_DIR="$HOME/.nvm" && \. "$NVM_DIR/nvm.sh" || true && command -v nvm &>/dev/null || { echo 'Error: NVM failed to load' >&2; exit 1; } && nvm install 22 && nvm alias default 22 && npm -v; fi && npm i -g opencode-ai@1.19.5 && opencode --version
+Command outputs captured
+Running command: mkdir -p ~/.config/opencode && echo '{
+  "mcp": {
+    "framehunt": {
+      "type": "remote",
+      "url": "http://fh-mcp:8000/mcp",
+      "oauth": false
+    }
+  },
+  "provider": {
+    "anthropic": {
+      "models": {
+        "claude-opus-5-5": {}
+      }
+    }
+  }
+}' > ~/.config/opencode/opencode.json
+Command outputs captured
+Running command: [ -f ~/.nvm/nvm.sh ] && . ~/.nvm/nvm.sh; opencode --model=anthropic/claude-opus-5-5 run --format=json --thinking --dangerously-skip-permissions -- '# FrameHunt
+
+Answer a question about a screen recording. You can'"'"'t watch the video. You can only
+request individual frames from the MCP server `framehunt`. Frames can be cropped and
+downscaled, and every image pixel the server returns is charged against a fixed pixel
+budget.
+
+## Question
+
+Toast notifications pop up in the top-right corner of this app: blue Info, amber Warning and red Error toasts. The newest toast appears at the top of the stack and pushes the older ones down. What code was shown on the 13th Error toast? The red badge on the notification bell in the top bar counts the Error toasts shown so far.
+
+Answer format: 6 characters: uppercase letters A-Z except I and O, and digits 0-9
+
+## Video
+
+- Size: 1920 x 1080 pixels
+- Frame rate: 10 fps
+- Length: 3833 frames, 383.3 seconds. Frame `i` is shown at time `i / 10` s.
+
+## Pixel budget
+
+You have 120000 pixels in total. For scale, one full frame at native resolution is
+2073600 pixels.
+
+## Tools and costs
+
+- `info()`: shows the question, answer format, video facts, `budget_left` and these
+  rules. Free.
+- `view(t, x=0, y=0, w=None, h=None, out_width=320)`: returns one frame as a PNG image
+  and one line of text with the actual frame time, frame index, output size, cost and
+  `budget_left`.
+  - `t` is in seconds, from 0 to 383.3, and is snapped to the nearest frame.
+  - `x, y, w, h` give a crop rectangle in native pixels. The default is the whole
+    frame. The crop is clipped to the frame.
+  - The crop is resized to `out_width` pixels wide, keeping its aspect ratio.
+    `out_width` must be at least 8. It is capped at the crop width, so images
+    are never upscaled.
+  - **Cost = output width x output height.**
+- `contact_sheet(t_start, t_end, n, x=0, y=0, w=None, h=None, out_width=160)`: returns
+  one grid image of `n` evenly spaced frames from `t_start` to `t_end` (both included),
+  plus a text list of the frame times. Tiles are read left to right, then top to bottom.
+  - `n` is from 2 to 16. The same crop and `out_width` rules as `view`
+    apply to each tile.
+  - **Cost = n x tile output width x tile output height.** The 2-pixel separators
+    between tiles are free.
+- `submit(answer)`: records your answer. Free. **Only the first submission counts.**
+  Later submissions are refused. No feedback on correctness is given.
+
+A request that costs more than your remaining budget is refused and charges nothing.
+Invalid requests are refused and charge nothing.
+
+## Scoring
+
+The score is 1 if your submitted answer matches the correct answer exactly, ignoring
+case and whitespace. Otherwise it is 0. Not submitting scores 0. The budget is a hard
+limit. Pixels you don'"'"'t use don'"'"'t change the score.
+' 2>&1 </dev/null | stdbuf -oL tee /logs/agent/opencode.txt
+Command outputs captured
+Wrote opencode trajectory to runs/fh-eval-opencode-run1/toasts-7401__fYstJ4p/agent/trajectory.json
+Collecting main service artifacts
+Stopping main service before sidecar evidence collection
+Main service stopped
+Collecting sidecar artifacts from services: ['fh-mcp']
+Running collect hook in service 'fh-mcp': 'python -m framehunt.evidence /fh-evidence'
+Collect hook in service 'fh-mcp' completed
+Selected strategy: _ModalDirect

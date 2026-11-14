@@ -1,0 +1,19 @@
+{
+    "task": {
+        "path": "tasks/eval/scandoc-7610",
+        "source": "eval"
+    },
+    "trial_name": "scandoc-7610__eqHuS5b",
+    "trials_dir": "runs/fh-eval-opencode-run1",
+    "agent": {
+        "name": "opencode",
+        "model_name": "anthropic/claude-opus-5-5",
+        "kwargs": {
+            "version": "1.19.5"
+        }
+    },
+    "environment": {
+        "type": "modal"
+    },
+    "job_id": "2bbea6a9-11d8-498f-9448-b72cc43b902a"
+}

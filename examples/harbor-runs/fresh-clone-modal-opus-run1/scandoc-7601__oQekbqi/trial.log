@@ -1,0 +1,99 @@
+Selected strategy: _ModalDinD
+Waiting for Docker daemon inside DinD sandbox...
+Docker daemon is ready
+DinD mode uses host networking: no port isolation between services, no Docker DNS service discovery (extra_hosts entries map service names to 127.0.0.1 instead), and no network namespace isolation. Use --ek modal_vm_runtime=true to use the VM runtime instead which does not use host networking.
+Building compose services inside DinD sandbox...
+Starting compose services inside DinD sandbox...
+Waiting for main container to be running...
+Main container is running
+Running command: set -euo pipefail; if ldd --version 2>&1 | grep -qi musl || [ -f /etc/alpine-release ]; then node --version && npm --version; else curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.2/install.sh | env -u NODE_VERSION bash && export NVM_DIR="$HOME/.nvm" && \. "$NVM_DIR/nvm.sh" || true && command -v nvm &>/dev/null || { echo 'Error: NVM failed to load' >&2; exit 1; } && nvm install 22 && nvm alias default 22 && npm -v; fi && npm i -g opencode-ai@1.19.5 && opencode --version
+Command outputs captured
+Running command: mkdir -p ~/.config/opencode && echo '{
+  "mcp": {
+    "framehunt": {
+      "type": "remote",
+      "url": "http://fh-mcp:8000/mcp",
+      "oauth": false
+    }
+  },
+  "provider": {
+    "anthropic": {
+      "models": {
+        "claude-opus-5-5": {}
+      }
+    }
+  }
+}' > ~/.config/opencode/opencode.json
+Command outputs captured
+Running command: [ -f ~/.nvm/nvm.sh ] && . ~/.nvm/nvm.sh; opencode --model=anthropic/claude-opus-5-5 run --format=json --thinking --dangerously-skip-permissions -- '# FrameHunt
+
+Answer a question about a long scanned document. You can'"'"'t open the file. You can only
+request individual page images from the MCP server `framehunt`. Pages can be cropped
+and downscaled, and every image pixel the server returns is charged against a fixed
+pixel budget.
+
+## Question
+
+This is a scanned PDF of the Silva Materials Annual Report 2024. In the notes to the financial statements, the note titled "Cash and cash equivalents" has a table "Cash by country" (amounts in EUR thousand). What amount does that table give for "Denmark" in the column "Book value" at 31 December 2024?
+
+Answer format: integer of 4 to 6 digits (the amount in EUR thousand as printed; the space used as a thousands separator does not matter)
+
+## Document
+
+- A scanned PDF of 305 pages: page images only, there is no text layer.
+- Each page image is 1240 x 1754 pixels (A4 at 150 dpi).
+- Pages are addressed by their 0-based PDF page index `t`, from 0 to 304:
+  `t=0` is the first page of the PDF (the cover), `t=304` the last one. The MCP
+  tools call it `t` because the same server also serves videos; here `t` is simply the
+  page index (it is rounded to the nearest integer).
+- The page numbers printed on the pages and in the document'"'"'s contents are the
+  document'"'"'s own numbering. They are not PDF page indexes.
+
+## Pixel budget
+
+You have 120000 pixels in total. For scale, one full page at native resolution is
+2174960 pixels, so reading everything is far out of reach.
+
+## Tools and costs
+
+- `info()`: shows the question, answer format, document facts, `budget_left` and these
+  rules. Free.
+- `view(t, x=0, y=0, w=None, h=None, out_width=320)`: returns one page as a PNG image
+  and one line of text with the PDF page index, the crop, output size, cost and
+  `budget_left`.
+  - `t` is the PDF page index, from 0 to 304.
+  - `x, y, w, h` give a crop rectangle in native pixels. The default is the whole
+    page. The crop is clipped to the page.
+  - The crop is resized to `out_width` pixels wide, keeping its aspect ratio.
+    `out_width` must be at least 8. It is capped at the crop width, so images
+    are never upscaled.
+  - **Cost = output width x output height.**
+- `contact_sheet(t_start, t_end, n, x=0, y=0, w=None, h=None, out_width=160)`: returns
+  one grid image of `n` evenly spaced pages from page index `t_start` to `t_end` (both
+  included), plus a text list of their page indexes. Tiles are read left to right, then
+  top to bottom.
+  - `n` is from 2 to 16. The same crop and `out_width` rules as `view`
+    apply to each tile.
+  - **Cost = n x tile output width x tile output height.** The 2-pixel separators
+    between tiles are free.
+- `submit(answer)`: records your answer. Free. **Only the first submission counts.**
+  Later submissions are refused. No feedback on correctness is given.
+
+A request that costs more than your remaining budget is refused and charges nothing.
+Invalid requests are refused and charge nothing.
+
+## Scoring
+
+The score is 1 if your submitted answer matches the correct answer exactly, ignoring
+case and whitespace. Otherwise it is 0. Not submitting scores 0. The budget is a hard
+limit. Pixels you don'"'"'t use don'"'"'t change the score.
+' 2>&1 </dev/null | stdbuf -oL tee /logs/agent/opencode.txt
+Command outputs captured
+Wrote opencode trajectory to runs/fh-eval-opencode-run1/scandoc-7601__oQekbqi/agent/trajectory.json
+Collecting main service artifacts
+Stopping main service before sidecar evidence collection
+Main service stopped
+Collecting sidecar artifacts from services: ['fh-mcp']
+Running collect hook in service 'fh-mcp': 'python -m framehunt.evidence /fh-evidence'
+Collect hook in service 'fh-mcp' completed
+Selected strategy: _ModalDirect

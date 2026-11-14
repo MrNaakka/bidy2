@@ -1,0 +1,42 @@
+{
+    "schema_version": 2,
+    "task": {
+        "name": "logstream-7005",
+        "version": "0.1.0",
+        "type": "local",
+        "digest": "sha256:47981c15ed33b31dda4d41f2d39f0060ddab1bb892f41ec8b189b1ab9136ec4d",
+        "source": "eval",
+        "path": "tasks/eval/logstream-7005"
+    },
+    "install_only": false,
+    "timeout_multiplier": 1.0,
+    "agent": {
+        "name": "opencode",
+        "model_name": "anthropic/claude-opus-5-5",
+        "skip_model_parsing": false,
+        "skills": [],
+        "resume_trajectory": false,
+        "extra_allowed_hosts": [],
+        "kwargs": {
+            "version": "1.19.5"
+        },
+        "mcp_servers": []
+    },
+    "bridge_inputs": {},
+    "skills": [],
+    "environment": {
+        "type": "modal",
+        "force_build": false,
+        "delete": true,
+        "stream": false,
+        "cpu_enforcement_policy": "auto",
+        "memory_enforcement_policy": "auto",
+        "extra_docker_compose": [],
+        "kwargs": {},
+        "extra_allowed_hosts": []
+    },
+    "verifier": {
+        "disable": false,
+        "environment_mode": "separate"
+    }
+}

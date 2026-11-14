@@ -1,0 +1,622 @@
+{
+ "eval": {
+  "split": "EVAL v2",
+  "n_items": 40,
+  "kinds": [
+   "logstream",
+   "dialogs",
+   "toasts",
+   "scandoc"
+  ],
+  "items_per_kind": 10,
+  "budget_px": 120000,
+  "reward": "1 if the first submitted answer is exact, else 0"
+ },
+ "agents": {
+  "Reference (scripted)": {
+   "label": "Reference (scripted)",
+   "jobs": [
+    "fh-eval-reference-all"
+   ],
+   "model": null,
+   "n_items": 40,
+   "scores": [
+    1.0
+   ],
+   "mean_score": 1.0,
+   "correct": [
+    40
+   ],
+   "submitted": [
+    40
+   ],
+   "agent_timeouts": [
+    0
+   ],
+   "mean_pixels": [
+    50036
+   ],
+   "mean_pixels_correct": 50036,
+   "mean_pixels_wrong": 0,
+   "max_pixels": 58224,
+   "mean_calls": 16.0,
+   "api_cost_usd": null,
+   "api_cost_usd_total": null,
+   "per_kind": {
+    "logstream": {
+     "mean_reward": 1.0,
+     "per_run": [
+      1.0
+     ],
+     "mean_pixels": 50776
+    },
+    "dialogs": {
+     "mean_reward": 1.0,
+     "per_run": [
+      1.0
+     ],
+     "mean_pixels": 58080
+    },
+    "toasts": {
+     "mean_reward": 1.0,
+     "per_run": [
+      1.0
+     ],
+     "mean_pixels": 40472
+    },
+    "scandoc": {
+     "mean_reward": 1.0,
+     "per_run": [
+      1.0
+     ],
+     "mean_pixels": 50818
+    }
+   }
+  },
+  "Opus 5.5 (OpenCode)": {
+   "label": "Opus 5.5 (OpenCode)",
+   "jobs": [
+    "fh-eval-opencode-all-run1",
+    "fh-eval-opencode-all-run2",
+    "fh-eval-opencode-all-run3"
+   ],
+   "model": "anthropic/claude-opus-5-5",
+   "n_items": 40,
+   "scores": [
+    0.75,
+    0.55,
+    0.65
+   ],
+   "mean_score": 0.65,
+   "correct": [
+    30,
+    22,
+    26
+   ],
+   "submitted": [
+    40,
+    40,
+    40
+   ],
+   "agent_timeouts": [
+    0,
+    0,
+    0
+   ],
+   "mean_pixels": [
+    108037,
+    110124,
+    110445
+   ],
+   "mean_pixels_correct": 105622,
+   "mean_pixels_wrong": 116804,
+   "max_pixels": 120000,
+   "mean_calls": 10.3,
+   "api_cost_usd": [
+    5.53,
+    5.82,
+    5.09
+   ],
+   "api_cost_usd_total": 16.45,
+   "per_kind": {
+    "logstream": {
+     "mean_reward": 0.433,
+     "per_run": [
+      0.6,
+      0.1,
+      0.6
+     ],
+     "mean_pixels": 115694
+    },
+    "dialogs": {
+     "mean_reward": 0.867,
+     "per_run": [
+      0.9,
+      0.9,
+      0.8
+     ],
+     "mean_pixels": 105843
+    },
+    "toasts": {
+     "mean_reward": 0.8,
+     "per_run": [
+      0.9,
+      0.7,
+      0.8
+     ],
+     "mean_pixels": 99363
+    },
+    "scandoc": {
+     "mean_reward": 0.5,
+     "per_run": [
+      0.6,
+      0.5,
+      0.4
+     ],
+     "mean_pixels": 117242
+    }
+   }
+  },
+  "Qwen3.8-27B + SFT v3": {
+   "label": "Qwen3.8-27B + SFT v3",
+   "jobs": [
+    "fh-eval-qwen-sft3-run1",
+    "fh-eval-qwen-sft3-run2",
+    "fh-eval-qwen-sft3-run3"
+   ],
+   "model": "verda-qwen/qwen3.8-27b-fh",
+   "n_items": 40,
+   "scores": [
+    0.65,
+    0.55,
+    0.65
+   ],
+   "mean_score": 0.617,
+   "correct": [
+    26,
+    22,
+    26
+   ],
+   "submitted": [
+    40,
+    39,
+    40
+   ],
+   "agent_timeouts": [
+    0,
+    1,
+    0
+   ],
+   "mean_pixels": [
+    61941,
+    74379,
+    64091
+   ],
+   "mean_pixels_correct": 55591,
+   "mean_pixels_wrong": 84842,
+   "max_pixels": 120000,
+   "mean_calls": 20.7,
+   "api_cost_usd": null,
+   "api_cost_usd_total": null,
+   "per_kind": {
+    "logstream": {
+     "mean_reward": 0.9,
+     "per_run": [
+      0.8,
+      1.0,
+      0.9
+     ],
+     "mean_pixels": 64421
+    },
+    "dialogs": {
+     "mean_reward": 0.4,
+     "per_run": [
+      0.4,
+      0.2,
+      0.6
+     ],
+     "mean_pixels": 90412
+    },
+    "toasts": {
+     "mean_reward": 0.9,
+     "per_run": [
+      1.0,
+      0.8,
+      0.9
+     ],
+     "mean_pixels": 42887
+    },
+    "scandoc": {
+     "mean_reward": 0.267,
+     "per_run": [
+      0.4,
+      0.2,
+      0.2
+     ],
+     "mean_pixels": 69496
+    }
+   }
+  },
+  "Qwen3.8-27B + SFT v2*": {
+   "label": "Qwen3.8-27B + SFT v2*",
+   "jobs": [
+    "fh-eval-qwen-sft2-run1",
+    "fh-eval-qwen-sft2-run2",
+    "fh-eval-qwen-sft2-run3"
+   ],
+   "model": "verda-qwen/qwen3.8-27b-fh",
+   "n_items": 30,
+   "scores": [
+    0.7,
+    0.5,
+    0.633
+   ],
+   "mean_score": 0.611,
+   "correct": [
+    21,
+    15,
+    19
+   ],
+   "submitted": [
+    30,
+    30,
+    30
+   ],
+   "agent_timeouts": [
+    0,
+    0,
+    0
+   ],
+   "mean_pixels": [
+    56383,
+    62622,
+    61517
+   ],
+   "mean_pixels_correct": 56217,
+   "mean_pixels_wrong": 66393,
+   "max_pixels": 117877,
+   "mean_calls": 15.5,
+   "api_cost_usd": null,
+   "api_cost_usd_total": null,
+   "per_kind": {
+    "logstream": {
+     "mean_reward": 0.767,
+     "per_run": [
+      0.8,
+      0.7,
+      0.8
+     ],
+     "mean_pixels": 65483
+    },
+    "dialogs": {
+     "mean_reward": 0.467,
+     "per_run": [
+      0.5,
+      0.4,
+      0.5
+     ],
+     "mean_pixels": 74114
+    },
+    "toasts": {
+     "mean_reward": 0.6,
+     "per_run": [
+      0.8,
+      0.4,
+      0.6
+     ],
+     "mean_pixels": 40925
+    }
+   }
+  },
+  "Qwen3.8-27B base": {
+   "label": "Qwen3.8-27B base",
+   "jobs": [
+    "fh-eval-qwen-run1",
+    "fh-eval-qwen-run2",
+    "fh-eval-qwen-run3"
+   ],
+   "model": "verda-qwen/qwen3.8-27b",
+   "n_items": 40,
+   "scores": [
+    0.2,
+    0.275,
+    0.275
+   ],
+   "mean_score": 0.25,
+   "correct": [
+    8,
+    11,
+    11
+   ],
+   "submitted": [
+    18,
+    25,
+    23
+   ],
+   "agent_timeouts": [
+    11,
+    3,
+    5
+   ],
+   "mean_pixels": [
+    100693,
+    97178,
+    101612
+   ],
+   "mean_pixels_correct": 115764,
+   "mean_pixels_wrong": 94515,
+   "max_pixels": 120000,
+   "mean_calls": 11.5,
+   "api_cost_usd": null,
+   "api_cost_usd_total": null,
+   "per_kind": {
+    "logstream": {
+     "mean_reward": 0.333,
+     "per_run": [
+      0.3,
+      0.3,
+      0.4
+     ],
+     "mean_pixels": 110281
+    },
+    "dialogs": {
+     "mean_reward": 0.3,
+     "per_run": [
+      0.3,
+      0.4,
+      0.2
+     ],
+     "mean_pixels": 117319
+    },
+    "toasts": {
+     "mean_reward": 0.367,
+     "per_run": [
+      0.2,
+      0.4,
+      0.5
+     ],
+     "mean_pixels": 116261
+    },
+    "scandoc": {
+     "mean_reward": 0.0,
+     "per_run": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "mean_pixels": 55448
+    }
+   }
+  },
+  "Stop-early baseline": {
+   "label": "Stop-early baseline",
+   "jobs": [
+    "fh-eval-stop-early-all"
+   ],
+   "model": null,
+   "n_items": 40,
+   "scores": [
+    0.0
+   ],
+   "mean_score": 0.0,
+   "correct": [
+    0
+   ],
+   "submitted": [
+    40
+   ],
+   "agent_timeouts": [
+    0
+   ],
+   "mean_pixels": [
+    32786
+   ],
+   "mean_pixels_correct": 0,
+   "mean_pixels_wrong": 32786,
+   "max_pixels": 33945,
+   "mean_calls": 3.0,
+   "api_cost_usd": null,
+   "api_cost_usd_total": null,
+   "per_kind": {
+    "logstream": {
+     "mean_reward": 0.0,
+     "per_run": [
+      0.0
+     ],
+     "mean_pixels": 32400
+    },
+    "dialogs": {
+     "mean_reward": 0.0,
+     "per_run": [
+      0.0
+     ],
+     "mean_pixels": 32400
+    },
+    "toasts": {
+     "mean_reward": 0.0,
+     "per_run": [
+      0.0
+     ],
+     "mean_pixels": 32400
+    },
+    "scandoc": {
+     "mean_reward": 0.0,
+     "per_run": [
+      0.0
+     ],
+     "mean_pixels": 33945
+    }
+   }
+  },
+  "Do-nothing baseline": {
+   "label": "Do-nothing baseline",
+   "jobs": [
+    "fh-eval-nop-all"
+   ],
+   "model": null,
+   "n_items": 40,
+   "scores": [
+    0.0
+   ],
+   "mean_score": 0.0,
+   "correct": [
+    0
+   ],
+   "submitted": [
+    0
+   ],
+   "agent_timeouts": [
+    0
+   ],
+   "mean_pixels": [
+    0
+   ],
+   "mean_pixels_correct": 0,
+   "mean_pixels_wrong": 0,
+   "max_pixels": 0,
+   "mean_calls": 0.0,
+   "api_cost_usd": null,
+   "api_cost_usd_total": null,
+   "per_kind": {
+    "logstream": {
+     "mean_reward": 0.0,
+     "per_run": [
+      0.0
+     ],
+     "mean_pixels": 0
+    },
+    "dialogs": {
+     "mean_reward": 0.0,
+     "per_run": [
+      0.0
+     ],
+     "mean_pixels": 0
+    },
+    "toasts": {
+     "mean_reward": 0.0,
+     "per_run": [
+      0.0
+     ],
+     "mean_pixels": 0
+    },
+    "scandoc": {
+     "mean_reward": 0.0,
+     "per_run": [
+      0.0
+     ],
+     "mean_pixels": 0
+    }
+   }
+  }
+ },
+ "eval_v1_history": {
+  "items": 30,
+  "kinds": [
+   "logstream",
+   "dialogs",
+   "dashboard"
+  ],
+  "runs": {
+   "Reference (scripted)": {
+    "scores": [
+     1.0
+    ],
+    "per_kind_correct": [
+     [
+      10,
+      10,
+      10
+     ]
+    ]
+   },
+   "Opus 5.5 (OpenCode)": {
+    "scores": [
+     0.7,
+     0.7,
+     0.7
+    ],
+    "per_kind_correct": [
+     [
+      3,
+      9,
+      9
+     ],
+     [
+      3,
+      8,
+      10
+     ],
+     [
+      4,
+      7,
+      10
+     ]
+    ]
+   },
+   "Qwen3.8-27B base": {
+    "scores": [
+     0.267,
+     0.133,
+     0.2
+    ],
+    "per_kind_correct": [
+     [
+      4,
+      1,
+      3
+     ],
+     [
+      0,
+      1,
+      3
+     ],
+     [
+      0,
+      1,
+      5
+     ]
+    ],
+    "note": "heavier serving contention than the v2 Qwen runs"
+   },
+   "Do-nothing baseline": {
+    "scores": [
+     0.0
+    ]
+   },
+   "Stop-early baseline": {
+    "scores": [
+     0.0
+    ]
+   }
+  }
+ },
+ "fresh_clone_check": {
+  "date": "2026-11-14",
+  "command": "scripts/eval.sh --env modal -n 40 --runs 1",
+  "wall_seconds": {
+   "build": 5,
+   "reference": 139,
+   "nop": 132,
+   "stop_early": 327,
+   "opus_run1": 241,
+   "total": 845
+  },
+  "reference": 1.0,
+  "nop": 0.0,
+  "stop_early": 0.0,
+  "opus_5_5": {
+   "score": 0.7,
+   "correct": 28,
+   "per_kind": {
+    "logstream": 0.5,
+    "dialogs": 0.6,
+    "toasts": 1.0,
+    "scandoc": 0.7
+   },
+   "mean_pixels": 108982,
+   "api_cost_usd": 5.72
+  },
+  "log": "examples/harbor-runs/fresh-clone-modal-opus-run1/"
+ },
+ "source": "results/summary.json (scripts/summarize.py over runs/); no answers included"
+}
