@@ -831,15 +831,24 @@ def launch_eval_boxes(defn: dict, stage: Path, runs: list[int]) -> dict[int, int
     """`sky launch -d` for every box at once; each returns when its job is submitted. Logs in the stage dir."""
     sky_bin = str(Path(sys.executable).parent / "sky")
     env = {**os.environ, "QWEN_API_KEY": api_key()}
-    procs = {}
+    procs, rcs = {}, {}
     for i in runs:
-        logf = (STAGE_DIR / f"eval-{defn['fleet']}-launch-{i}.log").open("w")
-        procs[i] = (subprocess.Popen([sky_bin, *eval_launch_args(defn, stage, i)], env=env, stdout=logf,
-                                     stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL), logf)
+        try:
+            logf = (STAGE_DIR / f"eval-{defn['fleet']}-launch-{i}.log").open("w")
+            procs[i] = (subprocess.Popen([sky_bin, *eval_launch_args(defn, stage, i)], env=env, stdout=logf,
+                                         stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL), logf)
+        except OSError as e:   # counts as a failed launch; the others go on (and are waited for below)
+            log(f"eval: could not start the launch of run {i}: {e}")
+            rcs[i] = 1
+            continue
         log(f"eval: launching {eval_names(defn['split'], defn['label'], i)[0]} (log {logf.name})")
-    rcs = {}
     for i, (p, logf) in procs.items():
-        rcs[i] = p.wait()
+        while True:
+            try:
+                rcs[i] = p.wait()
+                break
+            except KeyboardInterrupt:   # never leave a launch running against a stage dir we delete
+                log("eval: waiting for the running launches to return before exiting")
         logf.close()
     return rcs
 
