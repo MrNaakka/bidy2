@@ -113,6 +113,13 @@ two are visible). Toasts were then reworked: 4–6 s lives (a realistic default)
 Error-heavy bursts, so several red look-alikes surround the target and the (K+1)-th
 Error follows within 1.5 s.
 
+Toasts re-pilot after that rework (6 fresh DEV items, on Modal): 5/6, so toasts still
+does not show a gap. Opus pinned f to within 1 to 5 frames on every item and usually
+re-read the badge on the frame it read the toast from, which tells it which red toast is
+the K-th even after the stack moves. The one failure is the targeted one: it read 3
+frames late, the badge already showed K+1, and it took the top toast, which was the
+(K+1)-th Error. The look-alikes only catch an agent that skips that same-frame check.
+
 ## Interfaces
 
 ### Package `framehunt/` (scene generation)
