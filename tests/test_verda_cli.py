@@ -1286,7 +1286,8 @@ def _tick_env(monkeypatch, status_text, *, box_extra=None, run_extra=None):
         if "ready=" in cmd:
             return SimpleNamespace(stdout=status_text, stderr="", returncode=0)
         if "printf 'data=" in cmd:  # identity: what is on the volume
-            return SimpleNamespace(stdout=f"data=D\ncode=C\nmanifest={manifest}\n", stderr="", returncode=0)
+            return SimpleNamespace(stdout=f"data=D\ncode=C\nmanifest={manifest}\nrunstate=3\n", stderr="",
+                                   returncode=0)
         return SimpleNamespace(stdout="active", stderr="", returncode=0)
 
     monkeypatch.setattr(vc, "ssh", fake_ssh)
@@ -1478,7 +1479,7 @@ def test_r10_3_identity_parsing_on_real_remote_output(sandbox, tmp_path, monkeyp
     (out / "code" / ".fh_sha").write_text("C\n")
     _local_ssh(monkeypatch)
     ident = vc.remote_run_identity("ip", "a", run)
-    assert ident == {"data": "D", "code": "C", "manifest": None}
+    assert ident == {"data": "D", "code": "C", "manifest": None, "runstate": 0}
     (out / "manifest.json").write_text(json.dumps(vc.run_manifest(run)))
     assert vc.remote_run_identity("ip", "a", run)["manifest"] == vc.run_manifest(run)
     (out / "code" / ".fh_sha").unlink()
@@ -1602,3 +1603,103 @@ def test_r10_6_rank_above_serving_limit_rejected_before_provisioning(train_cloud
     assert "train_run" not in vc.load_state()
     vc.cmd_train_up(_up_args(lora_r=16, trainer_arg=["--lora-alpha=32"]))  # within limits
     prov.assert_called_once()
+
+
+# ---- r11 ---------------------------------------------------------------------------------------
+@pytest.mark.parametrize("run_extra", [{"desired": False}, {"desired": False, "disabled": "budget"},
+                                       {"desired": False, "failed": "x"}, {"done": True}])
+def test_r11_1_inactive_run_box_is_deleted_on_every_tick(sandbox, monkeypatch, run_extra):
+    c, calls = _tick_env(monkeypatch, READY_IDLE, run_extra=run_extra)
+    monkeypatch.setattr(vc, "ledger_total_eur", lambda: 100.0)
+    attempts = []
+
+    def flaky_delete(c, i, reason="", **k):
+        attempts.append(i)
+        if len(attempts) < 3:
+            raise vc.DeleteFailed("api outage")
+
+    monkeypatch.setattr(vc, "delete_instance", flaky_delete)
+    assert [vc.train_tick(c) for _ in range(3)] == ["cleanup-retry", "cleanup-retry", "cleaned"]
+    assert attempts == ["t1"] * 3 and "train" not in vc.load_state()
+    assert vc.train_tick(c) == "idle"
+
+
+def test_r11_1_train_down_outage_then_watchdog_cleans_up(sandbox, monkeypatch):
+    vc.save_state(_train_state(train_run=_run(), train={"id": "t1", "hostname": "fhbot-train-0123456789ab",
+                                                       "created": 0}))
+    c = mock.Mock()
+    c.instances.get.return_value = [inst("t1", hostname="fhbot-train-0123456789ab")]
+    monkeypatch.setattr(vc, "client", lambda: c)
+    monkeypatch.setattr(vc, "delete_instance", mock.Mock(side_effect=vc.DeleteFailed("outage")))
+    with pytest.raises(vc.DeleteFailed):
+        vc.cmd_train_down(SimpleNamespace())
+    assert vc.load_state()["train"]["id"] == "t1" and vc.load_state()["train_run"]["desired"] is False
+    deleted = []
+    monkeypatch.setattr(vc, "delete_instance", lambda c, i, reason="", **k: deleted.append(i))
+    vc.cmd_train_ensure(SimpleNamespace())
+    assert deleted == ["t1"] and "train" not in vc.load_state()
+
+
+def test_r11_2_data_sha_covers_nested_image_contents(tmp_path):
+    def make(png: bytes):
+        d = tmp_path / f"ds{len(list(tmp_path.iterdir()))}"
+        (d / "images" / "ep1").mkdir(parents=True)
+        (d / "sft.jsonl").write_text('{"id": 1}\n')
+        (d / "tools.json").write_text("[]")
+        (d / "images" / "ep1" / "00.png").write_bytes(png)
+        return d
+
+    a, b, c = make(b"\x89PNG-a"), make(b"\x89PNG-b"), make(b"\x89PNG-a")
+    assert vc.data_sha(a) != vc.data_sha(b)  # same JSON, same length, different pixels
+    assert vc.data_sha(a) == vc.data_sha(c)
+    (a / ".fh_sha").write_text("stamp\n")  # the volume stamp does not change the identity
+    assert vc.data_sha(a) == vc.data_sha(c)
+    (c / "images" / "ep1" / "00.png").rename(c / "images" / "ep1" / "01.png")
+    assert vc.data_sha(a) != vc.data_sha(c)  # path is part of it
+
+
+def _vol_dirs(tmp_path, monkeypatch, *, manifest=None, run_files=()):
+    run = _run(data_remote=str(tmp_path / "data"))
+    monkeypatch.setattr(vc, "MNT", str(tmp_path))
+    out = tmp_path / "runs" / "r1"
+    (tmp_path / "data").mkdir()
+    (out / "code").mkdir(parents=True)
+    (tmp_path / "data" / ".fh_sha").write_text("D\n")
+    (out / "code" / ".fh_sha").write_text("C\n")
+    for f in run_files:
+        (out / f).mkdir() if f.startswith("ckpt") or f == "final" else (out / f).write_text("x\n")
+    if manifest is not None:
+        (out / "manifest.json").write_text(json.dumps(manifest))
+    _local_ssh(monkeypatch)
+    return run, out
+
+
+def test_r11_3_checkpoints_without_manifest_are_refused(sandbox, tmp_path, monkeypatch):
+    run, out = _vol_dirs(tmp_path, monkeypatch, run_files=("ckpt-000010", "loss.jsonl", "args.json"))
+    with pytest.raises(vc.TrainFatal, match="no manifest"):
+        vc.train_prepare("ip", "a", run)
+    assert not (out / "manifest.json").exists()  # never retro-fitted onto an existing run
+
+
+def test_r11_3_manifest_only_written_into_fresh_dir(sandbox, tmp_path, monkeypatch):
+    run, out = _vol_dirs(tmp_path, monkeypatch)
+    vc.train_prepare("ip", "a", run)
+    assert json.loads((out / "manifest.json").read_text()) == vc.run_manifest(run)
+
+
+def test_r11_3_done_without_manifest_is_not_accepted(sandbox, tmp_path, monkeypatch):
+    run, out = _vol_dirs(tmp_path, monkeypatch, run_files=("final", "DONE"))
+    with pytest.raises(vc.TrainFatal, match="no manifest"):
+        vc.train_publish_via("ip", "a", run)
+    assert not (tmp_path / "adapters").exists()
+
+
+def test_r11_3_tick_rejects_done_without_manifest(sandbox, monkeypatch):
+    c, calls = _tick_env(monkeypatch, "ready=1\nservice=inactive\ndone=1\nfatal=0\n", box_extra={"started": True})
+    real = vc.ssh
+    monkeypatch.setattr(vc, "ssh", lambda ip, cmd, **k: SimpleNamespace(
+        stdout="data=D\ncode=C\nmanifest=\nrunstate=3\n", stderr="", returncode=0)
+        if "printf 'data=" in cmd else real(ip, cmd, **k))
+    assert vc.train_tick(c) == "done"
+    run = vc.load_state()["train_run"]
+    assert calls["deleted"] == ["t1"] and not run.get("done") and "no manifest" in run["failed"]

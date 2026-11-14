@@ -1473,12 +1473,14 @@ def train_code_sha() -> str:
 
 
 def data_sha(data_dir: Path) -> str:
-    """sft.jsonl + tools.json content, plus every image's name and size."""
+    """Every file under data_dir, recursively: relative path, length and contents, in sorted
+    path order (the .fh_sha stamp written on the volume is excluded)."""
     h = hashlib.sha256()
-    for f in ("sft.jsonl", "tools.json"):
-        h.update((data_dir / f).read_bytes())
-    for img in sorted((data_dir / "images").iterdir()):
-        h.update(f"{img.name}:{img.stat().st_size}\n".encode())
+    files = sorted(p for p in data_dir.rglob("*") if p.is_file() and p.name != ".fh_sha")
+    for f in files:
+        b = f.read_bytes()
+        h.update(f"{f.relative_to(data_dir).as_posix()}\0{len(b)}\0".encode())
+        h.update(b)
     return h.hexdigest()[:16]
 
 
@@ -1565,8 +1567,11 @@ def run_manifest(run: dict) -> dict:
     return {k: run[k] for k in ("run", "data_sha", "code_sha", "req_hash", "trainer_args")}
 
 
-REMOTE_HASHES_CMD = ("printf 'data=%s\\ncode=%s\\nmanifest=%s\\n' \"$(cat {data}/.fh_sha 2>/dev/null)\" "
-                     "\"$(cat {out}/code/.fh_sha 2>/dev/null)\" \"$(base64 -w0 {out}/manifest.json 2>/dev/null)\"")
+# Files whose presence means the output dir already holds (part of) a run.
+RUN_STATE_GLOBS = "{out}/ckpt-* {out}/.tmp-ckpt-* {out}/final {out}/DONE {out}/args.json {out}/loss.jsonl"
+REMOTE_HASHES_CMD = ("printf 'data=%s\\ncode=%s\\nmanifest=%s\\nrunstate=%s\\n' \"$(cat {data}/.fh_sha 2>/dev/null)\" "
+                     "\"$(cat {out}/code/.fh_sha 2>/dev/null)\" \"$(base64 -w0 {out}/manifest.json 2>/dev/null)\" "
+                     "\"$(ls -d " + RUN_STATE_GLOBS + " 2>/dev/null | wc -l)\"")
 
 
 def parse_labelled(text: str) -> dict[str, str]:
@@ -1580,7 +1585,8 @@ def parse_labelled(text: str) -> dict[str, str]:
 
 def remote_run_identity(ip: str, alias: str, run: dict) -> dict:
     """{'data': sha|'', 'code': sha|'', 'manifest': dict|None} as found on the volume."""
-    r = ssh(ip, REMOTE_HASHES_CMD.format(data=run["data_remote"], out=f"{MNT}/runs/{run['run']}"),
+    out = f"{MNT}/runs/{run['run']}"
+    r = ssh(ip, REMOTE_HASHES_CMD.replace("{out}", out).replace("{data}", run["data_remote"]),
             alias=alias, timeout=60)
     if r.returncode != 0:
         raise RuntimeError(f"reading run identity failed: {r.stderr.strip()[:200]}")
@@ -1593,11 +1599,19 @@ def remote_run_identity(ip: str, alias: str, run: dict) -> dict:
             m = json.loads(base64.b64decode(kv["manifest"]))
         except ValueError as e:
             raise TrainFatal(f"unreadable manifest.json on the volume: {e}") from e
-    return {"data": kv["data"], "code": kv["code"], "manifest": m}
+    runstate = kv.get("runstate", "")
+    if not runstate.isdigit():
+        raise RuntimeError(f"unexpected identity output: {r.stdout[:200]!r}")
+    return {"data": kv["data"], "code": kv["code"], "manifest": m, "runstate": int(runstate)}
 
 
-def check_manifest(found: dict | None, run: dict) -> None:
-    if found is not None and found != run_manifest(run):
+def check_manifest(found: dict | None, run: dict, *, required: bool = False) -> None:
+    if found is None:
+        if required:
+            raise TrainFatal(f"/mnt/fh/runs/{run['run']} has no manifest.json, so its checkpoints/adapter can't be "
+                             "matched to this run definition; use a new --run")
+        return
+    if found != run_manifest(run):
         diff = sorted(k for k in set(found) | set(run_manifest(run)) if found.get(k) != run_manifest(run).get(k))
         raise TrainFatal(f"/mnt/fh/runs/{run['run']} belongs to a run with different {diff}; use a new --run")
 
@@ -1636,6 +1650,10 @@ def train_prepare(ip: str, alias: str, run: dict) -> None:
     volume that already matches is used even if the local files changed since; a missing
     or different copy is uploaded only if the local files still match the run."""
     ident = remote_run_identity(ip, alias, run)
+    if ident["manifest"] is None and ident["runstate"]:
+        raise TrainFatal(f"/mnt/fh/runs/{run['run']} already holds checkpoints/logs but no manifest.json "
+                         "(a run from before manifests, or a foreign one): refusing to resume it. "
+                         "Use a new --run name (or move that directory away on the volume).")
     check_manifest(ident["manifest"], run)
     if ident["data"] != run["data_sha"]:
         local = Path(run["data_dir"])
@@ -1651,14 +1669,15 @@ def train_prepare(ip: str, alias: str, run: dict) -> None:
                              "has no matching copy; start a new --run")
         log(f"uploading trainer code -> {out}/code")
         _upload_dir(ip, alias, TRAIN_DIR, list(TRAIN_CODE_FILES), f"{out}/code", run["code_sha"])
-    if ident["manifest"] is None:
+    if ident["manifest"] is None:  # fresh output dir only (checked above, and again on the box)
         b64 = base64.b64encode(json.dumps(run_manifest(run), sort_keys=True).encode()).decode()
-        r = ssh(ip, f"mkdir -p {out} && test -f {out}/manifest.json || "
-                    f"{{ echo {b64} | base64 -d > {out}/.manifest.tmp && mv -n {out}/.manifest.tmp {out}/manifest.json; }}",
+        fresh = "! ls -d " + RUN_STATE_GLOBS.replace("{out}", out) + " >/dev/null 2>&1"
+        r = ssh(ip, f"mkdir -p {out} && {{ test -f {out}/manifest.json || {{ {fresh} && "
+                    f"echo {b64} | base64 -d > {out}/.manifest.tmp && mv -n {out}/.manifest.tmp {out}/manifest.json; }}; }}",
                 alias=alias, timeout=60)
         if r.returncode != 0:
-            raise RuntimeError(f"writing manifest failed: {r.stderr.strip()[:200]}")
-        check_manifest(remote_run_identity(ip, alias, run)["manifest"], run)
+            raise RuntimeError(f"writing manifest failed: {r.stderr.strip()[:200] or 'output dir not fresh'}")
+        check_manifest(remote_run_identity(ip, alias, run)["manifest"], run, required=True)
 
 
 TRAIN_STATUS_CMD = """OUT={out}
@@ -1796,12 +1815,14 @@ def train_tick(c) -> str:
     retry | done | failed | budget."""
     st = load_state()
     run = st.get("train_run") or {}
-    if not run.get("desired") or run.get("done"):
-        return "idle"
     box = st.get("train") or {}
-    spent = ledger_total_eur()
-    if spent >= run["max_eur"]:
-        return _train_stop_budget(c, box, run, spent)
+    active = bool(run.get("desired")) and not run.get("done")
+    if box.get("id") and not active:  # stopped/disabled/failed/done run with a box left over
+        return _train_cleanup(c, box)
+    if active and ledger_total_eur() >= run["max_eur"]:
+        return _train_stop_budget(c, box, run, ledger_total_eur())
+    if not active:
+        return "idle"
     if not box.get("id"):
         try:
             _train_provision(c, run)
@@ -1875,6 +1896,19 @@ def train_tick(c) -> str:
     return "restarted" if restarted else "running"
 
 
+def _train_cleanup(c, box: dict) -> str:
+    """Delete the tracked box of a run that is no longer active. Tried on every tick
+    (with delete_instance's own bounded backoff) until it is confirmed gone."""
+    log(f"training box {box['id']} belongs to an inactive run; deleting it")
+    try:
+        delete_instance(c, box["id"], reason="train: run inactive", attempts=3, backoff_s=2.0)
+    except DeleteFailed as e:
+        log(f"cleanup of {box['id']} failed ({e}); retrying on the next tick")
+        return "cleanup-retry"
+    _drop_train_box(box["id"])
+    return "cleaned"
+
+
 def _train_count_failure(c, inst, run: dict, why: str, replace: bool = False) -> str:
     """Persist one more failed attempt; give up after TRAIN_MAX_FAILURES. With replace, the
     box is deleted now (the next tick provisions a fresh one)."""
@@ -1921,7 +1955,7 @@ def train_publish_via(ip: str, alias: str, run: dict) -> dict:
     Returns {"adapter": path|None, "fetched": path|None, "error": str|None}."""
     name = run["run"]
     res = {"adapter": None, "fetched": None, "error": None}
-    check_manifest(remote_run_identity(ip, alias, run)["manifest"], run)
+    check_manifest(remote_run_identity(ip, alias, run)["manifest"], run, required=True)
     r = ssh(ip, f"set -e; test -f {MNT}/runs/{name}/final/adapter_model.safetensors; mkdir -p {MNT}/adapters; "
                 f"rm -rf {MNT}/adapters/{name}.tmp; cp -r {MNT}/runs/{name}/final {MNT}/adapters/{name}.tmp; "
                 f"rm -rf {MNT}/adapters/{name}; mv {MNT}/adapters/{name}.tmp {MNT}/adapters/{name}; sync",
