@@ -22,6 +22,12 @@ spend pixels on *one* sharp crop of *where* the answer is written.
 4. **Answer text needs resolution.** The answer text is unreadable when the frame is
    downscaled to ≤ 1/4 of native width, and readable from a native-resolution crop.
    The trace is readable at 1/8 native width (240×135 for a 1920×1080 video).
+   "Unreadable" means for a reader that looks at the image (a vision model, a person,
+   generic OCR; tested by OCR on the 1/4 crop blown back up). A scripted matched filter
+   that knows the bundled font and the exact sub-pixel origin of the text *can* decode
+   most 1/4-scale crops, on every kind. That only saves pixels: it still has to find the
+   event frame and the right row or toast first, and pixels used don't change the
+   reward. Fonts small enough to defeat it would also be unreadable at native.
 5. **No hidden information.** The instruction states the budget, the tool costs and
    the question. Screen elements named in the question are visible on every frame.
 

@@ -429,7 +429,12 @@ ALPHABETS = {"toasts": "ABCDEFGHJKLMNPQRSTUVWXYZ0123456789", "leaderboard": "012
 @pytest.mark.parametrize("kind", ["toasts", "leaderboard"])
 def test_answer_readable_native_not_quarter(kind):
     """Native crop OCRs exactly; the same crop seen at 1/4 scale (then blown back up)
-    gets at most ~2 of 6 characters right on average."""
+    gets at most ~2 of 6 characters right on average.
+
+    This models a reader that looks at the image. A matched filter with the bundled font
+    and the exact sub-pixel origin can still decode 1/4 crops (on every kind); that only
+    saves pixels, never replaces finding the event. See docs/design.md, hard rule 4.
+    """
     from framehunt.reference import ocr_string
 
     accs = []
