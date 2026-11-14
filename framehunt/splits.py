@@ -1,8 +1,11 @@
 """Fixed, committed item lists, and the secret seed derivation. Each item is
 (item_id, kind, public_seed).
 
-EVAL: 30 items (10 per kind). DEV: 60 items (20 per kind). item_id is
-"<kind>-<public_seed:04d>". Public seeds are disjoint between splits (EVAL uses 7xxx,
+EVAL (v2): 30 items, 10 each of logstream, toasts and leaderboard. EVAL_V1 is the
+first evaluation set (10 each of logstream, dialogs and dashboard); the v1 results in
+the README were measured on it. Its logstream items are the same ids as in EVAL (same
+derived seeds), so logstream results carry over. DEV: 100 items (20 per kind). item_id
+is "<kind>-<public_seed:04d>". Public seeds are disjoint between splits (EVAL uses 7xxx,
 DEV uses 3xxx). Do not edit existing entries: results are reported against these ids.
 
 The public seed is only part of the item's name. The scene seed actually rendered is
@@ -24,7 +27,8 @@ from pathlib import Path
 
 SECRETS_DIR = Path(__file__).resolve().parent.parent / "secrets"
 
-EVAL: tuple[tuple[str, str, int], ...] = (
+# The first evaluation set; reported as "v1" in the README. Kept for the record.
+EVAL_V1: tuple[tuple[str, str, int], ...] = (
     ("logstream-7001", "logstream", 7001),
     ("logstream-7002", "logstream", 7002),
     ("logstream-7003", "logstream", 7003),
@@ -55,6 +59,39 @@ EVAL: tuple[tuple[str, str, int], ...] = (
     ("dashboard-7208", "dashboard", 7208),
     ("dashboard-7209", "dashboard", 7209),
     ("dashboard-7210", "dashboard", 7210),
+)
+
+EVAL: tuple[tuple[str, str, int], ...] = (
+    ("logstream-7001", "logstream", 7001),
+    ("logstream-7002", "logstream", 7002),
+    ("logstream-7003", "logstream", 7003),
+    ("logstream-7004", "logstream", 7004),
+    ("logstream-7005", "logstream", 7005),
+    ("logstream-7006", "logstream", 7006),
+    ("logstream-7007", "logstream", 7007),
+    ("logstream-7008", "logstream", 7008),
+    ("logstream-7009", "logstream", 7009),
+    ("logstream-7010", "logstream", 7010),
+    ("toasts-7401", "toasts", 7401),
+    ("toasts-7402", "toasts", 7402),
+    ("toasts-7403", "toasts", 7403),
+    ("toasts-7404", "toasts", 7404),
+    ("toasts-7405", "toasts", 7405),
+    ("toasts-7406", "toasts", 7406),
+    ("toasts-7407", "toasts", 7407),
+    ("toasts-7408", "toasts", 7408),
+    ("toasts-7409", "toasts", 7409),
+    ("toasts-7410", "toasts", 7410),
+    ("leaderboard-7501", "leaderboard", 7501),
+    ("leaderboard-7502", "leaderboard", 7502),
+    ("leaderboard-7503", "leaderboard", 7503),
+    ("leaderboard-7504", "leaderboard", 7504),
+    ("leaderboard-7505", "leaderboard", 7505),
+    ("leaderboard-7506", "leaderboard", 7506),
+    ("leaderboard-7507", "leaderboard", 7507),
+    ("leaderboard-7508", "leaderboard", 7508),
+    ("leaderboard-7509", "leaderboard", 7509),
+    ("leaderboard-7510", "leaderboard", 7510),
 )
 
 DEV: tuple[tuple[str, str, int], ...] = (
@@ -118,6 +155,46 @@ DEV: tuple[tuple[str, str, int], ...] = (
     ("dashboard-3218", "dashboard", 3218),
     ("dashboard-3219", "dashboard", 3219),
     ("dashboard-3220", "dashboard", 3220),
+    ("toasts-3401", "toasts", 3401),
+    ("toasts-3402", "toasts", 3402),
+    ("toasts-3403", "toasts", 3403),
+    ("toasts-3404", "toasts", 3404),
+    ("toasts-3405", "toasts", 3405),
+    ("toasts-3406", "toasts", 3406),
+    ("toasts-3407", "toasts", 3407),
+    ("toasts-3408", "toasts", 3408),
+    ("toasts-3409", "toasts", 3409),
+    ("toasts-3410", "toasts", 3410),
+    ("toasts-3411", "toasts", 3411),
+    ("toasts-3412", "toasts", 3412),
+    ("toasts-3413", "toasts", 3413),
+    ("toasts-3414", "toasts", 3414),
+    ("toasts-3415", "toasts", 3415),
+    ("toasts-3416", "toasts", 3416),
+    ("toasts-3417", "toasts", 3417),
+    ("toasts-3418", "toasts", 3418),
+    ("toasts-3419", "toasts", 3419),
+    ("toasts-3420", "toasts", 3420),
+    ("leaderboard-3501", "leaderboard", 3501),
+    ("leaderboard-3502", "leaderboard", 3502),
+    ("leaderboard-3503", "leaderboard", 3503),
+    ("leaderboard-3504", "leaderboard", 3504),
+    ("leaderboard-3505", "leaderboard", 3505),
+    ("leaderboard-3506", "leaderboard", 3506),
+    ("leaderboard-3507", "leaderboard", 3507),
+    ("leaderboard-3508", "leaderboard", 3508),
+    ("leaderboard-3509", "leaderboard", 3509),
+    ("leaderboard-3510", "leaderboard", 3510),
+    ("leaderboard-3511", "leaderboard", 3511),
+    ("leaderboard-3512", "leaderboard", 3512),
+    ("leaderboard-3513", "leaderboard", 3513),
+    ("leaderboard-3514", "leaderboard", 3514),
+    ("leaderboard-3515", "leaderboard", 3515),
+    ("leaderboard-3516", "leaderboard", 3516),
+    ("leaderboard-3517", "leaderboard", 3517),
+    ("leaderboard-3518", "leaderboard", 3518),
+    ("leaderboard-3519", "leaderboard", 3519),
+    ("leaderboard-3520", "leaderboard", 3520),
 )
 
 SPLITS: dict[str, tuple[tuple[str, str, int], ...]] = {"eval": EVAL, "dev": DEV}
@@ -126,11 +203,12 @@ SPLITS: dict[str, tuple[tuple[str, str, int], ...]] = {"eval": EVAL, "dev": DEV}
 # TRAIN: generated, not committed item by item, and deliberately not in SPLITS (so
 # build_tasks.py and the eval tooling never see it). Used only by training-data
 # generators (train/make_sft.py). Public seeds start at 100001 (logstream), 110001
-# (dialogs), 120001 (dashboard), so ids never collide with EVAL (7xxx) or DEV (3xxx).
+# (dialogs), 120001 (dashboard), 130001 (toasts), 140001 (leaderboard), so ids never
+# collide with EVAL (7xxx) or DEV (3xxx).
 # Scene seeds are derive_seed("train", item_id) with the split's own secret salt
 # (FH_SALT_TRAIN or secrets/train.salt): a different split name and a different salt
 # from EVAL/DEV, so no training scene can coincide with an evaluation scene.
-TRAIN_KINDS: tuple[str, ...] = ("logstream", "dialogs", "dashboard")
+TRAIN_KINDS: tuple[str, ...] = ("logstream", "dialogs", "dashboard", "toasts", "leaderboard")
 TRAIN_SEED_BASE = 100_000
 TRAIN_MAX_PER_KIND = 9_999
 
@@ -203,7 +281,9 @@ def _check() -> None:
     for name, items in SPLITS.items():
         ids = [i for i, _, _ in items]
         assert len(ids) == len(set(ids)), f"duplicate item ids in {name}"
-    assert not {s for _, _, s in EVAL} & {s for _, _, s in DEV}, "EVAL and DEV seeds overlap"
+    assert not {s for _, _, s in EVAL + EVAL_V1} & {s for _, _, s in DEV}, "EVAL and DEV seeds overlap"
+    v1 = {i: (k, s) for i, k, s in EVAL_V1}
+    assert all(v1[i] == (k, s) for i, k, s in EVAL if i in v1), "shared EVAL/EVAL_V1 ids must match"
     assert "train" not in SPLITS
 
 
