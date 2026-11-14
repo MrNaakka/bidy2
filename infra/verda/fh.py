@@ -1018,9 +1018,10 @@ def ensure_volumes(defn: dict, runs: list[int], resume: bool = False) -> None:
             raise SystemExit(f"{name} exists in {[v.location for v in same]}, not {loc}; use --volume-location")
         if len(same) > 1:
             raise SystemExit(f"{len(same)} Verda volumes are named {name}; delete the extra ones")
-        if same and same[0].status == "attached":
-            host = hosts.get(same[0].instance_id, same[0].instance_id)
-            if not (resume and str(host).startswith(f"{cluster}-")):
+        attached = [hosts.get(a, a) for a in volume_attachments(same[0])] if same else []
+        if attached or (same and same[0].status not in ("detached", "created", "ordered")):
+            host = ", ".join(attached) or same[0].status
+            if not (resume and len(attached) == 1 and attached[0].startswith(f"{cluster}-")):
                 raise SystemExit(f"{name} is attached to {host}; a volume serves one box at a time "
                                  f"(eval-down that fleet first, or use --weights-on disk)")
         if not same:
@@ -1034,28 +1035,49 @@ def ensure_volumes(defn: dict, runs: list[int], resume: bool = False) -> None:
         sky("volumes", "apply", "-y", str(spec))   # no-op when SkyPilot already knows it
 
 
+def volume_attachments(v) -> list[str]:
+    return v.attached_instance_ids() if hasattr(v, "attached_instance_ids") else [i for i in [v.instance_id] if i]
+
+
 def volume_rows() -> list[dict]:
     client = verda_client()
     hosts = {i.instance_id: i.hostname for i in client.instances_get()}
     return [{"name": v.name, "location": v.location, "size_gb": v.size, "status": v.status, "id": v.id,
-             "attached_to": hosts.get(v.instance_id, v.instance_id) if v.instance_id else None,
+             "attached_to": ", ".join(hosts.get(i, i) for i in volume_attachments(v)) or None,
              "usd_per_month": round((v.size or 0) * VOLUME_USD_PER_GB_MONTH, 2)}
             for v in sorted(eval_volumes(), key=lambda v: (v.location, v.name))]
+
+
+def registered_volumes() -> set[str]:
+    import sky as sky_sdk
+    from sky.volumes.client import sdk as volumes_sdk
+
+    return {r["name"] for r in sky_sdk.get(volumes_sdk.ls())}
+
+
+def deletable(name: str):
+    """The volume, if it is detached and attached to nothing right now; else exits."""
+    vol = next((v for v in eval_volumes() if v.name == name), None)
+    if vol is None:
+        raise SystemExit(f"no volume {name}")
+    if vol.status != "detached" or volume_attachments(vol):
+        raise SystemExit(f"{name} is {vol.status} (attached to {volume_attachments(vol) or '-'}); eval-down first")
+    return vol
 
 
 def cmd_eval_volumes(args) -> None:
     if args.delete:
         if not args.yes:
             raise SystemExit("eval-volumes --delete deletes the volumes and their weights for good; add --yes")
-        rows = {r["name"]: r for r in volume_rows()}
         for name in args.delete:
-            if name not in rows:
-                raise SystemExit(f"no volume {name} (have {sorted(rows)})")
-            if rows[name]["attached_to"]:
-                raise SystemExit(f"{name} is attached to {rows[name]['attached_to']}; eval-down first")
+            deletable(name)
+        known = registered_volumes()
         for name in args.delete:
-            if sky("volumes", "delete", "-y", name, check=False) != 0:   # not registered here: delete on Verda
-                verda_client().volume_delete(rows[name]["id"])
+            vol = deletable(name)   # check again right before deleting
+            if name in known:
+                sky("volumes", "delete", "-y", name)
+            else:   # not registered with this SkyPilot: delete it on Verda directly
+                verda_client().volume_delete(vol.id)
             log(f"eval: deleted volume {name}")
         return
     rows = volume_rows()

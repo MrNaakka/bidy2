@@ -399,9 +399,18 @@ def test_volumes_are_deleted_only_explicitly_and_never_while_attached(sandbox, v
         fh.cmd_eval_volumes(SimpleNamespace(delete=["fh-eval-2"], yes=True))
     with pytest.raises(SystemExit, match="no volume"):
         fh.cmd_eval_volumes(SimpleNamespace(delete=["fh-qwen"], yes=True))
+    verda.volumes.append(SimpleNamespace(name="fh-eval-3", location="FIN-01", status="detached", instance_id=None,
+                                         size=100, id="id-3", attached_instance_ids=lambda: ["i7"]))
+    with pytest.raises(SystemExit, match="attached"):   # attachment listed only under `instances`
+        fh.cmd_eval_volumes(SimpleNamespace(delete=["fh-eval-3"], yes=True))
     assert calls == []
+    monkeypatch.setattr(fh, "registered_volumes", lambda: {"fh-eval-1"})
     fh.cmd_eval_volumes(SimpleNamespace(delete=["fh-eval-1"], yes=True))
     assert calls == [("volumes", "delete", "-y", "fh-eval-1")]
+    verda.volume_delete = lambda vid: calls.append(("verda delete", vid))
+    verda.volumes.append(vol("fh-eval-4"))
+    fh.cmd_eval_volumes(SimpleNamespace(delete=["fh-eval-4"], yes=True))   # not registered with SkyPilot here
+    assert calls[-1] == ("verda delete", "id-fh-eval-4")
 
 
 def test_probe_parsing():
