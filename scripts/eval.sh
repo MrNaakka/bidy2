@@ -11,6 +11,9 @@
 # Options: -n N (concurrent trials, default 4), --runs R (agent runs, default 3),
 #          --model M (default anthropic/claude-opus-5-5; "qwen" = Qwen3.8-27B via infra/verda,
 #          "qwen-fh" = the same with our LoRA adapter), --split S (default eval).
+#   scripts/eval.sh --stage agents --model qwen --fleet                       # Qwen runs in parallel, one Verda
+#   scripts/eval.sh --stage agents --model qwen-fh --lora train/out/R --fleet # box per run with its own vLLM
+#          (infra/verda/fh eval-up + eval-wait; -n defaults to 10 per box there; long: run it under systemd-run)
 # OpenCode is pinned to $OPENCODE_VERSION (the version the training data was captured with).
 # Only agent-install timeouts (before the agent sees anything) are retried, up to 2 times.
 # Jobs have fixed names and go to runs/<job>; an existing runs/<job> is replaced.
@@ -20,11 +23,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 STAGE=all
-N=4
+N=
 RUNS=3
 MODEL="anthropic/claude-opus-5-5"
 SPLIT=eval
 OPENCODE_VERSION=1.19.5
+FLEET=0
+LORA=
 while [ $# -gt 0 ]; do
   case "$1" in
     --stage) STAGE="$2"; shift 2 ;;
@@ -32,11 +37,20 @@ while [ $# -gt 0 ]; do
     --runs) RUNS="$2"; shift 2 ;;
     --model) MODEL="$2"; shift 2 ;;
     --split) SPLIT="$2"; shift 2 ;;
-    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+    --fleet) FLEET=1; shift ;;
+    --lora) LORA="$2"; shift 2 ;;
+    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 case "$STAGE" in all|baselines|agents|summarize) ;; *) echo "bad --stage: $STAGE" >&2; exit 2 ;; esac
+if [ "$FLEET" = 1 ]; then
+  case "$MODEL" in qwen) ;; qwen-fh) [ -n "$LORA" ] || { echo "--model qwen-fh --fleet needs --lora DIR" >&2; exit 2; } ;;
+    *) echo "--fleet runs Qwen only (--model qwen or qwen-fh)" >&2; exit 2 ;; esac
+  N="${N:-10}"
+else
+  N="${N:-4}"
+fi
 
 TASKS="tasks/$SPLIT"
 OUT=runs
@@ -83,7 +97,17 @@ if [ "$STAGE" = all ] || [ "$STAGE" = baselines ]; then
   PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" job "fh-$SPLIT-stop-early" -a framehunt.baselines.stop_early:StopEarly
 fi
 
-if [ "$STAGE" = all ] || [ "$STAGE" = agents ]; then
+if { [ "$STAGE" = all ] || [ "$STAGE" = agents ]; } && [ "$FLEET" = 1 ]; then
+  [ -d "$TASKS" ] || uv run python scripts/build_tasks.py --split "$SPLIT"
+  LABEL="$MODEL"
+  UP=(--tasks "$TASKS" --label "$LABEL" --runs "$RUNS" -n "$N")
+  [ "$MODEL" = qwen-fh ] && UP+=(--lora "$LORA")
+  t0=$SECONDS
+  infra/verda/fh eval-up "${UP[@]}"
+  # Fetches each run to runs/fh-$SPLIT-$LABEL-run<i>/ as it finishes and deletes its box; reports lost boxes.
+  infra/verda/fh eval-wait --fleet "$SPLIT-$LABEL" || echo "eval-wait: not every run finished (see above)" >&2
+  stage_time "fleet-$SPLIT-$LABEL" $((SECONDS - t0))
+elif [ "$STAGE" = all ] || [ "$STAGE" = agents ]; then
   [ -d "$TASKS" ] || uv run python scripts/build_tasks.py --split "$SPLIT"
   # Give Harbor only the one key the model needs, not the whole .env.
   KEYENV="$(mktemp)"; trap 'rm -f "$KEYENV"' EXIT
