@@ -55,10 +55,13 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     if len({p.resolve() for p in a.inputs}) != len(a.inputs):
         ap.error("an input is given twice")
-    if a.out.exists():
-        if not a.force:
-            ap.error(f"{a.out} exists (--force replaces it)")
-        shutil.rmtree(a.out)
+    out_final = a.out.resolve()
+    for p in a.inputs:
+        q = p.resolve()
+        if q == out_final or out_final in q.parents or q in out_final.parents:
+            ap.error(f"--out {a.out} overlaps the input {p}")
+    if a.out.exists() and not a.force:
+        ap.error(f"{a.out} exists (--force replaces it)")
     tools = None
     rows, ids, img_owner = [], set(), {}
     stats = {"inputs": [str(p) for p in a.inputs], "by_source": {}}
@@ -81,6 +84,10 @@ def main(argv=None) -> int:
             rows.append({**r, "data_source": src.name})
             by_kind[r["kind"]] += 1
         stats["by_source"][src.name] = {"rows": len(src_rows), "by_kind": dict(by_kind)}
+    # build next to --out and swap it in at the end (all checks above ran before anything was written)
+    final_out = a.out
+    a.out = final_out.with_name(f".{final_out.name}.tmp")
+    shutil.rmtree(a.out, ignore_errors=True)
     a.out.mkdir(parents=True)
     (a.out / "tools.json").write_bytes(tools)
     (a.out / "images").mkdir()
@@ -93,6 +100,9 @@ def main(argv=None) -> int:
     stats["rows"] = len(rows)
     stats["by_kind"] = dict(collections.Counter(r["kind"] for r in rows))
     (a.out / "stats.json").write_text(json.dumps(stats, indent=1) + "\n")
+    if final_out.exists():
+        shutil.rmtree(final_out)
+    a.out.rename(final_out)
     print(json.dumps(stats, indent=1))
     return 0
 

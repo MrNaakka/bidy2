@@ -15,6 +15,7 @@ import os
 import sys
 import threading
 import time
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -69,6 +70,7 @@ class Upstream:
 
     def __init__(self):
         self.bodies, self.headers, self.script, self.gate = [], [], [], None
+        self.aborted = threading.Event()
         up = self
 
         class H(BaseHTTPRequestHandler):
@@ -94,13 +96,18 @@ class Upstream:
                 self.send_header("Content-Type", "text/event-stream")
                 self.send_header("Transfer-Encoding", "chunked")
                 self.end_headers()
-                for i, e in enumerate(events):
-                    self.wfile.write(b"%x\r\n%s\r\n" % (len(e), e))
+                try:
+                    for i, e in enumerate(events):
+                        self.wfile.write(b"%x\r\n%s\r\n" % (len(e), e))
+                        self.wfile.flush()
+                        if i == 0 and up.gate is not None:
+                            assert up.gate.wait(10), "client never saw the first event"
+                        if i > 0 and up.gate is not None:
+                            time.sleep(0.01)
+                    self.wfile.write(b"0\r\n\r\n")
                     self.wfile.flush()
-                    if i == 0 and up.gate is not None:
-                        assert up.gate.wait(10), "client never saw the first event"
-                self.wfile.write(b"0\r\n\r\n")
-                self.wfile.flush()
+                except OSError:
+                    up.aborted.set()   # the relay closed the connection: vLLM would abort the generation
 
         self.srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
         self.srv.daemon_threads = True
@@ -204,6 +211,22 @@ def test_relay_streams_live(relay):
     assert b"[DONE]" in first + rest
 
 
+def test_relay_aborts_upstream_when_the_client_goes_away(relay):
+    relay.up.gate = threading.Event()
+    relay.up.script.append(sse(turn_chunks("r" * 50, "x" * 50, None) * 200))
+    conn = http.client.HTTPConnection("127.0.0.1", relay.port, timeout=30)
+    conn.request("POST", "/v1/chat/completions", body=b'{"messages": [], "tools": [1]}',
+                 headers={"Content-Type": "application/json", "x-opencode-session-id": "s"})
+    r = conn.getresponse()
+    assert r.read1(65536).startswith(b"data: ")
+    conn.sock.close()                    # OpenCode aborts
+    conn.close()
+    relay.up.gate.set()
+    assert relay.up.aborted.wait(10)     # the relay stopped reading and closed the upstream connection
+    rec = wait_lines(relay.logs / "proj__env" / "log.jsonl", 1)[0]
+    assert rec["client_ok"] is False and not rec["response"]["done"]
+
+
 def test_relay_handles_concurrent_trials(relay):
     n = 15
     bodies = {i: json.dumps({"i": i, "messages": [{"role": "user", "content": "x" * (1000 + i)}],
@@ -288,7 +311,7 @@ def play(port: int, upstream: Upstream, session: str, steps, title_request=True)
         upstream.script.append(sse(turn_chunks("", "Title", None)))
         post(port, json.dumps({"model": "m", "messages": msgs[1:]}).encode(), session, conn)
     for k, (reasoning, content, call, result, png) in enumerate(steps):
-        cid = f"call_{k:02d}"
+        cid = f"call_{zlib.crc32(session.encode()):08x}_{k}"   # vLLM's ids differ per run
         upstream.script.append(sse(turn_chunks(reasoning, content, (cid, *call) if call else None)))
         body = {"model": "qwen3.8-27b-fh", "max_tokens": 16384, "messages": msgs, "tools": fhdata.tools(),
                 "tool_choice": "auto", "stream": True}
@@ -396,6 +419,40 @@ def test_rollouts_become_rows_that_render_like_the_logged_request(tmp_path):
     msgs, images = fhdata.to_template(row, out)
     assert len(images) == 3 and msgs[2]["reasoning_content"] == "Read the rules."
     assert msgs[3]["role"] == "tool" and isinstance(msgs[2]["tool_calls"][0]["function"]["arguments"], dict)
+
+
+def test_incomplete_final_response_is_not_a_training_target(tmp_path):
+    run, wires = rollout_run(tmp_path, "run1", [("logstream-100301__AbCdEf1", ITEM, 1.0, script())])
+    log = run / "requests" / log_relay.trial_key(r2s.harbor_project("logstream-100301__AbCdEf1")) / "log.jsonl"
+    recs = [json.loads(l) for l in log.read_text().splitlines()]
+    recs[-1]["client_ok"] = False        # OpenCode went away before the last answer was complete
+    log.write_text("".join(json.dumps(r) + "\n" for r in recs))
+    out = tmp_path / "o"
+    assert r2s.main([str(run), "--out", str(out)]) == 0
+    row = fhdata.read_jsonl(out / "sft.jsonl")[0]
+    assert not row["provenance"]["final_turn"] and row["messages"][-1]["role"] == "tool"
+    assert fhdata.to_wire(row, out) == wires["logstream-100301__AbCdEf1"]
+    rec = recs[-2]                       # an earlier stream that never finished: no final turn from it either
+    assert not r2s.usable({**rec, "response": {**rec["response"], "done": False}})
+    assert not r2s.usable({**rec, "response": {**rec["response"], "bad_lines": 1}})
+    assert r2s.usable(rec)
+
+
+def test_outputs_never_overlap_inputs(tmp_path):
+    run, _ = rollout_run(tmp_path, "run1", [("logstream-100301__AbCdEf1", ITEM, 1.0, script())])
+    for out in (run, run / "sub", tmp_path):
+        with pytest.raises(SystemExit):
+            r2s.main([str(run), "--out", str(out), "--force"])
+    assert (run / "requests").is_dir()
+    out = tmp_path / "ei"
+    assert r2s.main([str(run), "--out", str(out)]) == 0
+    with pytest.raises(SystemExit):
+        merge_sft.main([str(out), "--out", str(out), "--force"])
+    # a failing conversion keeps the previous dataset
+    make_trial(tmp_path / "bad", "logstream-7001__X", "logstream-7001", 1.0, script())
+    with pytest.raises(SystemExit):
+        r2s.main([str(run), str(tmp_path / "bad"), "--out", str(out), "--force"])
+    assert len(fhdata.read_jsonl(out / "sft.jsonl")) == 1
 
 
 def test_dedupe_max_per_item_and_tasks_check(tmp_path):

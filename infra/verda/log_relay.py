@@ -14,7 +14,9 @@ connections alive), one upstream connection per client connection.
 Logging (POST .../chat/completions only): after the response has been passed on, one JSON line is
 appended to <log-dir>/<trial>/log.jsonl with the request body, the response reassembled from the stream
 the way OpenCode's AI SDK reads it (content, reasoning, tool calls, finish reason, usage), timings and
-sha256 of the raw request and response bytes. The API key (Authorization header) is never logged; only
+sha256 of the raw request and response bytes. If the client disconnects mid-response the relay closes the
+upstream connection (vLLM aborts the generation, as with socat) and logs the partial response with
+client_ok=false. The API key (Authorization header) is never logged; only
 User-Agent and OpenCode's session headers are.
 
 To keep the logs linear in trial length (every request repeats the whole conversation, images
@@ -25,7 +27,7 @@ gives the same base64 text and restoring gives the same JSON); `restore()` undoe
 
 Trial identification: OpenCode sends no trial id, so the relay maps the client's IP to its container
 (`docker inspect` of the running containers) and uses the container's Docker Compose project, which
-Harbor names after the trial (`<trial_name>__env`, lowercased). The lookup is cached per (IP, OpenCode
+Harbor names after the trial (`<trial_name>__env`, lowercased), looked up when the request arrives. The lookup is cached per (IP, OpenCode
 session id); a new session (a new trial, possibly reusing a finished trial's IP) always looks up again.
 Unresolved clients log to `unresolved-<ip>/`. train/rollouts_to_sft.py maps <trial> back to Harbor's
 trial dirs and checks every trajectory against the MCP server's own call log.
@@ -367,6 +369,16 @@ class Handler(BaseHTTPRequestHandler):
             headers["Content-Length"] = str(len(body))
         logging = (self.request_log is not None and self.command == "POST"
                    and self.path.split("?", 1)[0].endswith("/chat/completions"))
+        who = None
+        if logging:
+            # Attribute before forwarding, while the trial's container surely still holds this IP.
+            ip = self.client_address[0]
+            session = self.headers.get("x-opencode-session-id") or self.headers.get("x-session-id")
+            try:
+                who = self.resolver.resolve(ip, session) if self.resolver else (f"unresolved-{ip}", None)
+            except Exception as e:   # never break the agent's run
+                log(f"trial lookup failed: {type(e).__name__}: {e}")
+                who = (f"unresolved-{ip}", None)
         try:
             conn = self._upstream()
             try:
@@ -409,15 +421,17 @@ class Handler(BaseHTTPRequestHandler):
                 break
             if captured is not None:
                 captured.append(piece)
-            if client_ok:
-                try:
-                    if chunked_out:
-                        self.wfile.write(b"%x\r\n%s\r\n" % (len(piece), piece))
-                    else:
-                        self.wfile.write(piece)
-                    self.wfile.flush()
-                except OSError:
-                    client_ok = False   # the client went away: drain upstream so the log stays complete
+            try:
+                if chunked_out:
+                    self.wfile.write(b"%x\r\n%s\r\n" % (len(piece), piece))
+                else:
+                    self.wfile.write(piece)
+                self.wfile.flush()
+            except OSError:
+                # The client went away (OpenCode aborted): stop like socat would, closing the upstream
+                # connection below so vLLM aborts the generation. The log keeps the partial response.
+                client_ok = False
+                break
         if client_ok and chunked_out and upstream_ok:
             try:
                 self.wfile.write(b"0\r\n\r\n")
@@ -430,14 +444,15 @@ class Handler(BaseHTTPRequestHandler):
             self._conn = None
         if logging:
             try:
-                self._log(t0, body, resp, b"".join(captured), client_ok, upstream_ok)
+                self._log(t0, who, body, resp, b"".join(captured), client_ok, upstream_ok)
             except Exception as e:   # logging must never break the agent's run
                 log(f"logging failed: {type(e).__name__}: {e}")
 
-    def _log(self, t0: float, body: bytes, resp, raw: bytes, client_ok: bool, upstream_ok: bool) -> None:
+    def _log(self, t0: float, who: tuple[str, str | None], body: bytes, resp, raw: bytes, client_ok: bool,
+             upstream_ok: bool) -> None:
         ip = self.client_address[0]
         session = self.headers.get("x-opencode-session-id") or self.headers.get("x-session-id")
-        key, container = self.resolver.resolve(ip, session) if self.resolver else (f"unresolved-{ip}", None)
+        key, container = who
         decoded = decode_body(raw, resp.getheader("Content-Encoding"))
         ctype = (resp.getheader("Content-Type") or "").lower()
         if decoded is None:

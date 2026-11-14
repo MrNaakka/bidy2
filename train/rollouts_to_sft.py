@@ -121,9 +121,12 @@ def find_trials(run: Path) -> list[Path]:
 
 
 # ---------------------------------------------------------------------- conversation
-def usable(resp: dict | None) -> bool:
-    return bool(resp) and not resp.get("error") and resp.get("upstream_ok", True) is not False \
-        and resp.get("finish_reason") in ("stop", "tool_calls")
+def usable(rec: dict) -> bool:
+    """A logged response that completed: delivered to OpenCode in full, a clean stream that ended."""
+    resp = rec.get("response") or {}
+    return (rec.get("status") == 200 and rec.get("client_ok") is True and rec.get("upstream_ok") is True
+            and not resp.get("error") and resp.get("finish_reason") in ("stop", "tool_calls")
+            and (not resp.get("stream") or (resp.get("done") is True and resp.get("bad_lines") == 0)))
 
 
 def final_turn(resp: dict) -> dict:
@@ -180,7 +183,7 @@ def conversation(records: list[dict], rdir: Path) -> tuple[list[dict], list[dict
         r["_req"] = restore(r["request"], rdir)
     n_max = max(len(r["_req"]["messages"]) for r in ok)
     longest = [r for r in ok if len(r["_req"]["messages"]) == n_max]
-    final = max(longest, key=lambda r: (usable(r.get("response")), r.get("ts", 0)))
+    final = max(longest, key=lambda r: (usable(r), r.get("ts", 0)))
     msgs = final["_req"]["messages"]
     tools = final["_req"]["tools"]
     for r in ok:
@@ -189,10 +192,10 @@ def conversation(records: list[dict], rdir: Path) -> tuple[list[dict], list[dict
             raise Reject("an earlier request is not a prefix of the last one (history rewritten)")
         if r["_req"]["tools"] != tools:
             raise Reject("tool list changed during the run")
-        if len(m) < len(msgs) and usable(r.get("response")) and not same_turn(r["response"], msgs[len(m)]):
+        if len(m) < len(msgs) and usable(r) and not same_turn(r["response"], msgs[len(m)]):
             raise Reject("a logged response differs from the assistant turn OpenCode sent back")
     out = list(msgs)
-    has_final = usable(final.get("response"))
+    has_final = usable(final)
     if has_final:
         out.append(final_turn(final["response"]))
     return out, tools, final, {"session": final.get("session"), "final_turn": has_final,
@@ -295,8 +298,18 @@ def check_server_log(msgs: list[dict], calls: list[dict]) -> int:
 
 # ---------------------------------------------------------------------- rows
 def wire_key(msgs: list[dict]) -> str:
-    """Content hash of a conversation with images replaced by their PNG hashes (for dedupe)."""
+    """Content hash of a conversation for dedupe: images as PNG hashes, tool-call ids (random per run)
+    renumbered in order of appearance."""
+    ids: dict[str, str] = {}
+
+    def cid(i):
+        return ids.setdefault(i, f"c{len(ids)}")
+
     def strip(m):
+        if m.get("tool_calls"):
+            m = {**m, "tool_calls": [{**tc, "id": cid(tc.get("id"))} for tc in m["tool_calls"]]}
+        if m.get("role") == "tool":
+            m = {**m, "tool_call_id": cid(m.get("tool_call_id"))}
         if isinstance(m.get("content"), list):
             m = {**m, "content": [{**p, "image_url": {"url": hashlib.sha256(
                 base64.b64decode(p["image_url"]["url"][len(DATA_PNG):])).hexdigest()}}
@@ -382,10 +395,13 @@ def main(argv=None) -> int:
     ap.add_argument("--processor", help="HF processor dir (train venv): also compare chat-template renderings")
     ap.add_argument("--force", action="store_true", help="replace an existing --out")
     a = ap.parse_args(argv)
-    if a.out.exists():
-        if not a.force:
-            ap.error(f"{a.out} exists (--force replaces it)")
-        shutil.rmtree(a.out)
+    out_final = a.out.resolve()
+    for p in [*a.runs, *([a.tasks] if a.tasks else [])]:
+        q = p.resolve()
+        if q == out_final or out_final in q.parents or q in out_final.parents:
+            ap.error(f"--out {a.out} overlaps the input {p}")
+    if a.out.exists() and not a.force:
+        ap.error(f"{a.out} exists (--force replaces it)")
     processor = None
     if a.processor:
         from transformers import AutoProcessor
@@ -428,6 +444,10 @@ def main(argv=None) -> int:
         c["trial"], c["item_id"], c["run"] = t["trial"], t["item_id"], run.name
         cands[t["item_id"]].append(c)
 
+    # build next to --out and swap it in at the end: a failure never leaves a half dataset or loses the old one
+    final_out = a.out
+    a.out = final_out.with_name(f".{final_out.name}.tmp")
+    shutil.rmtree(a.out, ignore_errors=True)
     a.out.mkdir(parents=True)
     (a.out / "images").mkdir()
     shutil.copy(fhdata.TOOLS_FILE, a.out / "tools.json")
@@ -468,6 +488,9 @@ def main(argv=None) -> int:
     stats.update(rows=len(rows), items=len(cands), rendered_with_processor=bool(processor),
                  rejected=dict(stats["rejected"]), models=dict(stats["models"]))
     (a.out / "stats.json").write_text(json.dumps(stats, indent=1) + "\n")
+    if final_out.exists():
+        shutil.rmtree(final_out)
+    a.out.rename(final_out)
     print(json.dumps(stats, indent=1))
     return 0
 
