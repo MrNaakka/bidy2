@@ -5,7 +5,7 @@ __pycache__/
 jobs/
 runs/
 tasks/
-reviews/*.log
+reviews/
 secrets/
 infra/verda/tunnel.pid
 infra/verda/tunnel.log
