@@ -7,109 +7,85 @@ run was charged (budget per item: see each task.toml, default 120000). Generated
 
 | job | agent | model | trials | mean reward | correct | submitted | exceptions | mean px | max px | mean calls | API cost (USD) | wall time (s) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| fh-eval-reference | oracle | - | 30 | 1.000 | 30 | 30 | 0 | 49776 | 58224 | 16.6 | - | 210 |
-| fh-eval-nop | nop | - | 30 | 0.000 | 0 | 0 | 0 | 0 | 0 | 0.0 | - | 189 |
-| fh-eval-stop-early | framehunt.baselines.stop_early:StopEarly | - | 30 | 0.000 | 0 | 30 | 0 | 32400 | 32400 | 3.0 | - | 180 |
-| fh-eval-opencode-run1 | opencode | anthropic/claude-opus-5-5 | 30 | 0.800 | 24 | 30 | 0 | 105315 | 119958 | 10.3 | 4.04 | 448 |
-| fh-eval-opencode-run2 | opencode | anthropic/claude-opus-5-5 | 30 | 0.567 | 17 | 30 | 0 | 107405 | 119976 | 11.3 | 4.33 | 534 |
-| fh-eval-opencode-run3 | opencode | anthropic/claude-opus-5-5 | 30 | 0.733 | 22 | 30 | 0 | 108180 | 120000 | 9.8 | 3.61 | 462 |
-| fh-modal-smoke-opus | opencode | anthropic/claude-opus-5-5 | 2 | 1.000 | 2 | 2 | 0 | 111843 | 113610 | 10.0 | 0.30 | 156 |
-| fh-modal-smoke-oracle | oracle | - | 2 | 1.000 | 2 | 2 | 0 | 43826 | 47323 | 16.5 | - | 93 |
-| fh-pilot-oracle | oracle | - | 12 | 0.917 | 11 | 11 | 1 | 40438 | 47323 | 15.1 | - | 1837 |
-| fh-pilot-oracle-3402 | oracle | - | 1 | 1.000 | 1 | 1 | 0 | 40688 | 40688 | 17.0 | - | 122 |
-| fh-pilot-scenes | opencode | anthropic/claude-opus-5-5 | 12 | 0.667 | 8 | 9 | 0 | 81496 | 119320 | 7.3 | 1.74 | - |
-| fh-pilot-scenes-rest | opencode | anthropic/claude-opus-5-5 | 3 | 0.667 | 2 | 3 | 0 | 97803 | 119574 | 12.3 | 0.49 | 217 |
-| fh-pilot2-oracle | oracle | - | 12 | 1.000 | 12 | 12 | 0 | 43831 | 47323 | 16.5 | - | 352 |
-| fh-pilot2-scenes | opencode | anthropic/claude-opus-5-5 | 12 | 0.667 | 8 | 12 | 0 | 111393 | 119855 | 10.2 | 1.65 | 596 |
-| fh-pilot3-oracle | oracle | - | 6 | 1.000 | 6 | 6 | 0 | 40508 | 40688 | 16.5 | - | 196 |
-| fh-pilot3-oracle-modal | oracle | - | 6 | 1.000 | 6 | 6 | 0 | 40508 | 40688 | 16.5 | - | 105 |
-| fh-pilot3-scenes | opencode | anthropic/claude-opus-5-5 | 6 | 0.833 | 5 | 6 | 0 | 94807 | 116312 | 10.3 | 0.82 | 173 |
+| fh-eval-nop-all | nop | - | 40 | 0.000 | 0 | 0 | 0 | 0 | 0 | 0.0 | - | - |
+| fh-eval-opencode-all-run1 | opencode | anthropic/claude-opus-5-5 | 40 | 0.750 | 30 | 40 | 0 | 108037 | 119958 | 10.2 | 5.53 | - |
+| fh-eval-opencode-all-run2 | opencode | anthropic/claude-opus-5-5 | 40 | 0.550 | 22 | 40 | 0 | 110124 | 119976 | 10.8 | 5.82 | - |
+| fh-eval-opencode-all-run3 | opencode | anthropic/claude-opus-5-5 | 40 | 0.650 | 26 | 40 | 0 | 110445 | 120000 | 9.8 | 5.09 | - |
+| fh-eval-qwen-run1 | opencode | verda-qwen/qwen3.8-27b | 40 | 0.200 | 8 | 18 | 11 | 100693 | 120000 | 11.2 | - | - |
+| fh-eval-qwen-run2 | opencode | verda-qwen/qwen3.8-27b | 40 | 0.275 | 11 | 25 | 3 | 97178 | 120000 | 11.6 | - | - |
+| fh-eval-qwen-run3 | opencode | verda-qwen/qwen3.8-27b | 40 | 0.275 | 11 | 23 | 5 | 101612 | 120000 | 11.7 | - | - |
+| fh-eval-qwen-sft2-run1 | opencode | verda-qwen/qwen3.8-27b-fh | 30 | 0.700 | 21 | 30 | 0 | 56383 | 117877 | 15.6 | - | - |
+| fh-eval-qwen-sft2-run2 | opencode | verda-qwen/qwen3.8-27b-fh | 30 | 0.500 | 15 | 30 | 0 | 62622 | 113514 | 15.8 | - | - |
+| fh-eval-qwen-sft2-run3 | opencode | verda-qwen/qwen3.8-27b-fh | 30 | 0.633 | 19 | 30 | 0 | 61517 | 115680 | 15.0 | - | - |
+| fh-eval-qwen-sft3-run1 | opencode | verda-qwen/qwen3.8-27b-fh | 40 | 0.650 | 26 | 40 | 0 | 61941 | 120000 | 18.0 | - | - |
+| fh-eval-qwen-sft3-run2 | opencode | verda-qwen/qwen3.8-27b-fh | 40 | 0.550 | 22 | 39 | 1 | 74379 | 119983 | 27.8 | - | - |
+| fh-eval-qwen-sft3-run3 | opencode | verda-qwen/qwen3.8-27b-fh | 40 | 0.650 | 26 | 40 | 0 | 64091 | 119992 | 16.2 | - | - |
+| fh-eval-reference-all | oracle | - | 40 | 1.000 | 40 | 40 | 0 | 50036 | 58224 | 16.0 | - | - |
+| fh-eval-stop-early-all | framehunt.baselines.stop_early:StopEarly | - | 40 | 0.000 | 0 | 40 | 0 | 32786 | 33945 | 3.0 | - | - |
 
-Total API cost: $16.97
+Total API cost: $16.45
 
 ## Per kind (mean reward / mean pixels)
 
-| job | logstream | dialogs | toasts | leaderboard |
+| job | logstream | dialogs | toasts | scandoc |
 | --- | --- | --- | --- | --- |
-| fh-eval-reference | 1.00 / 50776 | 1.00 / 58080 | 1.00 / 40472 | - |
-| fh-eval-nop | 0.00 / 0 | 0.00 / 0 | 0.00 / 0 | - |
-| fh-eval-stop-early | 0.00 / 32400 | 0.00 / 32400 | 0.00 / 32400 | - |
-| fh-eval-opencode-run1 | 0.60 / 115736 | 0.90 / 102757 | 0.90 / 97452 | - |
-| fh-eval-opencode-run2 | 0.10 / 118895 | 0.90 / 105509 | 0.70 / 97812 | - |
-| fh-eval-opencode-run3 | 0.60 / 112452 | 0.80 / 109264 | 0.80 / 102825 | - |
-| fh-modal-smoke-opus | - | - | 1.00 / 110076 | 1.00 / 113610 |
-| fh-modal-smoke-oracle | - | - | 1.00 / 40328 | 1.00 / 47323 |
-| fh-pilot-oracle | - | - | 0.83 / 33607 | 1.00 / 47269 |
-| fh-pilot-oracle-3402 | - | - | 1.00 / 40688 | - |
-| fh-pilot-scenes | - | - | 0.50 / 49084 | 0.83 / 113908 |
-| fh-pilot-scenes-rest | - | - | 0.67 / 97803 | - |
-| fh-pilot2-oracle | - | - | 1.00 / 40448 | 1.00 / 47215 |
-| fh-pilot2-scenes | - | - | 1.00 / 114006 | 0.33 / 108780 |
-| fh-pilot3-oracle | - | - | 1.00 / 40508 | - |
-| fh-pilot3-oracle-modal | - | - | 1.00 / 40508 | - |
-| fh-pilot3-scenes | - | - | 0.83 / 94807 | - |
+| fh-eval-nop-all | 0.00 / 0 | 0.00 / 0 | 0.00 / 0 | 0.00 / 0 |
+| fh-eval-opencode-all-run1 | 0.60 / 115736 | 0.90 / 102757 | 0.90 / 97452 | 0.60 / 116204 |
+| fh-eval-opencode-all-run2 | 0.10 / 118895 | 0.90 / 105509 | 0.70 / 97812 | 0.50 / 118281 |
+| fh-eval-opencode-all-run3 | 0.60 / 112452 | 0.80 / 109264 | 0.80 / 102825 | 0.40 / 117241 |
+| fh-eval-qwen-run1 | 0.30 / 112675 | 0.30 / 118342 | 0.20 / 114873 | 0.00 / 56880 |
+| fh-eval-qwen-run2 | 0.30 / 106951 | 0.40 / 117096 | 0.40 / 116924 | 0.00 / 47741 |
+| fh-eval-qwen-run3 | 0.40 / 111219 | 0.20 / 116518 | 0.50 / 116987 | 0.00 / 61723 |
+| fh-eval-qwen-sft2-run1 | 0.80 / 64884 | 0.50 / 65457 | 0.80 / 38808 | - |
+| fh-eval-qwen-sft2-run2 | 0.70 / 68194 | 0.40 / 76627 | 0.40 / 43046 | - |
+| fh-eval-qwen-sft2-run3 | 0.80 / 63371 | 0.50 / 80258 | 0.60 / 40922 | - |
+| fh-eval-qwen-sft3-run1 | 0.80 / 58495 | 0.40 / 90280 | 1.00 / 38799 | 0.40 / 60192 |
+| fh-eval-qwen-sft3-run2 | 1.00 / 68457 | 0.20 / 101370 | 0.80 / 46468 | 0.20 / 81220 |
+| fh-eval-qwen-sft3-run3 | 0.90 / 66310 | 0.60 / 79586 | 0.90 / 43394 | 0.20 / 67077 |
+| fh-eval-reference-all | 1.00 / 50776 | 1.00 / 58080 | 1.00 / 40472 | 1.00 / 50818 |
+| fh-eval-stop-early-all | 0.00 / 32400 | 0.00 / 32400 | 0.00 / 32400 | 0.00 / 33945 |
 
 ## Per item (reward, pixels used, calls; `-` = not submitted)
 
-| item | fh-eval-reference | fh-eval-nop | fh-eval-stop-early | fh-eval-opencode-run1 | fh-eval-opencode-run2 | fh-eval-opencode-run3 | fh-modal-smoke-opus | fh-modal-smoke-oracle | fh-pilot-oracle | fh-pilot-oracle-3402 | fh-pilot-scenes | fh-pilot-scenes-rest | fh-pilot2-oracle | fh-pilot2-scenes | fh-pilot3-oracle | fh-pilot3-oracle-modal | fh-pilot3-scenes |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| logstream-7001 | 1, 50012 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 92520 px, 7 calls | 0, 119624 px, 10 calls | 1, 93508 px, 10 calls |  |  |  |  |  |  |  |  |  |  |  |
-| logstream-7002 | 1, 51104 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 0, 119112 px, 8 calls | 0, 119472 px, 9 calls | 1, 102980 px, 8 calls |  |  |  |  |  |  |  |  |  |  |  |
-| logstream-7003 | 1, 50012 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 117475 px, 13 calls | 0, 119640 px, 12 calls | 0, 120000 px, 10 calls |  |  |  |  |  |  |  |  |  |  |  |
-| logstream-7004 | 1, 51104 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 0, 119651 px, 15 calls | 0, 119000 px, 12 calls | 0, 118284 px, 11 calls |  |  |  |  |  |  |  |  |  |  |  |
-| logstream-7005 | 1, 51104 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 0, 119758 px, 17 calls | 0, 119967 px, 10 calls | 1, 104640 px, 9 calls |  |  |  |  |  |  |  |  |  |  |  |
-| logstream-7006 | 1, 51104 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 118890 px, 10 calls | 0, 119976 px, 16 calls | 1, 119968 px, 12 calls |  |  |  |  |  |  |  |  |  |  |  |
-| logstream-7007 | 1, 50012 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 0, 119212 px, 16 calls | 0, 119938 px, 18 calls | 0, 119670 px, 10 calls |  |  |  |  |  |  |  |  |  |  |  |
-| logstream-7008 | 1, 51104 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 118372 px, 12 calls | 1, 111716 px, 8 calls | 0, 119880 px, 11 calls |  |  |  |  |  |  |  |  |  |  |  |
-| logstream-7009 | 1, 51104 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 119372 px, 11 calls | 0, 119710 px, 13 calls | 1, 114105 px, 12 calls |  |  |  |  |  |  |  |  |  |  |  |
-| logstream-7010 | 1, 51104 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 113000 px, 8 calls | 0, 119907 px, 16 calls | 1, 111480 px, 7 calls |  |  |  |  |  |  |  |  |  |  |  |
-| dialogs-7101 | 1, 58224 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 116640 px, 9 calls | 1, 119708 px, 14 calls | 1, 118460 px, 10 calls |  |  |  |  |  |  |  |  |  |  |  |
-| dialogs-7102 | 1, 58224 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 92220 px, 7 calls | 1, 77916 px, 7 calls | 1, 119814 px, 9 calls |  |  |  |  |  |  |  |  |  |  |  |
-| dialogs-7103 | 1, 58224 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 103482 px, 10 calls | 1, 113992 px, 9 calls | 1, 90760 px, 9 calls |  |  |  |  |  |  |  |  |  |  |  |
-| dialogs-7104 | 1, 57864 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 97740 px, 10 calls | 1, 79624 px, 8 calls | 1, 102413 px, 12 calls |  |  |  |  |  |  |  |  |  |  |  |
-| dialogs-7105 | 1, 57864 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 83256 px, 9 calls | 1, 113415 px, 15 calls | 1, 101176 px, 10 calls |  |  |  |  |  |  |  |  |  |  |  |
-| dialogs-7106 | 1, 58224 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 0, 119958 px, 12 calls | 1, 116420 px, 14 calls | 0, 119960 px, 11 calls |  |  |  |  |  |  |  |  |  |  |  |
-| dialogs-7107 | 1, 57864 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 89640 px, 10 calls | 1, 116600 px, 10 calls | 1, 118856 px, 7 calls |  |  |  |  |  |  |  |  |  |  |  |
-| dialogs-7108 | 1, 58224 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 93550 px, 11 calls | 1, 113020 px, 16 calls | 0, 119962 px, 13 calls |  |  |  |  |  |  |  |  |  |  |  |
-| dialogs-7109 | 1, 57864 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 115668 px, 9 calls | 0, 113280 px, 11 calls | 1, 97016 px, 8 calls |  |  |  |  |  |  |  |  |  |  |  |
-| dialogs-7110 | 1, 58224 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 115412 px, 15 calls | 1, 91112 px, 10 calls | 1, 104220 px, 9 calls |  |  |  |  |  |  |  |  |  |  |  |
-| toasts-3401 |  |  |  |  |  |  | 1, 110076 px, 9 calls | 1, 40328 px, 16 calls | 1, 40328 px, 16 calls |  | 1, 104436 px, 11 calls |  |  |  |  |  |  |
-| toasts-3402 |  |  |  |  |  |  |  |  | 0, 0 px, 0 calls, - | 1, 40688 px, 17 calls | 1, 114100 px, 7 calls |  |  |  |  |  |  |
-| toasts-3403 |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls |  | 1, 75968 px, 9 calls |  |  |  |  |  |  |
-| toasts-3404 |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls |  | 0, 0 px, 0 calls, - | 0, 119574 px, 16 calls |  |  |  |  |  |
-| toasts-3405 |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls |  | 0, 0 px, 0 calls, - | 1, 92216 px, 10 calls |  |  |  |  |  |
-| toasts-3406 |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls |  | 0, 0 px, 0 calls, - | 1, 81620 px, 11 calls |  |  |  |  |  |
-| toasts-3407 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls | 1, 116840 px, 13 calls |  |  |  |
-| toasts-3408 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls | 1, 115266 px, 19 calls |  |  |  |
-| toasts-3409 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls | 1, 113036 px, 7 calls |  |  |  |
-| toasts-3410 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40688 px, 17 calls | 1, 116536 px, 11 calls |  |  |  |
-| toasts-3411 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40688 px, 17 calls | 1, 102500 px, 8 calls |  |  |  |
-| toasts-3412 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls | 1, 119855 px, 11 calls |  |  |  |
-| toasts-3413 |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40688 px, 17 calls | 1, 40688 px, 17 calls | 1, 84770 px, 10 calls |
-| toasts-3414 |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls | 1, 40328 px, 16 calls | 1, 68028 px, 8 calls |
-| toasts-3415 |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40688 px, 17 calls | 1, 40688 px, 17 calls | 0, 116312 px, 12 calls |
-| toasts-3416 |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls | 1, 40328 px, 16 calls | 1, 102176 px, 18 calls |
-| toasts-3417 |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40688 px, 17 calls | 1, 40688 px, 17 calls | 1, 109508 px, 7 calls |
-| toasts-3418 |  |  |  |  |  |  |  |  |  |  |  |  |  |  | 1, 40328 px, 16 calls | 1, 40328 px, 16 calls | 1, 88050 px, 7 calls |
-| toasts-7401 | 1, 40688 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 109568 px, 13 calls | 1, 109240 px, 10 calls | 1, 84992 px, 10 calls |  |  |  |  |  |  |  |  |  |  |  |
-| toasts-7402 | 1, 40328 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 81268 px, 8 calls | 1, 76648 px, 7 calls | 0, 119890 px, 11 calls |  |  |  |  |  |  |  |  |  |  |  |
-| toasts-7403 | 1, 40688 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 111840 px, 11 calls | 0, 115240 px, 11 calls | 1, 116660 px, 13 calls |  |  |  |  |  |  |  |  |  |  |  |
-| toasts-7404 | 1, 40328 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 101910 px, 8 calls | 0, 84904 px, 12 calls | 0, 117090 px, 13 calls |  |  |  |  |  |  |  |  |  |  |  |
-| toasts-7405 | 1, 40328 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 100736 px, 10 calls | 1, 95115 px, 12 calls | 1, 113420 px, 9 calls |  |  |  |  |  |  |  |  |  |  |  |
-| toasts-7406 | 1, 40328 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 90240 px, 8 calls | 1, 104084 px, 12 calls | 1, 87722 px, 8 calls |  |  |  |  |  |  |  |  |  |  |  |
-| toasts-7407 | 1, 40688 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 95510 px, 10 calls | 1, 86960 px, 10 calls | 1, 77160 px, 8 calls |  |  |  |  |  |  |  |  |  |  |  |
-| toasts-7408 | 1, 40328 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 113448 px, 6 calls | 1, 113436 px, 12 calls | 1, 113908 px, 6 calls |  |  |  |  |  |  |  |  |  |  |  |
-| toasts-7409 | 1, 40328 px, 16 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 0, 76400 px, 7 calls | 0, 110890 px, 6 calls | 1, 94702 px, 9 calls |  |  |  |  |  |  |  |  |  |  |  |
-| toasts-7410 | 1, 40688 px, 17 calls | 0, 0 px, 0 calls, - | 0, 32400 px, 3 calls | 1, 93600 px, 8 calls | 1, 81600 px, 8 calls | 1, 102704 px, 8 calls |  |  |  |  |  |  |  |  |  |  |  |
-| leaderboard-3501 |  |  |  |  |  |  | 1, 113610 px, 11 calls | 1, 47323 px, 17 calls | 1, 47323 px, 17 calls |  | 1, 119320 px, 13 calls |  |  |  |  |  |  |
-| leaderboard-3502 |  |  |  |  |  |  |  |  | 1, 47323 px, 17 calls |  | 1, 108790 px, 8 calls |  |  |  |  |  |  |
-| leaderboard-3503 |  |  |  |  |  |  |  |  | 1, 47323 px, 17 calls |  | 1, 109306 px, 10 calls |  |  |  |  |  |  |
-| leaderboard-3504 |  |  |  |  |  |  |  |  | 1, 46998 px, 16 calls |  | 0, 115780 px, 9 calls |  |  |  |  |  |  |
-| leaderboard-3505 |  |  |  |  |  |  |  |  | 1, 47323 px, 17 calls |  | 1, 116065 px, 9 calls |  |  |  |  |  |  |
-| leaderboard-3506 |  |  |  |  |  |  |  |  | 1, 47323 px, 17 calls |  | 1, 114190 px, 12 calls |  |  |  |  |  |  |
-| leaderboard-3507 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 46998 px, 16 calls | 1, 108500 px, 11 calls |  |  |  |
-| leaderboard-3508 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 47323 px, 17 calls | 0, 107280 px, 8 calls |  |  |  |
-| leaderboard-3509 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 46998 px, 16 calls | 1, 105330 px, 8 calls |  |  |  |
-| leaderboard-3510 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 47323 px, 17 calls | 0, 118312 px, 10 calls |  |  |  |
-| leaderboard-3511 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 47323 px, 17 calls | 0, 104570 px, 9 calls |  |  |  |
-| leaderboard-3512 |  |  |  |  |  |  |  |  |  |  |  |  | 1, 47323 px, 17 calls | 0, 108688 px, 8 calls |  |  |  |
+| item | fh-eval-nop-all | fh-eval-opencode-all-run1 | fh-eval-opencode-all-run2 | fh-eval-opencode-all-run3 | fh-eval-qwen-run1 | fh-eval-qwen-run2 | fh-eval-qwen-run3 | fh-eval-qwen-sft2-run1 | fh-eval-qwen-sft2-run2 | fh-eval-qwen-sft2-run3 | fh-eval-qwen-sft3-run1 | fh-eval-qwen-sft3-run2 | fh-eval-qwen-sft3-run3 | fh-eval-reference-all | fh-eval-stop-early-all |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| logstream-7001 | 0, 0 px, 0 calls, - | 1, 92520 px, 7 calls | 0, 119624 px, 10 calls | 1, 93508 px, 10 calls | 1, 95110 px, 10 calls | 0, 117180 px, 9 calls | 0, 115630 px, 9 calls | 0, 72619 px, 15 calls | 0, 83994 px, 15 calls | 1, 67902 px, 16 calls | 0, 57904 px, 15 calls | 1, 60509 px, 14 calls | 0, 63647 px, 15 calls | 1, 50012 px, 16 calls | 0, 32400 px, 3 calls |
+| logstream-7002 | 0, 0 px, 0 calls, - | 0, 119112 px, 8 calls | 0, 119472 px, 9 calls | 1, 102980 px, 8 calls | 0, 118697 px, 20 calls | 0, 57600 px, 2 calls, - | 0, 57100 px, 4 calls, - | 1, 61714 px, 13 calls | 1, 48555 px, 14 calls | 1, 56626 px, 14 calls | 1, 56546 px, 15 calls | 1, 46325 px, 15 calls | 1, 65909 px, 15 calls | 1, 51104 px, 17 calls | 0, 32400 px, 3 calls |
+| logstream-7003 | 0, 0 px, 0 calls, - | 1, 117475 px, 13 calls | 0, 119640 px, 12 calls | 0, 120000 px, 10 calls | 1, 119292 px, 21 calls | 0, 118984 px, 16 calls | 1, 117964 px, 12 calls | 1, 62220 px, 16 calls | 1, 52815 px, 16 calls | 1, 42533 px, 14 calls | 0, 48022 px, 13 calls | 1, 83366 px, 16 calls | 1, 48917 px, 14 calls | 1, 50012 px, 16 calls | 0, 32400 px, 3 calls |
+| logstream-7004 | 0, 0 px, 0 calls, - | 0, 119651 px, 15 calls | 0, 119000 px, 12 calls | 0, 118284 px, 11 calls | 0, 111580 px, 19 calls, - | 0, 119750 px, 14 calls | 1, 119920 px, 17 calls | 1, 77818 px, 14 calls | 1, 94461 px, 15 calls | 1, 59696 px, 16 calls | 1, 70602 px, 16 calls | 1, 60255 px, 14 calls | 1, 78437 px, 15 calls | 1, 51104 px, 17 calls | 0, 32400 px, 3 calls |
+| logstream-7005 | 0, 0 px, 0 calls, - | 0, 119758 px, 17 calls | 0, 119967 px, 10 calls | 1, 104640 px, 9 calls | 0, 107100 px, 6 calls, - | 0, 104410 px, 19 calls, - | 1, 119692 px, 11 calls | 1, 38316 px, 15 calls | 1, 70168 px, 14 calls | 1, 73936 px, 14 calls | 1, 63908 px, 15 calls | 1, 90071 px, 16 calls | 1, 70532 px, 13 calls | 1, 51104 px, 17 calls | 0, 32400 px, 3 calls |
+| logstream-7006 | 0, 0 px, 0 calls, - | 1, 118890 px, 10 calls | 0, 119976 px, 16 calls | 1, 119968 px, 12 calls | 0, 118380 px, 20 calls | 1, 95100 px, 19 calls | 0, 113310 px, 9 calls, - | 1, 65763 px, 15 calls | 0, 90404 px, 19 calls | 1, 68245 px, 13 calls | 1, 65325 px, 14 calls | 1, 74364 px, 12 calls | 1, 71444 px, 14 calls | 1, 51104 px, 17 calls | 0, 32400 px, 3 calls |
+| logstream-7007 | 0, 0 px, 0 calls, - | 0, 119212 px, 16 calls | 0, 119938 px, 18 calls | 0, 119670 px, 10 calls | 0, 109915 px, 14 calls, - | 0, 119924 px, 18 calls, - | 1, 118050 px, 20 calls | 1, 62491 px, 15 calls | 1, 51099 px, 15 calls | 0, 58565 px, 15 calls | 1, 64815 px, 16 calls | 1, 56855 px, 15 calls | 1, 68606 px, 14 calls | 1, 50012 px, 16 calls | 0, 32400 px, 3 calls |
+| logstream-7008 | 0, 0 px, 0 calls, - | 1, 118372 px, 12 calls | 1, 111716 px, 8 calls | 0, 119880 px, 11 calls | 1, 118230 px, 19 calls | 0, 119995 px, 13 calls | 0, 119870 px, 11 calls, - | 0, 57166 px, 16 calls | 1, 62575 px, 16 calls | 0, 63575 px, 15 calls | 1, 61109 px, 16 calls | 1, 89234 px, 16 calls | 1, 60217 px, 13 calls | 1, 51104 px, 17 calls | 0, 32400 px, 3 calls |
+| logstream-7009 | 0, 0 px, 0 calls, - | 1, 119372 px, 11 calls | 0, 119710 px, 13 calls | 1, 114105 px, 12 calls | 0, 119832 px, 15 calls, - | 1, 96990 px, 20 calls | 0, 110755 px, 10 calls, - | 1, 79307 px, 14 calls | 0, 59168 px, 17 calls | 1, 87125 px, 16 calls | 1, 44966 px, 15 calls | 1, 73557 px, 17 calls | 1, 59872 px, 13 calls | 1, 51104 px, 17 calls | 0, 32400 px, 3 calls |
+| logstream-7010 | 0, 0 px, 0 calls, - | 1, 113000 px, 8 calls | 0, 119907 px, 16 calls | 1, 111480 px, 7 calls | 0, 108610 px, 10 calls, - | 1, 119576 px, 16 calls | 0, 119895 px, 19 calls | 1, 71424 px, 15 calls | 1, 68700 px, 16 calls | 1, 55508 px, 16 calls | 1, 51750 px, 14 calls | 1, 50036 px, 14 calls | 1, 75518 px, 13 calls | 1, 51104 px, 17 calls | 0, 32400 px, 3 calls |
+| dialogs-7101 | 0, 0 px, 0 calls, - | 1, 116640 px, 9 calls | 1, 119708 px, 14 calls | 1, 118460 px, 10 calls | 1, 119840 px, 11 calls | 0, 119440 px, 13 calls | 0, 119150 px, 18 calls | 0, 43528 px, 14 calls | 0, 111552 px, 26 calls | 0, 44797 px, 15 calls | 0, 119768 px, 23 calls | 0, 119140 px, 19 calls | 1, 119992 px, 29 calls | 1, 58224 px, 17 calls | 0, 32400 px, 3 calls |
+| dialogs-7102 | 0, 0 px, 0 calls, - | 1, 92220 px, 7 calls | 1, 77916 px, 7 calls | 1, 119814 px, 9 calls | 0, 114904 px, 7 calls, - | 0, 99800 px, 8 calls, - | 0, 119190 px, 10 calls, - | 1, 65065 px, 16 calls | 1, 62628 px, 16 calls | 1, 50384 px, 16 calls | 0, 119821 px, 29 calls | 0, 119879 px, 35 calls | 0, 71904 px, 16 calls | 1, 58224 px, 17 calls | 0, 32400 px, 3 calls |
+| dialogs-7103 | 0, 0 px, 0 calls, - | 1, 103482 px, 10 calls | 1, 113992 px, 9 calls | 1, 90760 px, 9 calls | 0, 110660 px, 7 calls, - | 0, 119951 px, 9 calls | 0, 119992 px, 26 calls | 0, 77348 px, 14 calls | 0, 113514 px, 23 calls | 0, 53916 px, 16 calls | 0, 117962 px, 16 calls | 0, 117076 px, 25 calls | 0, 119557 px, 27 calls | 1, 58224 px, 17 calls | 0, 32400 px, 3 calls |
+| dialogs-7104 | 0, 0 px, 0 calls, - | 1, 97740 px, 10 calls | 1, 79624 px, 8 calls | 1, 102413 px, 12 calls | 0, 119954 px, 11 calls | 0, 119876 px, 23 calls | 0, 95920 px, 14 calls, - | 0, 117877 px, 40 calls | 1, 39056 px, 14 calls | 1, 115107 px, 16 calls | 0, 63797 px, 14 calls | 1, 68956 px, 16 calls | 0, 60248 px, 15 calls | 1, 57864 px, 16 calls | 0, 32400 px, 3 calls |
+| dialogs-7105 | 0, 0 px, 0 calls, - | 1, 83256 px, 9 calls | 1, 113415 px, 15 calls | 1, 101176 px, 10 calls | 1, 119944 px, 11 calls | 1, 117680 px, 16 calls | 0, 112088 px, 13 calls, - | 0, 61892 px, 14 calls | 0, 64974 px, 15 calls | 0, 115680 px, 23 calls | 1, 69244 px, 14 calls | 0, 119983 px, 32 calls | 0, 119925 px, 22 calls | 1, 57864 px, 16 calls | 0, 32400 px, 3 calls |
+| dialogs-7106 | 0, 0 px, 0 calls, - | 0, 119958 px, 12 calls | 1, 116420 px, 14 calls | 0, 119960 px, 11 calls | 1, 120000 px, 14 calls | 1, 119790 px, 13 calls | 1, 119776 px, 11 calls | 0, 64800 px, 16 calls | 1, 94224 px, 16 calls | 0, 108848 px, 17 calls | 1, 61764 px, 17 calls | 0, 118398 px, 22 calls | 1, 53824 px, 15 calls | 1, 58224 px, 17 calls | 0, 32400 px, 3 calls |
+| dialogs-7107 | 0, 0 px, 0 calls, - | 1, 89640 px, 10 calls | 1, 116600 px, 10 calls | 1, 118856 px, 7 calls | 0, 119884 px, 9 calls | 0, 120000 px, 11 calls | 0, 119581 px, 11 calls | 1, 56769 px, 16 calls | 0, 60300 px, 16 calls | 1, 69742 px, 13 calls | 0, 119880 px, 28 calls | 0, 73912 px, 14 calls | 1, 49306 px, 15 calls | 1, 57864 px, 16 calls | 0, 32400 px, 3 calls |
+| dialogs-7108 | 0, 0 px, 0 calls, - | 1, 93550 px, 11 calls | 1, 113020 px, 16 calls | 0, 119962 px, 13 calls | 0, 118624 px, 11 calls, - | 1, 114571 px, 18 calls | 0, 119992 px, 10 calls | 1, 43305 px, 15 calls | 1, 44260 px, 14 calls | 0, 70450 px, 14 calls | 0, 60810 px, 15 calls | 0, 75742 px, 14 calls | 1, 57279 px, 13 calls | 1, 58224 px, 17 calls | 0, 32400 px, 3 calls |
+| dialogs-7109 | 0, 0 px, 0 calls, - | 1, 115668 px, 9 calls | 0, 113280 px, 11 calls | 1, 97016 px, 8 calls | 0, 119891 px, 12 calls | 0, 119877 px, 10 calls | 0, 119760 px, 15 calls | 1, 49360 px, 15 calls | 0, 98688 px, 16 calls | 1, 67706 px, 13 calls | 1, 118218 px, 17 calls | 0, 100003 px, 16 calls | 1, 81160 px, 17 calls | 1, 57864 px, 16 calls | 0, 32400 px, 3 calls |
+| dialogs-7110 | 0, 0 px, 0 calls, - | 1, 115412 px, 15 calls | 1, 91112 px, 10 calls | 1, 104220 px, 9 calls | 0, 119720 px, 11 calls | 1, 119976 px, 18 calls | 1, 119736 px, 12 calls | 1, 74630 px, 16 calls | 0, 77074 px, 15 calls | 1, 105952 px, 16 calls | 1, 51531 px, 16 calls | 1, 100610 px, 16 calls | 1, 62660 px, 18 calls | 1, 58224 px, 17 calls | 0, 32400 px, 3 calls |
+| toasts-7401 | 0, 0 px, 0 calls, - | 1, 109568 px, 13 calls | 1, 109240 px, 10 calls | 1, 84992 px, 10 calls | 0, 111852 px, 25 calls, - | 0, 119987 px, 16 calls | 1, 118510 px, 17 calls | 0, 24335 px, 14 calls | 0, 65150 px, 16 calls | 1, 24585 px, 16 calls | 1, 26340 px, 16 calls | 0, 119022 px, 32 calls | 1, 37780 px, 15 calls | 1, 40688 px, 17 calls | 0, 32400 px, 3 calls |
+| toasts-7402 | 0, 0 px, 0 calls, - | 1, 81268 px, 8 calls | 1, 76648 px, 7 calls | 0, 119890 px, 11 calls | 0, 104660 px, 9 calls, - | 1, 116880 px, 19 calls | 1, 115190 px, 10 calls | 1, 39082 px, 15 calls | 0, 33058 px, 15 calls | 1, 47701 px, 13 calls | 1, 38262 px, 14 calls | 1, 38822 px, 17 calls | 1, 21346 px, 16 calls | 1, 40328 px, 16 calls | 0, 32400 px, 3 calls |
+| toasts-7403 | 0, 0 px, 0 calls, - | 1, 111840 px, 11 calls | 0, 115240 px, 11 calls | 1, 116660 px, 13 calls | 1, 116136 px, 30 calls | 1, 105135 px, 19 calls | 1, 119870 px, 18 calls | 1, 53971 px, 14 calls | 1, 24826 px, 14 calls | 1, 50090 px, 14 calls | 1, 35630 px, 15 calls | 1, 36927 px, 14 calls | 1, 46832 px, 14 calls | 1, 40688 px, 17 calls | 0, 32400 px, 3 calls |
+| toasts-7404 | 0, 0 px, 0 calls, - | 1, 101910 px, 8 calls | 0, 84904 px, 12 calls | 0, 117090 px, 13 calls | 0, 119586 px, 14 calls, - | 0, 119972 px, 10 calls | 1, 118372 px, 19 calls | 1, 35020 px, 14 calls | 0, 59425 px, 16 calls | 0, 37962 px, 14 calls | 1, 42899 px, 14 calls | 0, 54994 px, 14 calls | 1, 44077 px, 15 calls | 1, 40328 px, 16 calls | 0, 32400 px, 3 calls |
+| toasts-7405 | 0, 0 px, 0 calls, - | 1, 100736 px, 10 calls | 1, 95115 px, 12 calls | 1, 113420 px, 9 calls | 0, 119926 px, 13 calls | 1, 119832 px, 11 calls | 0, 119960 px, 11 calls | 1, 42998 px, 15 calls | 0, 59619 px, 13 calls | 1, 33482 px, 15 calls | 1, 61868 px, 14 calls | 1, 23185 px, 15 calls | 1, 45593 px, 14 calls | 1, 40328 px, 16 calls | 0, 32400 px, 3 calls |
+| toasts-7406 | 0, 0 px, 0 calls, - | 1, 90240 px, 8 calls | 1, 104084 px, 12 calls | 1, 87722 px, 8 calls | 0, 120000 px, 11 calls | 0, 119987 px, 9 calls | 1, 112340 px, 10 calls | 1, 36688 px, 14 calls | 1, 36309 px, 14 calls | 1, 28634 px, 15 calls | 1, 38143 px, 16 calls | 1, 33753 px, 16 calls | 0, 69390 px, 13 calls | 1, 40328 px, 16 calls | 0, 32400 px, 3 calls |
+| toasts-7407 | 0, 0 px, 0 calls, - | 1, 95510 px, 10 calls | 1, 86960 px, 10 calls | 1, 77160 px, 8 calls | 0, 119016 px, 10 calls, - | 0, 119920 px, 27 calls | 0, 119999 px, 22 calls | 0, 54705 px, 16 calls | 0, 28865 px, 14 calls | 0, 44775 px, 14 calls | 1, 54585 px, 16 calls | 1, 25075 px, 16 calls | 1, 22307 px, 15 calls | 1, 40688 px, 17 calls | 0, 32400 px, 3 calls |
+| toasts-7408 | 0, 0 px, 0 calls, - | 1, 113448 px, 6 calls | 1, 113436 px, 12 calls | 1, 113908 px, 6 calls | 1, 119730 px, 21 calls | 0, 119964 px, 13 calls | 0, 120000 px, 14 calls | 1, 32000 px, 14 calls | 1, 35137 px, 15 calls | 0, 41344 px, 12 calls | 1, 24407 px, 15 calls | 1, 28850 px, 14 calls | 1, 54522 px, 15 calls | 1, 40328 px, 16 calls | 0, 32400 px, 3 calls |
+| toasts-7409 | 0, 0 px, 0 calls, - | 0, 76400 px, 7 calls | 0, 110890 px, 6 calls | 1, 94702 px, 9 calls | 0, 119980 px, 11 calls | 0, 107875 px, 6 calls, - | 0, 119360 px, 20 calls | 1, 32095 px, 14 calls | 0, 47565 px, 14 calls | 0, 56215 px, 14 calls | 1, 25535 px, 14 calls | 1, 46995 px, 14 calls | 1, 60654 px, 12 calls | 1, 40328 px, 16 calls | 0, 32400 px, 3 calls |
+| toasts-7410 | 0, 0 px, 0 calls, - | 1, 93600 px, 8 calls | 1, 81600 px, 8 calls | 1, 102704 px, 8 calls | 0, 97848 px, 10 calls, - | 1, 119684 px, 18 calls | 0, 106272 px, 19 calls, - | 1, 37186 px, 15 calls | 1, 40505 px, 14 calls | 1, 44428 px, 14 calls | 1, 40319 px, 12 calls | 1, 57052 px, 14 calls | 1, 31436 px, 14 calls | 1, 40688 px, 17 calls | 0, 32400 px, 3 calls |
+| scandoc-7601 | 0, 0 px, 0 calls, - | 0, 119920 px, 12 calls | 0, 119260 px, 12 calls | 1, 119080 px, 10 calls | 0, 13056 px, 2 calls, - | 0, 0 px, 0 calls, - | 0, 0 px, 0 calls, - |  |  |  | 0, 50446 px, 14 calls | 0, 76440 px, 6 calls | 0, 50446 px, 13 calls | 1, 48796 px, 13 calls | 0, 33945 px, 3 calls |
+| scandoc-7602 | 0, 0 px, 0 calls, - | 1, 116420 px, 12 calls | 1, 116630 px, 9 calls | 1, 118330 px, 10 calls | 0, 74220 px, 5 calls, - | 0, 36480 px, 2 calls, - | 0, 0 px, 0 calls, - |  |  |  | 1, 52096 px, 14 calls | 0, 119934 px, 26 calls | 0, 48796 px, 13 calls | 1, 52096 px, 15 calls | 0, 33945 px, 3 calls |
+| scandoc-7603 | 0, 0 px, 0 calls, - | 0, 119784 px, 8 calls | 0, 118540 px, 11 calls | 0, 119927 px, 9 calls | 0, 119986 px, 10 calls | 0, 74840 px, 3 calls, - | 0, 119975 px, 11 calls |  |  |  | 1, 50291 px, 14 calls | 0, 50446 px, 14 calls | 1, 50291 px, 13 calls | 1, 50291 px, 14 calls | 0, 33945 px, 3 calls |
+| scandoc-7604 | 0, 0 px, 0 calls, - | 1, 115620 px, 10 calls | 0, 117898 px, 9 calls | 0, 118250 px, 12 calls | 0, 40800 px, 3 calls, - | 0, 0 px, 1 calls, - | 0, 113100 px, 7 calls, - |  |  |  | 0, 53436 px, 16 calls | 0, 118908 px, 13 calls | 0, 119991 px, 37 calls | 1, 51941 px, 15 calls | 0, 33945 px, 3 calls |
+| scandoc-7605 | 0, 0 px, 0 calls, - | 1, 118520 px, 10 calls | 1, 119500 px, 10 calls | 0, 114360 px, 10 calls | 0, 0 px, 0 calls, - | 0, 55290 px, 4 calls, - | 0, 60480 px, 4 calls, - |  |  |  | 0, 68342 px, 21 calls | 0, 52096 px, 15 calls | 0, 113948 px, 26 calls | 1, 48796 px, 13 calls | 0, 33945 px, 3 calls |
+| scandoc-7606 | 0, 0 px, 0 calls, - | 1, 118380 px, 8 calls | 0, 118060 px, 9 calls | 1, 111200 px, 9 calls | 0, 56800 px, 2 calls, - | 0, 119438 px, 8 calls, - | 0, 54312 px, 4 calls, - |  |  |  | 0, 48796 px, 13 calls | 1, 50446 px, 13 calls | 0, 48796 px, 13 calls | 1, 50446 px, 14 calls | 0, 33945 px, 3 calls |
+| scandoc-7607 | 0, 0 px, 0 calls, - | 0, 118240 px, 9 calls | 1, 119280 px, 10 calls | 0, 118900 px, 11 calls | 0, 0 px, 1 calls, - | 0, 0 px, 0 calls, - | 0, 114600 px, 6 calls, - |  |  |  | 0, 120000 px, 100 calls | 0, 119968 px, 284 calls, - | 0, 78496 px, 20 calls | 1, 52096 px, 15 calls | 0, 33945 px, 3 calls |
+| scandoc-7608 | 0, 0 px, 0 calls, - | 1, 112910 px, 12 calls | 0, 116650 px, 8 calls | 0, 116540 px, 8 calls | 0, 103908 px, 9 calls, - | 0, 46080 px, 4 calls, - | 0, 72320 px, 6 calls, - |  |  |  | 1, 54471 px, 16 calls | 0, 119930 px, 187 calls | 1, 54471 px, 15 calls | 1, 54471 px, 16 calls | 0, 33945 px, 3 calls |
+| scandoc-7609 | 0, 0 px, 0 calls, - | 0, 119816 px, 9 calls | 1, 118280 px, 9 calls | 0, 119264 px, 10 calls | 0, 56640 px, 3 calls, - | 0, 60480 px, 4 calls, - | 0, 82440 px, 6 calls, - |  |  |  | 1, 50446 px, 14 calls | 1, 50446 px, 13 calls | 0, 51941 px, 14 calls | 1, 50446 px, 14 calls | 0, 33945 px, 3 calls |
+| scandoc-7610 | 0, 0 px, 0 calls, - | 1, 102430 px, 9 calls | 1, 118710 px, 9 calls | 1, 116560 px, 10 calls | 0, 103392 px, 3 calls, - | 0, 84800 px, 3 calls, - | 0, 0 px, 0 calls, - |  |  |  | 0, 53591 px, 15 calls | 0, 53591 px, 16 calls | 0, 53591 px, 16 calls | 1, 48796 px, 13 calls | 0, 33945 px, 3 calls |
