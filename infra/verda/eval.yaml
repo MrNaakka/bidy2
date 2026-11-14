@@ -51,6 +51,12 @@ run: |
   rm -f "$ST/timings.txt" "$ST/done.json"
   mark() { echo "$1 $(date +%s)" >> "$ST/timings.txt"; }
   mark job_start
+  # Hard limit for the whole job: a hung step must not keep the box from going idle (autodown).
+  ( trap '' TERM; sleep $(( MAX_RUN_HOURS * 3600 )); echo "MAX_RUN_HOURS reached; stopping the job" >&2
+    pkill -TERM -P $$; kill -TERM $$; sleep 120; pkill -KILL -P $$; kill -KILL $$ ) &
+  killer=$!
+  # The key goes to curl in a private header file, never on a command line.
+  ( umask 077; printf 'Authorization: Bearer %s\n' "$QWEN_API_KEY" > "$FH/auth.hdr" )
 
   # --- prepare: packages, Harbor, vLLM venv, weights (all idempotent) ---
   if ! { command -v socat && command -v rsync && docker buildx version && docker compose version; } >/dev/null 2>&1; then
@@ -100,7 +106,7 @@ run: |
   # Trial containers reach vLLM through the Docker bridge only (http://172.17.0.1:18000/v1).
   socat TCP-LISTEN:18000,bind=172.17.0.1,fork,reuseaddr TCP:127.0.0.1:8000 &
   socat_pid=$!
-  trap 'kill $vllm_pid $socat_pid 2>/dev/null || true' EXIT
+  trap 'kill $vllm_pid $socat_pid $killer 2>/dev/null || true' EXIT
   python3 - "$model" "${args[@]}" > "$ST/box.json" <<'PY'
   import json, os, socket, subprocess, sys
   gpu = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader"],
@@ -109,7 +115,7 @@ run: |
                     "cluster_info": json.loads(os.environ.get("SKYPILOT_CLUSTER_INFO") or "{}")}))
   PY
   served() {  # every name in $names is listed by /v1/models
-    curl -sf -H "Authorization: Bearer $QWEN_API_KEY" http://127.0.0.1:8000/v1/models | python3 -c \
+    curl -sf -m 10 -H @"$FH/auth.hdr" http://127.0.0.1:8000/v1/models | python3 -c \
       'import json, sys; ids = {m["id"] for m in json.load(sys.stdin)["data"]}; sys.exit(not set(sys.argv[1:]) <= ids)' $names
   }
   health_deadline=$(( $(date +%s) + HEALTH_TIMEOUT_MIN * 60 ))
@@ -121,8 +127,8 @@ run: |
   done
   mark vllm_healthy
   # the relay as a trial container sees it
-  docker run --rm curlimages/curl:8.10.1 -sf -o /dev/null \
-    -H "Authorization: Bearer $QWEN_API_KEY" http://172.17.0.1:18000/v1/models
+  timeout 300 docker run --rm -v "$FH/auth.hdr:/auth.hdr:ro" curlimages/curl:8.10.1 -sf -m 10 -o /dev/null \
+    -H @/auth.hdr http://172.17.0.1:18000/v1/models
 
   # --- Harbor ---
   ( umask 077; printf 'QWEN_API_KEY=%s\n' "$QWEN_API_KEY" > "$FH/key.env" )
@@ -135,6 +141,6 @@ run: |
   timeout --signal=INT --kill-after=600 "$left" harbor run -p "$IN/tasks" --job-name "$JOB" -o runs \
     -n "$N_CONCURRENT" -r 2 --retry-include AgentSetupTimeoutError -y -c "$IN/cfg.json" --env-file "$FH/key.env" || rc=$?
   mark harbor_end
-  curl -s http://127.0.0.1:8000/metrics > "$ST/metrics.txt" || true
+  curl -s -m 30 http://127.0.0.1:8000/metrics > "$ST/metrics.txt" || true
   printf '{"exit": %d, "finished_at": %d}\n' "$rc" "$(date +%s)" > "$ST/done.json"
   exit "$rc"   # fh eval-fetch copies runs/$JOB and ~/fh/status (box.json, timings, vLLM log and metrics)
