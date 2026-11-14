@@ -162,6 +162,8 @@ def encode(row: dict, root: Path, processor, tools_list: list[dict] | None = Non
     import torch
 
     msgs, images = to_template(row, root)
+    if row.get("tools") is not None:     # rollout rows sampled with another tool list (e.g. scandoc's) carry it
+        tools_list = row["tools"]
     text = processor.apply_chat_template(msgs, tools=tools_list if tools_list is not None else tools(),
                                          tokenize=False, add_generation_prompt=False)
     enc = processor(text=[text], images=images or None, return_tensors="pt")

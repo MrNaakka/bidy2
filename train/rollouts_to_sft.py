@@ -216,9 +216,14 @@ def expected_system_prompt(date: str, model: str | None) -> str:
     return s
 
 
-def check_format(msgs: list[dict], tools: list[dict], require_submit: bool = True, model: str | None = None) -> str:
+def same_tool_names(a: list[dict], b: list[dict]) -> bool:
+    return [t.get("function", {}).get("name") for t in a] == [t.get("function", {}).get("name") for t in b]
+
+
+def check_format(msgs: list[dict], tools: list[dict], require_submit: bool = True, model: str | None = None,
+                 tool_variants: bool = False) -> str:
     """Raise Reject unless msgs/tools have make_sft's exact shape; return the row's date."""
-    if tools != fhdata.tools():
+    if tools != fhdata.tools() and not (tool_variants and same_tool_names(tools, fhdata.tools())):
         raise Reject("tool list differs from the capture (OpenCode version or MCP server changed?)")
     if len(msgs) < 3 or msgs[0].get("role") != "system" or not isinstance(msgs[0].get("content"), str):
         raise Reject("no system prompt")
@@ -371,13 +376,13 @@ def assert_renders(row: dict, wire: list[dict], tools: list[dict], out: Path, pr
 
 
 def convert_trial(t: dict, run: Path, meta: dict, tasks: Path | None, require_submit: bool = True,
-                  check_calls: bool = True) -> dict:
+                  check_calls: bool = True, tool_variants: bool = False) -> dict:
     rdir = run / "requests" / trial_key(harbor_project(t["trial"]))
     if not (rdir / "log.jsonl").is_file():
         raise Reject(f"no request log ({rdir.relative_to(run)})")
     records = [json.loads(l) for l in (rdir / "log.jsonl").read_text().splitlines() if l.strip()]
     msgs, tools, final, info = conversation(records, rdir)
-    date = check_format(msgs, tools, require_submit, info["model"])
+    date = check_format(msgs, tools, require_submit, info["model"], tool_variants)
     if tasks is not None:
         inst = tasks / t["item_id"] / "instruction.md"
         if not inst.is_file():

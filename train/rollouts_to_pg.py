@@ -201,7 +201,10 @@ def main(argv=None) -> int:
             try:
                 if keys[(run, r2s.trial_key(r2s.harbor_project(t["trial"])))] > 1:
                     raise r2s.Reject("two trials map to the same request log (trial names differ only in case)")
-                c = r2s.convert_trial(t, run, meta, a.tasks, require_submit=False, check_calls=not a.no_call_check)
+                # the same tools with other descriptions are allowed (scandoc's MCP server describes PDF pages);
+                # such a row stores the tool list it was sampled with and is rendered with it
+                c = r2s.convert_trial(t, run, meta, a.tasks, require_submit=False, check_calls=not a.no_call_check,
+                                      tool_variants=True)
                 row_id = f"{run.name}__{t['trial']}"
                 body, pngs = r2s.make_row(row_id, c["wire"], tmp)
                 row = {"id": row_id, "item_id": item_id, "kind": kind, "split": "train", "answer": c["answer"],
@@ -210,6 +213,8 @@ def main(argv=None) -> int:
                        "pixels_used": c["pixels_used"], "budget": c["budget"], "n_calls": len(c["tools_used"]),
                        "n_images": len(pngs), "tools_used": c["tools_used"], "date": c["date"],
                        "provenance": c["provenance"], "messages": body["messages"]}
+                if c["tools"] != fhdata.tools():
+                    row["tools"] = c["tools"]
                 if a.behavior:
                     beh, versions = behavior(c["records"], c["wire"])
                     if not versions:
