@@ -52,9 +52,18 @@ run: |
   mark() { echo "$1 $(date +%s)" >> "$ST/timings.txt"; }
   mark job_start
   # Hard limit for the whole job: a hung step must not keep the box from going idle (autodown).
-  ( trap '' TERM; sleep $(( MAX_RUN_HOURS * 3600 )); echo "MAX_RUN_HOURS reached; stopping the job" >&2
-    pkill -TERM -P $$; kill -TERM $$; sleep 120; pkill -KILL -P $$; kill -KILL $$ ) &
+  # (SkyPilot keeps the job RUNNING while any process holds its output, so nothing may outlive the script.)
+  stop_job() {  # signal every child of the job shell except this killer, then the shell itself
+    for p in $(pgrep -P $$); do [ "$p" = "$BASHPID" ] || kill "-$1" "$p" 2>/dev/null; done
+    kill "-$1" $$ 2>/dev/null
+  }
+  limit() { sleep $(( MAX_RUN_HOURS * 3600 )); echo "MAX_RUN_HOURS reached; stopping the job" >&2
+            stop_job TERM; sleep 120; stop_job KILL; }
+  limit &
   killer=$!
+  vllm_pid=; socat_pid=
+  cleanup() { kill $vllm_pid $socat_pid 2>/dev/null; pkill -P $killer 2>/dev/null; kill $killer 2>/dev/null; true; }
+  trap cleanup EXIT
   # The key goes to curl in a private header file, never on a command line.
   ( umask 077; printf 'Authorization: Bearer %s\n' "$QWEN_API_KEY" > "$FH/auth.hdr" )
 
@@ -106,7 +115,6 @@ run: |
   # Trial containers reach vLLM through the Docker bridge only (http://172.17.0.1:18000/v1).
   socat TCP-LISTEN:18000,bind=172.17.0.1,fork,reuseaddr TCP:127.0.0.1:8000 &
   socat_pid=$!
-  trap 'kill $vllm_pid $socat_pid $killer 2>/dev/null || true' EXIT
   python3 - "$model" "${args[@]}" > "$ST/box.json" <<'PY'
   import json, os, socket, subprocess, sys
   gpu = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader"],
