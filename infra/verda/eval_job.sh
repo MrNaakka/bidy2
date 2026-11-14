@@ -85,13 +85,22 @@ if [ "$LORA" = 1 ]; then
 fi
 pkill -f '[v]llm serve' || true
 pkill -f '[s]ocat TCP-LISTEN:18000' || true
+pkill -f '[l]og_relay.py --listen' || true
 export VLLM_API_KEY="$QWEN_API_KEY" HF_HUB_OFFLINE=1 VLLM_NO_USAGE_STATS=1 VLLM_USE_FLASHINFER_SAMPLER=0
 export CUDA_HOME=/usr/local/cuda PATH="$VENV/bin:/usr/local/cuda/bin:$PATH"
 export VLLM_CACHE_ROOT=$DATA/cache/vllm TRITON_CACHE_DIR=$DATA/cache/triton FLASHINFER_WORKSPACE_BASE=$DATA/cache/flashinfer
 vllm serve "$model" "${args[@]}" > "$ST/vllm.log" 2>&1 &
 vllm_pid=$!
 # Trial containers reach vLLM through the Docker bridge only (http://172.17.0.1:18000/v1).
-socat TCP-LISTEN:18000,bind=172.17.0.1,fork,reuseaddr TCP:127.0.0.1:8000 &
+if [ "${LOG_REQUESTS:-0}" = 1 ]; then
+  # opt-in (fh eval-up --log-requests): the same relay, plus every chat request and its reassembled
+  # response per trial in ~/fh/requests/$JOB (fh eval-fetch copies it to runs/$JOB/requests/)
+  rm -rf "$FH/requests/$JOB"
+  python3 "$IN/log_relay.py" --listen 172.17.0.1:18000 --upstream 127.0.0.1:8000 \
+    --log-dir "$FH/requests/$JOB" 2> "$ST/log_relay.log" &
+else
+  socat TCP-LISTEN:18000,bind=172.17.0.1,fork,reuseaddr TCP:127.0.0.1:8000 &
+fi
 socat_pid=$!
 python3 - "$model" "${args[@]}" > "$ST/box.json" <<'PY'
 import json, os, socket, subprocess, sys

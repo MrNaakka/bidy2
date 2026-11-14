@@ -57,7 +57,7 @@ TRAIN_CODE_FILES = ("sft_lora.py", "fhdata.py", "requirements.txt", "requirement
 TRAIN_REQ_FILES = ("requirements.txt", "requirements-gpu.txt")
 TRAINER_EXTRA_FLAGS = {"--warmup-frac", "--max-grad-norm", "--weight-decay", "--lora-alpha", "--lora-dropout",
                        "--quant", "--attn", "--max-len", "--loss-chunk", "--eval-frac", "--keep", "--seed",
-                       "--max-steps", "--limit", "--no-grad-ckpt", "--lora-r"}
+                       "--max-steps", "--limit", "--no-grad-ckpt", "--lora-r", "--init-adapter"}
 JOB_ACTIVE = {"INIT", "PENDING", "SETTING_UP", "RUNNING"}
 
 
@@ -671,6 +671,7 @@ def cmd_harbor_agent(args) -> None:
 # ---- parallel evals: one Harbor run per box (eval.yaml) ---------------------------------------------
 EVAL_YAML = HERE / "eval.yaml"
 EVAL_JOB = HERE / "eval_job.sh"     # the job eval.yaml runs (part of the comparability hash)
+LOG_RELAY = HERE / "log_relay.py"   # --log-requests: the relay that logs every chat request per trial
 EVAL_STATE_PATH = HERE / ".fh-eval.json"
 EVAL_LOCK_PATH = HERE / ".fh-eval.lock"
 RUNS_DIR = ROOT / "runs"
@@ -764,6 +765,8 @@ def eval_definition(a) -> dict:
     res, envs = eval_yaml_resources(), eval_yaml_envs()
     served = LORA_NAME if lora else SERVED_NAME
     agent_cfg = {"agents": [harbor_agent_entry(EVAL_RELAY_URL, served, OPENCODE_VERSION)]}
+    # Only present when on, so the definition (and comparability) of a default eval stays as it was.
+    logging = {"log_requests": True, "log_relay_sha": sha_files([LOG_RELAY])} if getattr(a, "log_requests", False) else {}
     return {
         "agent_cfg": agent_cfg,
         "agent_cfg_sha": hashlib.sha256(json.dumps(agent_cfg, sort_keys=True).encode()).hexdigest()[:16],
@@ -781,12 +784,14 @@ def eval_definition(a) -> dict:
         # where the weights live: "volume" (box i mounts fh-eval-<i>, in volume_location) or "disk" (each box
         # downloads to its boot disk, any region). Recorded, not part of the comparability check.
         "weights_on": a.weights_on, "volume_location": a.volume_location if a.weights_on == "volume" else None,
+        **logging,
     }
 
 
 COMPARABLE_KEYS = ("tasks_sha", "lora_sha", "served_name", "agent_cfg_sha", "instance_type", "use_spot", "disk_size", "n_concurrent",
                    "max_run_hours",
-                   "model_repo", "model_rev", "vllm_version", "harbor_version", "opencode_version", "eval_yaml_sha")
+                   "model_repo", "model_rev", "vllm_version", "harbor_version", "opencode_version", "eval_yaml_sha",
+                   "log_requests", "log_relay_sha")
 
 
 def stage_eval(defn: dict, attempt: str = "") -> Path:
@@ -818,6 +823,10 @@ def stage_eval(defn: dict, attempt: str = "") -> Path:
     (dest / "cfg.json").write_text(json.dumps(cfg, indent=1) + "\n")
     shutil.copy2(HERE / "verify_weights.py", dest / "verify_weights.py")
     shutil.copy2(EVAL_JOB, dest / "eval_job.sh")
+    if defn.get("log_requests"):
+        shutil.copy2(LOG_RELAY, dest / "log_relay.py")
+        if sha_files([dest / "log_relay.py"]) != defn["log_relay_sha"]:
+            raise SystemExit(f"{LOG_RELAY} changed since the fleet was defined; try again")
     (dest / "meta.json").write_text(json.dumps(defn, indent=1) + "\n")
     (dest / ".skyignore").write_text("")   # sync everything (tasks/ is git-ignored in the repo)
     return dest
@@ -840,6 +849,8 @@ def eval_launch_args(defn: dict, stage: Path, i: int) -> list[str]:
     envs = {"JOB": job, "STAGE": str(stage), "N_CONCURRENT": str(defn["n_concurrent"]),
             "LORA": "1" if defn["lora_dir"] else "0", "MODEL_REPO": defn["model_repo"],
             "MODEL_REV": defn["model_rev"], "MAX_RUN_HOURS": str(defn["max_run_hours"])}
+    if defn.get("log_requests"):
+        envs["LOG_REQUESTS"] = "1"
     task = EVAL_YAML
     extra = []
     if defn.get("weights_on") == "volume":   # box i mounts fh-eval-<i>, so it must start where the volume is
@@ -1169,10 +1180,15 @@ def fetch_eval(fleet: dict, box: dict, job_status: str | None) -> Path:
     dest.mkdir(parents=True, exist_ok=True)
     rsh = shlex.join(ssh_base(box["cluster"]))
     remote_dir = f"fh/runs/{box['job']}"
+    logged = bool(fleet["meta"].get("log_requests"))
     # mkdir: a job that failed before Harbor started has no run dir, and we still want its status files
-    subprocess.run(["rsync", "-a", "--delete", "--exclude", "fh-status/", "-e", rsh,
-                    f"--rsync-path=mkdir -p {remote_dir} && rsync", f"{box['cluster']}:{remote_dir}/", f"{dest}/"],
-                   check=True, timeout=FETCH_TIMEOUT_S)
+    subprocess.run(["rsync", "-a", "--delete", "--exclude", "fh-status/", *(["--exclude", "requests/"] if logged else []),
+                    "-e", rsh, f"--rsync-path=mkdir -p {remote_dir} && rsync", f"{box['cluster']}:{remote_dir}/",
+                    f"{dest}/"], check=True, timeout=FETCH_TIMEOUT_S)
+    if logged:   # the relay's per-trial request logs (--log-requests), kept on the box in ~/fh/requests/<job>
+        req_dir = f"fh/requests/{box['job']}"
+        subprocess.run(["rsync", "-a", "--delete", "-e", rsh, f"--rsync-path=mkdir -p {req_dir} && rsync",
+                        f"{box['cluster']}:{req_dir}/", f"{dest}/requests/"], check=True, timeout=FETCH_TIMEOUT_S)
     subprocess.run(["rsync", "-a", "--delete", "-e", rsh, f"{box['cluster']}:fh/status/", f"{dest}/fh-status/"],
                    check=True, timeout=FETCH_TIMEOUT_S)
     boxinfo = {}
@@ -1366,6 +1382,9 @@ def add_eval_parsers(sub) -> None:
     s.add_argument("--max-usd", type=float, default=60, help="cost cap for the whole fleet (eval-wait enforces it)")
     s.add_argument("--max-run-hours", type=int, default=4, help="hard limit per box job")
     s.add_argument("--new", action="store_true", help="replace an existing fleet with a different definition")
+    s.add_argument("--log-requests", action="store_true",
+                   help="log every chat request and response per trial on the box (log_relay.py instead of socat); "
+                        "eval-fetch copies them to runs/<job>/requests/ (expert iteration: train/rollouts_to_sft.py)")
     s.add_argument("--resume", action="store_true",
                    help="run the job again on existing boxes (interrupted eval-up, failed job) instead of refusing")
     s.set_defaults(fn=cmd_eval_up)

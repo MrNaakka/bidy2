@@ -11,7 +11,9 @@ tooling are the ones an RL stage (rejection sampling / GRPO on our binary reward
 | `fhdata.py` | The SFT row format (= OpenCode's request body) and its conversion to Qwen tokens with assistant-only labels. Shared by every script below. |
 | `make_sft.py` | Generates conversations on the TRAIN split with a varied teacher policy; keeps only correct ones. |
 | `token_stats.py` | Token counts per conversation with the real Qwen3.8 processor (tokenizer files only). |
-| `sft_lora.py` | LoRA SFT, checkpoint every N steps, automatic resume. |
+| `sft_lora.py` | LoRA SFT, checkpoint every N steps, automatic resume; `--init-adapter` continues from a trained adapter. |
+| `rollouts_to_sft.py` | Expert iteration: rewarded fleet rollouts (logged by `infra/verda/log_relay.py`) -> rows in `make_sft.py`'s format. |
+| `merge_sft.py` | Merges data dirs (teacher + rollouts) into one for `sft_lora.py` / `fh train-up`. |
 | `make_tiny_model.py` | Tiny random-weight `Qwen3_5ForConditionalGeneration` for CPU validation. |
 | `requirements.txt`, `requirements-gpu.txt` | Pinned training stack (transformers >= 5.8.0 is required for `qwen3_5`). |
 
@@ -262,3 +264,81 @@ appended exactly as `make_sft.Episode` does), score with `env.result()["reward"]
 reward the verifier uses), and either keep the correct rollouts as new SFT rows (rejection sampling
 / expert iteration, reusing `sft_lora.py` unchanged) or feed reward-weighted sequences to a policy
 gradient trainer. `fhdata.encode` already gives the assistant-token mask a policy-gradient loss needs.
+
+## Expert iteration (optional; not run yet)
+
+Reward-filtered on-policy fine-tuning: the SFT adapter plays fresh TRAIN items on the eval fleet, the
+verifier's reward picks the trajectories it solved, and those become SFT rows (same format as
+`make_sft.py`'s, so the same trainer and chat template apply) that are mixed with the teacher data for a
+second LoRA round that starts from the SFT adapter. Nothing here changes a default command: logging is off
+unless `--log-requests` is given, and `--split train` / `--init-adapter` are new options.
+
+```bash
+# 1. TRAIN-split tasks: items 301-340 of each EVAL kind (make_sft.py used 1-300), TRAIN salt, never EVAL/DEV
+uv run python scripts/build_tasks.py --split train --per-kind 40 --offset 300 --out tasks/train-ei
+# 2. rollouts with the SFT adapter, every chat request logged per trial (2 boxes = 2 attempts per item)
+infra/verda/fh eval-up --tasks tasks/train-ei --lora train/out/sft-v1 --label sft --runs 2 -n 15 \
+    --log-requests --max-usd 30
+infra/verda/fh eval-wait --fleet train-ei-sft     # fetches runs/fh-train-ei-sft-run{1,2}/ incl. requests/
+# 3. reward-1 trajectories -> SFT rows (add --processor <Qwen3.8 dir> under train/.venv to also compare
+#    the chat-template text)
+uv run python train/rollouts_to_sft.py --out train/data/ei-1 --tasks tasks/train-ei \
+    runs/fh-train-ei-sft-run1 runs/fh-train-ei-sft-run2
+# 4. mix with the teacher data
+uv run python train/merge_sft.py --out train/data/ei-1-mix train/data/sft-v1 train/data/ei-1
+# 5. continue training from the SFT adapter (published on the volume by train-up as /mnt/fh/adapters/sft-v1)
+infra/verda/fh train-up --run ei-1 --data train/data/ei-1-mix --epochs 1 --lr 5e-5 \
+    --trainer-arg=--init-adapter=/mnt/fh/adapters/sft-v1
+infra/verda/fh train-ensure                       # until done; the adapter lands in train/out/ei-1
+# 6. evaluate like any adapter
+infra/verda/fh eval-up --tasks tasks/eval --lora train/out/ei-1 --label qwen-ei --runs 3 -n 10
+infra/verda/fh eval-wait --fleet eval-qwen-ei
+```
+
+**Logging relay** (`infra/verda/log_relay.py`, stdlib only). With `LOG_REQUESTS=1` (set by
+`eval-up --log-requests`) `eval_job.sh` runs it on `172.17.0.1:18000` instead of socat. Request bodies and
+response bytes pass through unchanged (SSE streamed chunk by chunk, one thread per connection); after each
+chat completion it appends the request and the response reassembled from the stream (content, reasoning,
+tool calls, finish reason, usage) to `~/fh/requests/<job>/<trial>/log.jsonl`. Images are stored once per
+trial under `blobs/<sha256>` and the tool list under `tools/` (lossless; the converter restores the exact
+request). The Authorization header is never logged. OpenCode sends no trial id, so the relay maps the client
+IP to its container with `docker inspect` and takes the Compose project, which Harbor names
+`<trial_name>__env`; lookups are cached per (IP, OpenCode session), so a new trial on a reused IP is looked
+up again. `eval-fetch` copies the logs to `runs/<job>/requests/`. The flag is part of the fleet definition.
+
+**Converter checks** (`rollouts_to_sft.py`; a failing trial goes to `rejected.jsonl` with the reason):
+only TRAIN item ids (an EVAL/DEV/unknown item anywhere in the inputs aborts before writing); reward 1;
+one OpenCode session with tools; every request a prefix of the last one, and every logged response equal to
+the assistant turn OpenCode sent back next; the MCP server's call log (`verifier/calls.jsonl`) is an
+in-order subsequence of the conversation's `framehunt_*` calls with the same arguments (a log can't be
+pinned on the wrong trial); OpenCode's captured system prompt and 17 tools exactly; exactly one tool call
+per assistant turn; a submit. The row is the last request plus its response as the final assistant turn,
+images saved as the exact PNG bytes, and `to_wire(row)` must equal the logged request, `to_template` must
+give the same messages and pixels (and with `--processor` the same template text). Rows carry
+`provenance` (run, trial, model, reward, session, adapter hash). Identical trajectories are dropped and the
+cheapest `--max-per-item` (default 1: fewest pixels, then fewest calls) are kept, so easy items don't
+dominate.
+
+**Mixing and init.** `merge_sft.py` concatenates data dirs (unique row ids, identical `tools.json`,
+images hard-linked) and tags rows with `data_source`. `sft_lora.py --init-adapter DIR` loads a trained
+adapter's LoRA weights before step 0 (rank and alpha must match; every LoRA tensor must load); optimizer
+and schedule start fresh, and a resumed run uses its own checkpoint. `fh train-up` allows the flag via
+`--trainer-arg`. CPU check: one step at LR 1e-30 from `train/out/cpu-a/final` saved a checkpoint
+bit-identical to it; a rank mismatch is refused.
+
+Cost and time (estimates, not measured): rollouts are an eval fleet on other tasks. Per box ~30-40 min
+setup (weights, vLLM) plus 120 trials at `-n 15` (8 waves of up to 30 min; ~1.5-2.5 h), so ~2-3 h and
+~EUR 5-8 per spot H100 box; 2 boxes ~EUR 10-16. Yield is the adapter's solve rate on TRAIN items (at 30 %,
+~70 trajectories from 240 attempts, ~50-60 items after one-per-item). Training on ~950-1000 rows x 1 epoch
+is ~2-2.7 h on one H100 (~EUR 5-7); the eval is the usual 3-box fleet (~1.5-2 h, ~EUR 10-15). End to end
+~6-8 h wall clock and ~EUR 25-40.
+
+Tests (`tests/test_expert_iteration.py`, all local and mocked): byte-identical forwarding of a 2 MB
+body and of the SSE stream, live streaming (the client sees the first event while the upstream is still
+generating), 15 concurrent trials, the key never logged, per-session trial lookup; rollouts played through
+the real relay against a fake vLLM and converted (row equals the logged request, exact PNGs, a trial whose
+server log disagrees is rejected, dedupe and one-per-item, `--tasks` instruction check); the split guard;
+format rejections; merge; `--split train` task building; `--log-requests` staying opt-in. With
+`FH_CAPTURE_REQUESTS=train/capture/requests` a captured OpenCode request round-trips too (also checked with
+the Qwen processor: identical template text, and the same 35k-character system+tools prefix as a
+`make_sft.py` row).
