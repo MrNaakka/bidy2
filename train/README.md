@@ -419,3 +419,17 @@ Operational notes from the first run (2026-11-14):
   changed without killing trials (`rebalance.sh` used it to move from 4+4 to 6 inference + 2 trainer
   GPUs). Never move a group out of `queue/` by hand while the trainer may be using it.
 * Rows over 18432 tokens are skipped (OOM on the 27B at ~24k with the reference Gated DeltaNet kernels).
+
+### Results (2026-11-14/15; 30 scored EVAL items = logstream + dialogs + scandoc, 3 runs each)
+
+| adapter | run1 | run2 | run3 | mean |
+| --- | --- | --- | --- | --- |
+| SFT v3 (start of RL) | 0.533 | 0.467 | 0.567 | 0.522 |
+| sync GRPO it2 (2 iterations x 40 items x G=8) | 0.700 | 0.633 | 0.633 | 0.656 |
+| async run1 v15 (it2 + 15 updates of ~4 groups) | 0.600 | 0.667 | 0.567 | 0.611 |
+| async run2 v10 (it2 + 10 updates of 12 groups) | 0.733 | 0.600 | 0.633 | 0.656 |
+
+Training reward (mean over all counted rollouts of fresh TRAIN items): sync it1 0.652, it2 0.701.
+Async updates: clip fraction 0.001-0.004, k3 KL(behaviour || current) <= 0.002, behaviour log-probs
+matched to the trainer's tokens for >= 99.99% of tokens, staleness 0-2.
+Raw runs, adapters and curves: ~/.local/state/fh/box-runs and box-adapters on the coordinator host.
