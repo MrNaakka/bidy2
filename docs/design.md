@@ -207,13 +207,16 @@ keeps the look-alike neighbours and makes them different functions.
    and no `//` (floor division). Anything else scores 0 without being parsed.
 2. `parse_expr` with explicit dicts (only `x` and sympy's number classes); decimals
    become exact rationals.
-3. Answer and truth are each written as one fraction, An/Ad and Tn/Td, and
+3. It must be a rational function of x: every power has an integer exponent (no
+   `(x**2)**(1/2)`, no `2**(1/2)`) and nothing divides by zero.
+4. Answer and truth are each written as one fraction, An/Ad and Tn/Td, and
    An·Td = Tn·Ad must hold exactly at 10 random rational points (SystemRandom,
-   numerators and denominators up to 10^6; within 1e-30 at 50 digits if a value is
-   irrational). Cross-multiplying keeps an equivalent form with a removable singularity
-   (`x/x`) from failing. `simplify(a - b) == 0` is not used: it is incomplete, and
-   agent input can make it run for ever.
-4. Parsing and evaluation run in a child process with a 10 s timeout and a 2 GB memory
+   numerators and denominators up to 10^6) where neither denominator is zero. A nonzero
+   polynomial has finitely many roots, so a wrong answer passes with negligible
+   probability, and skipping the denominators' roots keeps an equivalent form with a
+   removable singularity (`x/x`) from failing. `simplify(a - b) == 0` is not used: it
+   is incomplete, and agent input can make it run for ever.
+5. Parsing and evaluation run in a child process with a 10 s timeout and a 2 GB memory
    cap, so `9**9**9**9` scores 0 instead of hanging the server.
 
 The sidecar computes `correct` with this check at submit time (`Scene.check_answer`).

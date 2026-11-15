@@ -22,6 +22,7 @@ TRUTH = "(7*x**3 - 12*x**2 + 4)/(x**5 - 9)"
     "7*x**3/(x**5 - 9) - (12*x**2 - 4)/(x**5 - 9)",
     "(7.0*x**3 - 12*x**2 + 4)/(x**5 - 9)",
     "(7*x**4 - 12*x**3 + 4*x)/(x*(x**5 - 9))",  # removable singularity at 0
+    "(7*x**4 - 19*x**3 + 12*x**2 + 4*x - 4)/(x**6 - x**5 - 9*x + 9)",  # times (x-1)/(x-1)
 ])
 def test_equivalent_forms_pass(answer):
     assert check(answer, TRUTH)
@@ -37,6 +38,9 @@ def test_equivalent_forms_pass(answer):
     "9**9**9**9",                              # would not finish: killed by the timeout
     "(1, 2)",
     f"{TRUTH} + (x + 60)//121",               # floor term: zero on a bounded range only
+    f"{TRUTH} + ((x + 1000001)**2)**(1/2) - (x + 1000001)",   # zero for x > -1000001 only
+    f"{TRUTH} + 2**(1/2)/10**40",             # tiny irrational offset
+    f"{TRUTH} + 1/0",
 ])
 def test_wrong_and_hostile_answers_fail(answer):
     assert not check(answer, TRUTH)
