@@ -45,7 +45,9 @@ Charts and tables: [docs/results/](../docs/results/tables.md).
 | `fhdata.py` | The SFT row format (= OpenCode's request body) and its conversion to Qwen tokens with assistant-only labels. Shared by every script below. |
 | `make_sft.py` | Generates conversations on the TRAIN split with a varied teacher policy; keeps only correct ones. |
 | `token_stats.py` | Token counts per conversation with the real Qwen3.8 processor (tokenizer files only). |
-| `sft_lora.py` | LoRA SFT, checkpoint every N steps, automatic resume. |
+| `sft_lora.py` | LoRA SFT, checkpoint every N steps, automatic resume; `--init-adapter` continues from a trained adapter. |
+| `rollouts_to_sft.py` | Expert iteration: rewarded fleet rollouts (logged by `infra/verda/log_relay.py`) -> rows in `make_sft.py`'s format. |
+| `merge_sft.py` | Merges data dirs (teacher + rollouts) into one for `sft_lora.py` / `fh train-up`. |
 | `make_tiny_model.py` | Tiny random-weight `Qwen3_5ForConditionalGeneration` for CPU validation. |
 | `requirements.txt`, `requirements-gpu.txt` | Pinned training stack (transformers >= 5.8.0 is required for `qwen3_5`). |
 
@@ -230,6 +232,30 @@ that step and continues.
 - SIGTERM checkpoints at the next optimizer step and exits 143.
 - A changed argument in the same `--out` is refused.
 
+### Several GPUs on one box (data parallel)
+
+Each H100 holds a full replica (~70 GB peak), so
+`torchrun` splits every optimizer step's `--grad-accum` conversations across the GPUs:
+
+```bash
+torchrun --standalone --nproc_per_node=4 train/sft_lora.py --model /mnt/fh/models/Qwen3.8-27B \
+    --data /mnt/fh/data/sft-v2 --out /mnt/fh/runs/sft-v2 <the run's other arguments, unchanged>
+# continue a checkpoint written elsewhere (e.g. by the single-GPU run) in a fresh --out:
+torchrun --standalone --nproc_per_node=4 train/sft_lora.py ... --out /mnt/fh/runs/sft-v2-dp \
+    --resume-from /path/to/sft-v2/ckpt-000020
+```
+
+Same optimization as one GPU with the same arguments: step s still trains global micro indices
+`[s*accum, (s+1)*accum)` of the same per-epoch shuffle, rank r takes every K-th of them (accum need not
+divide by K), the step's trained-token total is all-reduced before backward so the token-weighted loss
+normalisation is unchanged, and the LoRA grads are summed with one all_reduce before clipping and AdamW.
+Checkpoints keep only the global step/micro, so they resume on any K, including single-GPU
+checkpoints (`--resume-from` checks the source run's `args.json` for the arguments that fix data order
+and schedule). Rank 0 writes logs and checkpoints; eval is sharded. Only the LoRA dropout masks differ
+(per-rank RNG). `tests/test_sft_ddp.py` checks 2 gloo processes against 1 on the tiny model: same loss,
+grad norm and trained tokens per step, same eval loss and adapter, and a single-process checkpoint
+resumed on 2 ranks ends at the same adapter.
+
 ### Time and cost estimate
 
 Assumptions: H100 80 GB SXM, 12.9M tokens per epoch. With LoRA and recompute, training costs
@@ -330,3 +356,158 @@ Rows are complete OpenCode requests, so the same pieces serve an RL loop:
    trainer.
 
 `fhdata.encode` already gives the assistant-token mask a policy-gradient loss needs.
+
+## Expert iteration (optional; not run yet)
+
+Reward-filtered on-policy fine-tuning: the SFT adapter plays fresh TRAIN items on the eval fleet, the
+verifier's reward picks the trajectories it solved, and those become SFT rows (same format as
+`make_sft.py`'s, so the same trainer and chat template apply) that are mixed with the teacher data for a
+second LoRA round that starts from the SFT adapter. Nothing here changes a default command: logging is off
+unless `--log-requests` is given, and `--split train` / `--init-adapter` are new options.
+
+```bash
+# 1. TRAIN-split tasks: items 301-340 of each EVAL kind (make_sft.py used 1-300), TRAIN salt, never EVAL/DEV
+uv run python scripts/build_tasks.py --split train --per-kind 40 --offset 300 --out tasks/train-ei
+# 2. rollouts with the SFT adapter, every chat request logged per trial (2 boxes = 2 attempts per item)
+infra/verda/fh eval-up --tasks tasks/train-ei --lora train/out/sft-v1 --label sft --runs 2 -n 15 \
+    --log-requests --max-usd 30
+infra/verda/fh eval-wait --fleet train-ei-sft     # fetches runs/fh-train-ei-sft-run{1,2}/ incl. requests/
+# 3. reward-1 trajectories -> SFT rows (add --processor <Qwen3.8 dir> under train/.venv to also compare
+#    the chat-template text)
+uv run python train/rollouts_to_sft.py --out train/data/ei-1 --tasks tasks/train-ei \
+    runs/fh-train-ei-sft-run1 runs/fh-train-ei-sft-run2
+# 4. mix with the teacher data
+uv run python train/merge_sft.py --out train/data/ei-1-mix train/data/sft-v1 train/data/ei-1
+# 5. continue training from the SFT adapter (published on the volume by train-up as /mnt/fh/adapters/sft-v1)
+infra/verda/fh train-up --run ei-1 --data train/data/ei-1-mix --epochs 1 --lr 5e-5 \
+    --trainer-arg=--init-adapter=/mnt/fh/adapters/sft-v1
+infra/verda/fh train-ensure                       # until done; the adapter lands in train/out/ei-1
+# 6. evaluate like any adapter
+infra/verda/fh eval-up --tasks tasks/eval --lora train/out/ei-1 --label qwen-ei --runs 3 -n 10
+infra/verda/fh eval-wait --fleet eval-qwen-ei
+```
+
+**Logging relay** (`infra/verda/log_relay.py`, stdlib only). With `LOG_REQUESTS=1` (set by
+`eval-up --log-requests`) `eval_job.sh` runs it on `172.17.0.1:18000` instead of socat. Request bodies and
+response bytes pass through unchanged (SSE streamed chunk by chunk, one thread per connection); after each
+chat completion it appends the request and the response reassembled from the stream (content, reasoning,
+tool calls, finish reason, usage) to `~/fh/requests/<job>/<trial>/log.jsonl`. Images are stored once per
+trial under `blobs/<sha256>` and the tool list under `tools/` (lossless; the converter restores the exact
+request). The Authorization header is never logged. OpenCode sends no trial id, so the relay maps the client
+IP to its container with `docker inspect` and takes the Compose project, which Harbor names
+`<trial_name>__env`; lookups are cached per (IP, OpenCode session), so a new trial on a reused IP is looked
+up again. `eval-fetch` copies the logs to `runs/<job>/requests/`. The flag is part of the fleet definition.
+
+**Converter checks** (`rollouts_to_sft.py`; a failing trial goes to `rejected.jsonl` with the reason):
+only TRAIN item ids (an EVAL/DEV/unknown item anywhere in the inputs aborts before writing); reward 1;
+one OpenCode session with tools; every request a prefix of the last one, and every logged response equal to
+the assistant turn OpenCode sent back next; the MCP server's call log (`verifier/calls.jsonl`) is an
+in-order subsequence of the conversation's `framehunt_*` calls with the same arguments (a log can't be
+pinned on the wrong trial); OpenCode's captured system prompt and 17 tools exactly; exactly one tool call
+per assistant turn; a submit. The row is the last request plus its response as the final assistant turn,
+images saved as the exact PNG bytes, and `to_wire(row)` must equal the logged request, `to_template` must
+give the same messages and pixels (and with `--processor` the same template text). Rows carry
+`provenance` (run, trial, model, reward, session, adapter hash). Identical trajectories are dropped and the
+cheapest `--max-per-item` (default 1: fewest pixels, then fewest calls) are kept, so easy items don't
+dominate.
+
+**Mixing and init.** `merge_sft.py` concatenates data dirs (unique row ids, identical `tools.json`,
+images hard-linked) and tags rows with `data_source`. `sft_lora.py --init-adapter DIR` loads a trained
+adapter's LoRA weights before step 0 (rank and alpha must match; every LoRA tensor must load); optimizer
+and schedule start fresh, and a resumed run uses its own checkpoint. `fh train-up` allows the flag via
+`--trainer-arg`. CPU check: one step at LR 1e-30 from `train/out/cpu-a/final` saved a checkpoint
+bit-identical to it; a rank mismatch is refused.
+
+Cost and time (estimates, not measured): rollouts are an eval fleet on other tasks. Per box ~30-40 min
+setup (weights, vLLM) plus 120 trials at `-n 15` (8 waves of up to 30 min; ~1.5-2.5 h), so ~2-3 h and
+~EUR 5-8 per spot H100 box; 2 boxes ~EUR 10-16. Yield is the adapter's solve rate on TRAIN items (at 30 %,
+~70 trajectories from 240 attempts, ~50-60 items after one-per-item). Training on ~950-1000 rows x 1 epoch
+is ~2-2.7 h on one H100 (~EUR 5-7); the eval is the usual 3-box fleet (~1.5-2 h, ~EUR 10-15). End to end
+~6-8 h wall clock and ~EUR 25-40.
+
+Tests (`tests/test_expert_iteration.py`, all local and mocked): byte-identical forwarding of a 2 MB
+body and of the SSE stream, live streaming (the client sees the first event while the upstream is still
+generating), 15 concurrent trials, the key never logged, per-session trial lookup; rollouts played through
+the real relay against a fake vLLM and converted (row equals the logged request, exact PNGs, a trial whose
+server log disagrees is rejected, dedupe and one-per-item, `--tasks` instruction check); the split guard;
+format rejections; merge; `--split train` task building; `--log-requests` staying opt-in. With
+`FH_CAPTURE_REQUESTS=train/capture/requests` a captured OpenCode request round-trips too (also checked with
+the Qwen processor: identical template text, and the same 35k-character system+tools prefix as a
+`make_sft.py` row).
+
+## GRPO (on-policy RL from the SFT adapter)
+
+A small GRPO-style stage on top of the v3 SFT adapter, run on the 8xH100 Verda box
+(`infra/verda/grpo/`). Each iteration:
+
+1. **Rollouts.** `serve.sh` serves the current adapter (vLLM 0.33, the eval fleet's flags, LoRA served
+   as `qwen3.8-27b-fh`) on every GPU behind `log_relay.py` (172.17.0.1:18100+g). 40 fresh TRAIN items
+   (10 per kind: logstream, dialogs, toasts, scandoc; iteration k uses items 301+10(k-1)..310+10(k-1),
+   `build_tasks.py --split train --per-kind 10 --offset 300+10(k-1)`; make_sft used 1-300) are dealt to
+   the GPUs; one Harbor job per GPU, `-k 8` attempts per item, the evals' agent config (OpenCode 1.19.5,
+   `cfg-ft-g*.json` with the relay's URL). Reward = `verifier/reward.txt`.
+2. **Advantages.** `rollouts_to_pg.py` turns EVERY rollout (not only the successes, and also runs that
+   never submit) into a row holding the exact logged conversation (the checks of `rollouts_to_sft.py`),
+   with `advantage = (r - mean_group) / (std_group + 1e-6)` over the item's G attempts (population std).
+   Groups with zero std are dropped; harness failures (setup/verifier errors) are left out of their
+   group, agent timeouts count as reward 0. `pg_stats.json` holds the mean reward per kind (the
+   training-reward curve) and the number of groups with signal.
+3. **Update.** `sft_lora.py --pg --init-adapter <current>`: loss = sum over rows of A * sum_t CE_t over
+   the assistant tokens, divided by the step's trained tokens (the SFT normalization with a signed row
+   weight), i.e. the REINFORCE/GRPO gradient with token-level averaging. One pass over the rows
+   (<= `STEPS` optimizer steps, every row once), constant LR, grad clip 1.0, LoRA dropout 0, torchrun
+   data parallel on 8 GPUs. No KL penalty, no importance ratio (each row is used once; later steps of
+   an iteration are slightly off-policy).
+
+```bash
+# on the box (code rsynced to /root/fh/grpo-code, tasks/grpo-it{1..4} built locally and copied)
+systemd-run --unit=fh-grpo-loop --setenv=ITERS=4 --setenv=DEADLINE=2026-11-15T01:30Z \
+    bash -c "/root/fh/grpo-code/infra/verda/grpo/loop.sh >> /root/fhdata/grpo/loop.log 2>&1"
+# one iteration by hand:
+ITER=1 INIT=/root/fhdata/runs/sft-v3/final TASKS=/root/fh/tasks/grpo-it1 infra/verda/grpo/iterate.sh
+```
+
+`loop.sh` evaluates the last adapter like every fine-tuned eval (`eval.sh`: GPUs 0-2, socat relays, 40
+EVAL items, 3 runs `fh-eval-qwen-grpo-run{1,2,3}`, `-n 15`). Per-iteration logs: `/root/fhdata/grpo/`
+(`times.txt`, `curve.jsonl`, `it<k>/{runs,data/pg_stats.json,train/loss.jsonl,train/final}`).
+Tests: `tests/test_grpo.py` (advantages, conversion of all rollouts, and on the tiny model: A>0 lowers
+the row's NLL, A<0 raises it, zero-advantage rows change nothing, 2-rank DDP equals one process).
+
+### Async GRPO (`infra/verda/grpo_async/`, `train/async_grpo.py`)
+
+The same objective without the synchronous rollout -> update barrier:
+
+* **Inference** (`serve.sh`): long-lived vLLMs (fleet flags + `VLLM_ALLOW_RUNTIME_LORA_UPDATING`,
+  `--max-loras 3`) serving the policy as `fh-v<N>`; a new version is hot-loaded with
+  `/v1/load_lora_adapter`, never a restart.
+* **Relay** (`log_relay.py --policy-file`): pins every trial to the version current at its first request,
+  rewrites `model` to it, adds `logprobs`/`return_tokens_as_token_ids`, and hands OpenCode the reply
+  with the log-probs removed and the public model name restored. The log keeps OpenCode's request plus
+  the behaviour log-prob of every generated token (checked against `usage.completion_tokens`;
+  `check_logprobs.py` confirms reasoning, content and tool-call tokens all get one under the qwen3
+  parsers).
+* **Scheduler** (`scheduler.py`): keeps ~24 trials per inference GPU in flight as one small Harbor job
+  per TRAIN item (`-k 8` = one group, 8 min agent timeout); a finished job is converted by
+  `rollouts_to_pg.py --behavior` and, with signal, queued for the trainer; every group is logged to
+  `events.jsonl`; new adapters are loaded into every vLLM before the policy switches; adapters are
+  unloaded only when no running job can be pinned to them.
+* **Trainer** (`async_grpo.py`, torchrun): takes 4-12 ready groups sampled by the last <= 2 versions,
+  PPO-clipped loss `-min(r A, clip(r, 0.8, 1.2) A)` with `r = exp(logp_theta - logp_behaviour)` per
+  assistant token (behaviour log-probs aligned to the trainer's tokens by id; unmatched tokens use ratio
+  1), token-normalized, one optimizer step, publishes `adapters/v<N+1>`. `metrics.jsonl`: reward per kind,
+  staleness histogram, clip fraction, k3 KL(behaviour || current), matched fraction, grad norm, samples/min.
+* `start.sh` starts it all as systemd units; `cutover.sh` switches from the sync loop at an iteration
+  boundary and runs the final evals. Pipeline test without a real policy: `make_tiny_model.py --vllm`
+  (133M random model with the real head dims, servable by vLLM) and `scheduler.py --synthetic` (coin
+  rewards).
+
+Operational notes from the first run (2026-11-14):
+* Trial startup, not the GPUs, limits rollouts. Every pool task has identical build contexts, so
+  `prebuilt_pool.py` points them at three images built once (task.toml `docker_image` for the agent and
+  verifier environments, `image:` for the fh-mcp sidecar); environment setup dropped from minutes to
+  ~15 s. With ~150 trial containers the box is CPU-bound (dockerd ~24 cores, OpenCode's npm install
+  step), so more in-flight trials do not help.
+* `scheduler.py --adopt` takes over a frozen (SIGSTOP) scheduler's Harbor jobs, so the scheduler can be
+  changed without killing trials (`rebalance.sh` used it to move from 4+4 to 6 inference + 2 trainer
+  GPUs). Never move a group out of `queue/` by hand while the trainer may be using it.
+* Rows over 18432 tokens are skipped (OOM on the 27B at ~24k with the reference Gated DeltaNet kernels).

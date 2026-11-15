@@ -25,6 +25,9 @@ def main() -> None:
     ap.add_argument("--src", type=Path, default=Path(__file__).resolve().parent / "hf" / "Qwen3.8-27B")
     ap.add_argument("--out", type=Path, default=Path(__file__).resolve().parent / "out" / "tiny-qwen3.8")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--vllm", action="store_true",
+                    help="a still small (~0.1B) variant vLLM 0.33 can serve: the real head dims (Gated DeltaNet "
+                         "kernels need 128, full attention 256), hidden 256; for GPU pipeline tests (async GRPO)")
     a = ap.parse_args()
 
     import torch
@@ -32,6 +35,7 @@ def main() -> None:
 
     cfg = json.loads((a.src / "config.json").read_text())
     t, v = cfg["text_config"], cfg["vision_config"]
+    REAL_MROPE = t["rope_parameters"]["mrope_section"]
     t.update({
         "hidden_size": 64, "intermediate_size": 128, "num_hidden_layers": 4,
         "layer_types": ["linear_attention", "linear_attention", "linear_attention", "full_attention"],
@@ -41,6 +45,12 @@ def main() -> None:
     })
     t["rope_parameters"] = dict(t["rope_parameters"], mrope_section=[2, 1, 1])   # sums to head_dim*0.25/2
     v.update({"depth": 2, "hidden_size": 32, "intermediate_size": 64, "num_heads": 2, "out_hidden_size": 64})
+    if a.vllm:
+        t.update({"hidden_size": 256, "intermediate_size": 512, "num_attention_heads": 4, "num_key_value_heads": 2,
+                  "head_dim": 256,
+                  "linear_key_head_dim": 128, "linear_value_head_dim": 128})
+        t["rope_parameters"] = dict(t["rope_parameters"], mrope_section=REAL_MROPE)
+        v.update({"hidden_size": 128, "intermediate_size": 256, "num_heads": 2, "out_hidden_size": 256})
     a.out.mkdir(parents=True, exist_ok=True)
     tmp = a.out / "config.json"
     tmp.write_text(json.dumps(cfg, indent=1))

@@ -2,6 +2,11 @@
 
     uv run python scripts/build_tasks.py --split eval [--out tasks/eval] [--budget 120000] [--only ID ...]
     uv run python scripts/build_tasks.py --split eval --v1     # the first EVAL set, into tasks/eval-v1
+    uv run python scripts/build_tasks.py --split train --per-kind 40 [--offset 300] [--kinds K ...] [--out DIR]
+
+`--split train` builds TRAIN items (framehunt.splits.train_items; scene seeds from the TRAIN split's own
+salt, secrets/train.salt) for on-policy rollouts (expert iteration, train/README.md): items
+offset+1..offset+per-kind of each kind, by default the kinds the EVAL split uses. Never evaluation items.
 
 Layout per item (follows step0/probe):
     task.toml                      MCP server `framehunt` at http://fh-mcp:8000/mcp
@@ -53,7 +58,7 @@ from framehunt.server import (
     MIN_SHEET_N,
     SHEET_SEPARATOR_PX,
 )
-from framehunt.splits import EVAL_V1, SPLITS, derive_seed, load_salt, salt_path
+from framehunt.splits import EVAL_V1, SPLITS, TRAIN_KINDS, TRAIN_MAX_PER_KIND, derive_seed, load_salt, salt_path, train_items
 
 # Pinned to uv.lock (Python 3.12 resolution).
 SIDECAR_PIP = ["mcp==1.30.0", "pillow==13.0.0", "numpy==2.5.4", "stretchable==1.1.8", "attrs==25.4.0"]
@@ -375,9 +380,23 @@ def build_item(out: Path, split: str, item_id: str, kind: str, seed: int, budget
     return d
 
 
+def train_subset(per_kind: int, offset: int, kinds: list[str]) -> list[tuple[str, str, int]]:
+    """TRAIN items offset+1..offset+per_kind of each kind in `kinds` (stable ids, see train_items)."""
+    if per_kind < 1 or offset < 0 or offset + per_kind > TRAIN_MAX_PER_KIND:
+        raise ValueError(f"need per_kind >= 1, offset >= 0, offset + per_kind <= {TRAIN_MAX_PER_KIND}")
+    out = []
+    for kind in kinds:
+        out += [it for it in train_items(offset + per_kind) if it[1] == kind][offset:]
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--split", required=True, choices=sorted(SPLITS))
+    ap.add_argument("--split", required=True, choices=[*sorted(SPLITS), "train"])
+    ap.add_argument("--per-kind", type=int, help="--split train: items per kind (required)")
+    ap.add_argument("--offset", type=int, default=0,
+                    help="--split train: skip the first N items of each kind (train/make_sft.py used 1..300)")
+    ap.add_argument("--kinds", nargs="+", choices=TRAIN_KINDS, help="--split train: default: the kinds in EVAL")
     ap.add_argument("--out", type=Path, default=None, help="default: tasks/<split>")
     ap.add_argument("--budget", type=int, default=DEFAULT_BUDGET_PX)
     ap.add_argument("--only", nargs="*", default=None,
@@ -390,9 +409,20 @@ def main(argv=None) -> int:
         ap.error("--v1 needs --split eval")
     if a.budget <= 0:
         ap.error("--budget must be positive")
+    if a.split == "train":
+        if a.per_kind is None:
+            ap.error("--split train needs --per-kind")
+        kinds = a.kinds or [k for k in dict.fromkeys(k for _, k, _ in SPLITS["eval"]) if k in TRAIN_KINDS]
+        try:
+            items = train_subset(a.per_kind, a.offset, kinds)
+        except ValueError as e:
+            ap.error(str(e))
+    else:
+        if a.per_kind is not None or a.kinds or a.offset:
+            ap.error("--per-kind, --offset and --kinds are for --split train")
+        items = EVAL_V1 if a.v1 else SPLITS[a.split]
     out = a.out or ROOT / "tasks" / ("eval-v1" if a.v1 else a.split)
     out.mkdir(parents=True, exist_ok=True)
-    items = EVAL_V1 if a.v1 else SPLITS[a.split]
     if a.only:
         unknown = set(a.only) - {i for i, _, _ in items}
         if unknown:
