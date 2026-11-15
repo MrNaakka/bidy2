@@ -108,6 +108,7 @@ class FrameHuntEnv:
 
         self._lock = threading.Lock()  # budget, submission, log
         self._render_lock = threading.Lock()  # scene.render + cache
+        self._submit_lock = threading.Lock()
         self._cache: OrderedDict[int, PILImage.Image] = OrderedDict()
 
         self._submitted = False
@@ -355,19 +356,23 @@ class FrameHuntEnv:
             raise self._refuse("submit", args, f"answer is longer than {MAX_ANSWER_CHARS} characters; not recorded")
         if not answer.strip():
             raise self._refuse("submit", args, "answer is empty; not recorded")
-        try:
-            correct = self._check(answer) if self._check else self._normalize(answer) == self._expected
-        except Exception:
-            correct = False
-        with self._lock:
-            if self._submitted:
-                msg = "refused: an answer was already submitted; only the first submission counts"
-                self._record("submit", args, ok=False, error=msg)
-                raise FrameHuntError(msg)
-            self._submitted = True
-            self._answer = answer
-            self._correct = correct
-            self._record("submit", args, ok=True)
+        # Submissions are serialized, so only the first one is ever checked (a check can
+        # take seconds: mathanim runs it in a child process).
+        with self._submit_lock:
+            with self._lock:
+                if self._submitted:
+                    msg = "refused: an answer was already submitted; only the first submission counts"
+                    self._record("submit", args, ok=False, error=msg)
+                    raise FrameHuntError(msg)
+            try:
+                correct = self._check(answer) if self._check else self._normalize(answer) == self._expected
+            except Exception:
+                correct = False
+            with self._lock:
+                self._submitted = True
+                self._answer = answer
+                self._correct = correct
+                self._record("submit", args, ok=True)
         return "Answer recorded. Only the first submission counts, so this answer is final. No correctness feedback is given."
 
     # --------------------------------------------------------------- verifier

@@ -2,14 +2,16 @@
 
 `check(answer, truth)` is True when the answer is the same function of x as the truth:
 
-1. The answer must only use digits, x, + - * / ( ) . , and spaces (so also **). Anything
-   else scores 0 without being parsed.
+1. The answer must only use digits, x, + - * / ( ) . , and spaces (so also **), and no
+   `//` (floor division). Anything else scores 0 without being parsed.
 2. It is parsed with sympy's `parse_expr` with explicit dicts that hold only x and
    sympy's number classes; decimals become exact rationals.
-3. Both are evaluated at 10 random rational points (unpredictable: SystemRandom) and
-   must agree everywhere: exactly when both values are rational, else within 1e-30 at
-   50 digits. Points where the truth is undefined are skipped. `simplify(a - b) == 0`
-   is not used: it is incomplete, and on agent-controlled input it can run for ever.
+3. Both are written as one fraction, a = An/Ad and t = Tn/Td, and the polynomial
+   identity An*Td == Tn*Ad must hold at 10 random rational points (unpredictable:
+   SystemRandom, numerators and denominators up to 10^6): exactly when both sides are
+   rational, else within 1e-30 at 50 digits. Cross-multiplying means a removable
+   singularity (x/x) can't make an equivalent answer fail. `simplify(a - b) == 0` is
+   not used: it is incomplete, and on agent-controlled input it can run for ever.
 
 Parsing and evaluation run in a child process (this file, run as a script) with a
 timeout and a memory cap, so input like `9**9**9**9` scores 0 instead of hanging the
@@ -29,7 +31,7 @@ N_POINTS = 10
 
 
 def check(answer: str, truth: str) -> bool:
-    if not isinstance(answer, str) or not ALLOWED.fullmatch(answer):
+    if not isinstance(answer, str) or not ALLOWED.fullmatch(answer) or "//" in answer:
         return False
     try:
         r = subprocess.run([sys.executable, "-I", __file__], input=json.dumps([answer, truth]),
@@ -43,7 +45,7 @@ def equal(answer: str, truth: str) -> bool:
     """In-process comparison. Only call it on whitelisted input, in a process you can kill."""
     import random
 
-    from sympy import Expr, Float, Integer, N, Rational, Symbol
+    from sympy import Expr, Float, Integer, N, Rational, Symbol, fraction, together
     from sympy.parsing.sympy_parser import parse_expr, rationalize, standard_transformations
 
     x = Symbol("x")
@@ -56,20 +58,23 @@ def equal(answer: str, truth: str) -> bool:
     a, t = parse(answer), parse(truth)
     if not isinstance(a, Expr) or a.free_symbols - {x}:
         return False
+    an, ad = fraction(together(a))
+    tn, td = fraction(together(t))
     rng = random.SystemRandom()
     seen = 0
     while seen < N_POINTS:
-        p = Rational(rng.randint(-60, 60), rng.randint(1, 17))
-        tv = t.subs(x, p)
-        if not tv.is_finite:
+        p = Rational(rng.randint(-10**6, 10**6), rng.randint(1, 10**6))
+        tdv = td.subs(x, p)
+        if tdv == 0:
             continue
-        av = a.subs(x, p)
-        if not av.is_finite:
+        adv = ad.subs(x, p)
+        lhs, rhs = an.subs(x, p) * tdv, tn.subs(x, p) * adv
+        if adv == 0 or not (lhs.is_finite and rhs.is_finite):
             return False
-        if av.is_Rational and tv.is_Rational:
-            if av != tv:
+        if lhs.is_Rational and rhs.is_Rational:
+            if lhs != rhs:
                 return False
-        elif not abs(N(av - tv, 50)) <= Rational(1, 10**30) * (1 + abs(N(tv, 50))):
+        elif not abs(N(lhs - rhs, 50)) <= Rational(1, 10**30) * (1 + abs(N(rhs, 50))):
             return False
         seen += 1
     return True

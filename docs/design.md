@@ -203,19 +203,22 @@ keeps the look-alike neighbours and makes them different functions.
 
 ### Answer check (`framehunt/mathcheck.py`)
 
-1. The answer may only contain digits, `x`, `+ - * / ( ) . ,`, spaces (so also `**`).
-   Anything else scores 0 without being parsed.
+1. The answer may only contain digits, `x`, `+ - * / ( ) . ,`, spaces (so also `**`),
+   and no `//` (floor division). Anything else scores 0 without being parsed.
 2. `parse_expr` with explicit dicts (only `x` and sympy's number classes); decimals
    become exact rationals.
-3. Answer and truth are evaluated at 10 random rational points (SystemRandom) and must
-   agree exactly at all of them (within 1e-30 at 50 digits if a value is irrational).
-   `simplify(a - b) == 0` is not used: it is incomplete, and agent input can make it
-   run for ever.
+3. Answer and truth are each written as one fraction, An/Ad and Tn/Td, and
+   An·Td = Tn·Ad must hold exactly at 10 random rational points (SystemRandom,
+   numerators and denominators up to 10^6; within 1e-30 at 50 digits if a value is
+   irrational). Cross-multiplying keeps an equivalent form with a removable singularity
+   (`x/x`) from failing. `simplify(a - b) == 0` is not used: it is incomplete, and
+   agent input can make it run for ever.
 4. Parsing and evaluation run in a child process with a 10 s timeout and a 2 GB memory
    cap, so `9**9**9**9` scores 0 instead of hanging the server.
 
-The sidecar computes `correct` with this check at submit time (`Scene.check_answer`);
-the verifier is unchanged.
+The sidecar computes `correct` with this check at submit time (`Scene.check_answer`).
+Submissions are serialized, so only the first one is ever checked. The verifier is
+unchanged.
 
 ### Rendering
 
