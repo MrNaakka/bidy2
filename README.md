@@ -1,4 +1,4 @@
-# FrameHunt
+# bidy2
 
 An RL environment where every pixel the agent looks at costs budget. Our entry to
 AfterQuery's "Break the Agent" challenge (Junction 2026).
@@ -27,18 +27,23 @@ early, on the facing page or in the next row.
 
 A request that costs more than the remaining budget is refused and charges nothing.
 
-## Why this setting
+## Why we built this
 
-Agents that work on screens, recordings and long documents pay for everything they look
-at: each image costs tokens and stays in the context for the rest of the task. Choosing
-when, where and at what resolution to look is part of ordinary agent work, such as
-checking an E2E test video or finding one figure in a 300-page scan, and few environments
-train it.
+Frontier agents got much better at 3D in the past year. The tools had existed for
+decades. What changed is that the agents were trained to use them.
 
-FrameHunt isolates that skill. An agent can learn here to plan a budget before the first
-look, find the moment on a cheap low-resolution trace, confirm it with a look that costs
-a few hundred pixels, and then spend on one sharp crop. The skill is learnable: training
-a 27B open model on the environment raised its score from 0.21 to 0.66 (see Results).
+Agents have video processing tools available, such as cropping and picking a specific
+frame, but they still have trouble understanding videos, because they use those tools
+inefficiently. Each image an agent looks at costs tokens and stays in its context for the
+rest of the task. That is what we set out to fix.
+
+bidy2 trains agents to find information in video token-efficiently. An agent can learn
+here to plan a budget before the first look, find the moment on a cheap low-resolution
+trace, confirm it with a look that costs a few hundred pixels, and then spend on one
+sharp crop. The budget is small on purpose: an efficient agent has tokens left to
+understand harder videos and can get through hours of video. The skill is learnable:
+training a 27B open model on the environment raised its score from 0.21 to 0.66 (see
+Results).
 
 ## The three kinds (EVAL: 30 items, 10 each)
 
