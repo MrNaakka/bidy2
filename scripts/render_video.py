@@ -4,7 +4,7 @@
 Use a non-EVAL seed: the video shows the answer, so an EVAL item would leak it.
 
 Usage:
-    uv run --with imageio-ffmpeg python scripts/render_video.py logstream 7 --start 85 --length 15 --out docs/media/logstream-seed7-15s.mp4
+    uv run --with imageio-ffmpeg python scripts/render_video.py logstream 7 --start 91 --length 15 --out docs/media/logstream-seed7-15s.mp4
 """
 from __future__ import annotations
 
