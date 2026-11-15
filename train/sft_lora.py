@@ -403,9 +403,10 @@ def main(argv=None) -> int:
     args_d = {k: str(v) if isinstance(v, Path) else v for k, v in vars(a).items()}
     if args_path.exists():
         prev = json.loads(args_path.read_text())
-        diff = {k: (prev.get(k), v) for k, v in args_d.items()
+        added = {"pg": False, "init_adapter": None}   # arguments newer than some runs' args.json: their default
+        diff = {k: (prev.get(k, added.get(k)), v) for k, v in args_d.items()
                 if k not in ("max_steps", "device", "save_every", "keep", "threads", "resume_from")
-                and prev.get(k) != v}
+                and prev.get(k, added.get(k)) != v}
         if diff:
             raise SystemExit(f"{a.out} holds a run with different arguments: {diff}. Use a new --out.")
     if a.resume_from is not None:
