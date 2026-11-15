@@ -178,7 +178,7 @@ start() {
   new "ROOT=$RUN2 MODEL=/root/fhdata/models/Qwen3.8-27B INIT=$SYNC_IT2 POOL=/root/fh/tasks/agrpo-pool2 \
     INFER_GPUS='0 1 2 3 4 5' TRAIN_GPUS=6,7 DEADLINE=$END \
     SCHED_ARGS='--inflight 20 --agent-timeout-min 8 --launch-gap-s 20' \
-    TRAIN_ARGS='--min-groups 12 --max-groups 16 --max-stale 2 --lr 2e-5 --clip 0.2 --max-len 18432' \
+    TRAIN_ARGS='--min-groups 12 --max-groups 12 --max-stale 2 --lr 2e-5 --clip 0.2 --max-len 16384' \
     /root/fh/grpo-code/infra/verda/grpo_async/start.sh"
   # at END: stop (the trainer finishes its update), free GPUs 4-5, evaluate the final adapter on the 30
   # scored EVAL items (3 runs, one GPU each, plain socat relays)
