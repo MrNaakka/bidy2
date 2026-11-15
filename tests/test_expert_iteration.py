@@ -261,7 +261,11 @@ def test_relay_cancels_upstream_when_the_client_leaves_while_vllm_is_silent(rela
               b"x-opencode-session-id: s\r\nContent-Length: 2\r\n\r\n{}")
     if mode == "pause":
         c.settimeout(5)
-        assert b"data: {}" in c.recv(65536)
+        got = b""
+        while b"data: {}" not in got:   # headers and the first event may arrive in separate reads
+            chunk = c.recv(65536)
+            assert chunk, got
+            got += chunk
     time.sleep(0.3)
     c.close()
     assert relay.up.aborted.wait(5)
