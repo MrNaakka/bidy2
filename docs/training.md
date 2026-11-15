@@ -10,23 +10,23 @@ OpenCode agent as Opus, served by vLLM.
 
 On the 30 EVAL items, 3 runs each:
 
-| | Qwen base | + SFT v3 | **+ GRPO sync (it2)** | + GRPO async (v15) |
-| --- | --- | --- | --- | --- |
-| Starts from | | base | SFT v3 | GRPO sync it2 |
-| Mean reward | 0.211 | 0.522 | **0.656** | 0.611 |
-| Runs | 0.200 / 0.233 / 0.200 | 0.533 / 0.467 / 0.567 | 0.700 / 0.633 / 0.633 | 0.600 / 0.667 / 0.567 |
-| Correct, logstream (of 30) | 10 | 27 | 26 | 26 |
-| Correct, dialogs (of 30) | 9 | 12 | 20 | 18 |
-| Correct, scandoc (of 30) | 0 | 8 | 13 | 11 |
-| Answers submitted (of 90) | 43 | 89 | 86 | 79 |
-| Agent timeouts (1800 s) | 15 of 90 | 1 of 90 | 1 of 90 | 1 of 90 |
-| Mean pixels per item | 91-96k | 70-84k | 79-85k | 78-80k |
+| | Qwen base | + SFT v3 | **+ GRPO sync (it2)** | + GRPO async (v15) | **+ GRPO async run 2 (v10)** |
+| --- | --- | --- | --- | --- | --- |
+| Starts from | | base | SFT v3 | GRPO sync it2 | GRPO sync it2 |
+| Mean reward | 0.211 | 0.522 | **0.656** | 0.611 | **0.656** |
+| Runs | 0.200 / 0.233 / 0.200 | 0.533 / 0.467 / 0.567 | 0.700 / 0.633 / 0.633 | 0.600 / 0.667 / 0.567 | 0.733 / 0.600 / 0.633 |
+| Correct, logstream (of 30) | 10 | 27 | 26 | 26 | 23 |
+| Correct, dialogs (of 30) | 9 | 12 | 20 | 18 | 19 |
+| Correct, scandoc (of 30) | 0 | 8 | 13 | 11 | 17 |
+| Answers submitted (of 90) | 43 | 89 | 86 | 79 | 86 |
+| Agent timeouts (1800 s) | 15 of 90 | 1 of 90 | 1 of 90 | 1 of 90 | 1 of 90 |
+| Mean pixels per item | 91-96k | 70-84k | 79-85k | 78-80k | 67-83k |
 
 ![Qwen training ladder](results/qwen_training_ladder.png)
 
 - SFT takes Qwen from 0.21 to 0.52. GRPO on top of SFT takes it to 0.66.
 - **Every GRPO sync run beats every SFT v3 run**: 21, 19 and 19 correct against 16, 14
-  and 17.
+  and 17. So does every async run 2 run: 22, 18 and 19.
 - GRPO's gain is on the two kinds SFT left weak. Dialogs go from 12 to 20 correct of 30,
   scandoc from 8 to 13. Logstream, already at 27 after SFT, stays about the same (26).
 - Opus 5.5 scores 0.600 (runs 0.700 / 0.500 / 0.600). GRPO sync's mean, 0.656, is
@@ -36,8 +36,9 @@ On the 30 EVAL items, 3 runs each:
   [running.md](running.md#reproducibility)). So the fair reading is: the 27B model,
   trained only on TRAIN items, reaches Opus's level on this task. It does not clearly
   beat it.
-- The async continuation scored lower than the sync adapter it started from (0.611 vs
-  0.656). Reasons are below.
+- The first async continuation (small updates) scored lower than the sync adapter it
+  started from (0.611 vs 0.656). The second (10 updates of 12 groups) ties it at 0.656, with
+  more scandoc items right (17 vs 13) and fewer logstream items (23 vs 26). Details are below.
 
 An earlier adapter, SFT v2, was trained without scandoc data and run on the 30 items
 EVAL had then (logstream, dialogs, toasts). Rescored on its 20 logstream and dialogs
@@ -173,8 +174,15 @@ variation. Our hypotheses for the rest:
 The async model also leaves more items without a submitted answer (11 of 90 trials,
 against 4 for sync it2 and 1 for SFT v3, timeouts included).
 
-A second async run, with larger updates (more groups per step) from the sync it2
-adapter, is in progress. It has no results yet.
+A second async run started again from the sync it2 adapter, on a fresh 8×H100 box: 6
+inference GPUs, 2 trainer GPUs, 16 trials in flight per inference GPU, exactly 12 groups
+(96 rollouts) per update, rows over 16,384 tokens skipped, fresh TRAIN items after the ones
+the first run used. It made 10 updates in about 70 minutes, one every 7 minutes, with clip
+fraction 0.0013-0.004, k3 KL at most 0.0018 and staleness 0-2. No trials were lost to harness
+errors. On EVAL it scores 0.733 / 0.600 / 0.633 (mean 0.656), the same mean as its starting
+point: scandoc rises from 13 to 17 correct of 30, dialogs stays at 19 (20 for it2) and
+logstream drops from 26 to 23. Larger updates removed the first run's loss, but the extra
+70 minutes of RL did not raise the overall score.
 
 ### Infrastructure incidents
 

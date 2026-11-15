@@ -22,14 +22,17 @@ N_ITEMS = 30
 
 GRPO_SYNC = "Qwen3.8-27B + GRPO sync (it2)"
 GRPO_ASYNC = "Qwen3.8-27B + GRPO async (v15)"
+GRPO_ASYNC2 = "Qwen3.8-27B + GRPO async run 2 (v10)"
 # Agent groups: label, job prefix, colour (fixed per entity in every chart).
 GROUPS = [
     ("Reference (scripted)", ["fh-eval-reference-all"], "#6250d6"),
     ("Opus 5.5 (OpenCode)", [f"fh-eval-opencode-all-run{i}" for i in (1, 2, 3)], "#2a78d6"),
-    # GRPO evals: job dirs fh-eval-qwen-grpo-sync-run{i} (sync it2 adapter) and fh-eval-qwen-grpo-run{i}
-    # (async v15 adapter) on the training box; renamed ...-grpo-async-run{i} in runs/.
+    # GRPO evals: job dirs fh-eval-qwen-grpo-sync-run{i} (sync it2 adapter), fh-eval-qwen-grpo-run{i} (async v15)
+    # and fh-eval-qwen-grpo2-run{i} (async run 2, v10) on the training boxes; renamed ...-grpo-async-run{i} and
+    # ...-grpo-async2-run{i} in runs/.
     (GRPO_SYNC, [f"fh-eval-qwen-grpo-sync-run{i}" for i in (1, 2, 3)], "#008300"),
     (GRPO_ASYNC, [f"fh-eval-qwen-grpo-async-run{i}" for i in (1, 2, 3)], "#e87ba4"),
+    (GRPO_ASYNC2, [f"fh-eval-qwen-grpo-async2-run{i}" for i in (1, 2, 3)], "#0f8b8d"),
     ("Qwen3.8-27B + SFT v3", [f"fh-eval-qwen-sft3-run{i}" for i in (1, 2, 3)], "#1baf7a"),
     ("Qwen3.8-27B base", [f"fh-eval-qwen-run{i}" for i in (1, 2, 3)], "#eb6834"),
     ("Stop-early baseline", ["fh-eval-stop-early-all"], "#8a8984"),
@@ -117,9 +120,9 @@ def save(fig, name):
 
 
 def chart_overall(S):
-    order = ["Reference (scripted)", "Opus 5.5 (OpenCode)", GRPO_SYNC, GRPO_ASYNC, "Qwen3.8-27B + SFT v3",
+    order = ["Reference (scripted)", "Opus 5.5 (OpenCode)", GRPO_SYNC, GRPO_ASYNC2, GRPO_ASYNC, "Qwen3.8-27B + SFT v3",
              "Qwen3.8-27B base", "Stop-early baseline", "Do-nothing baseline"]
-    fig, ax = plt.subplots(figsize=(13.5, 5.8))
+    fig, ax = plt.subplots(figsize=(16.5, 6.2))
     for i, lab in enumerate(order):
         s = S[lab]
         ax.bar(i, s["mean_score"], width=0.62, color=COLOR[lab], zorder=2)
@@ -128,7 +131,7 @@ def chart_overall(S):
         ax.text(i, max([s["mean_score"]] + s["scores"]) + 0.035, f"{s['mean_score']:.2f}", ha="center", va="bottom",
                 fontsize=14, fontweight="bold", color=INK)
     ax.set_xticks(range(len(order)))
-    ax.set_xticklabels([short(o) for o in order], fontsize=11)
+    ax.set_xticklabels([short(o).replace(" run 2", "\nrun 2") for o in order], fontsize=10.5)
     ax.set_ylim(0, 1.12)
     ax.set_ylabel("Mean reward (fraction of 30 items exactly right)", fontsize=12.5)
     ax.set_title("FrameHunt EVAL (30 items, 120k-pixel budget): bar = mean, dots = individual runs",
@@ -138,9 +141,9 @@ def chart_overall(S):
 
 
 def chart_per_kind(S):
-    labs = ["Opus 5.5 (OpenCode)", "Qwen3.8-27B base", "Qwen3.8-27B + SFT v3", GRPO_SYNC]
-    fig, ax = plt.subplots(figsize=(12, 5.8))
-    w = 0.21
+    labs = ["Opus 5.5 (OpenCode)", "Qwen3.8-27B base", "Qwen3.8-27B + SFT v3", GRPO_SYNC, GRPO_ASYNC2]
+    fig, ax = plt.subplots(figsize=(12.5, 5.8))
+    w = 0.17
     for j, lab in enumerate(labs):
         for i, k in enumerate(KINDS):
             pk = S[lab]["per_kind"][k]
@@ -160,13 +163,13 @@ def chart_per_kind(S):
     ax.set_ylim(0, 1.12)
     ax.set_ylabel("Mean reward per kind (10 items each)", fontsize=12.5)
     ax.set_title("Per kind: bar = mean of 3 runs, dots = runs", fontsize=14, color=INK, loc="left")
-    ax.legend(frameon=False, fontsize=11, loc="upper left", bbox_to_anchor=(0, -0.16), ncol=4)
+    ax.legend(frameon=False, fontsize=11, loc="upper left", bbox_to_anchor=(0, -0.16), ncol=3)
     style(ax)
     save(fig, "per_kind.png")
 
 
 def chart_pixels(S, jobs):
-    labs = ["Reference (scripted)", "Opus 5.5 (OpenCode)", GRPO_SYNC, "Qwen3.8-27B + SFT v3", "Qwen3.8-27B base",
+    labs = ["Reference (scripted)", "Opus 5.5 (OpenCode)", GRPO_SYNC, GRPO_ASYNC2, "Qwen3.8-27B + SFT v3", "Qwen3.8-27B base",
             "Stop-early baseline"]
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(13, 5.4), gridspec_kw={"width_ratios": [1.3, 1.1]})
     for lab in labs:
@@ -184,7 +187,7 @@ def chart_pixels(S, jobs):
     style(a1)
     a1.grid(axis="x", color=GRID)
 
-    labs2 = ["Opus 5.5 (OpenCode)", "Qwen3.8-27B base", "Qwen3.8-27B + SFT v3", GRPO_SYNC]
+    labs2 = ["Opus 5.5 (OpenCode)", "Qwen3.8-27B base", "Qwen3.8-27B + SFT v3", GRPO_SYNC, GRPO_ASYNC2]
     for i, lab in enumerate(labs2):
         s = S[lab]
         sub = mean(s["submitted"]) / s["n_items"]
@@ -225,9 +228,10 @@ def chart_training():
     save(fig, "sft_v3_loss.png")
 
 
-LADDER = ["Qwen3.8-27B base", "Qwen3.8-27B + SFT v3", GRPO_SYNC, GRPO_ASYNC]
+LADDER = ["Qwen3.8-27B base", "Qwen3.8-27B + SFT v3", GRPO_SYNC, GRPO_ASYNC, GRPO_ASYNC2]
 LADDER_TICKS = ["base", "+ SFT v3\n(1,200 teacher\ntrajectories)", "+ GRPO sync\n(2 iterations\nfrom SFT v3)",
-                "+ GRPO async\n(15 updates\nfrom sync it2)"]
+                "+ GRPO async\n(15 updates of\n4 groups from it2)",
+                "+ GRPO async run 2\n(10 updates of\n12 groups from it2)"]
 
 
 def chart_ladder(S):

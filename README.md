@@ -42,6 +42,7 @@ All runs go through Harbor on the same 30 EVAL items.
 | Qwen3.8-27B base | 0.200 | 0.233 | 0.200 | **0.211** | 94k |
 | Qwen3.8-27B + our SFT v3 (LoRA) | 0.533 | 0.467 | 0.567 | **0.522** | 70-84k |
 | Qwen3.8-27B + SFT v3 + our GRPO (RL, sync it2) | 0.700 | 0.633 | 0.633 | **0.656** | 79-85k |
+| Qwen3.8-27B + SFT v3 + our GRPO (RL, async run 2) | 0.733 | 0.600 | 0.633 | **0.656** | 67-83k |
 | Stop-early baseline (one look, well-formed guess) | 0.000 | | | **0.000** | 33k |
 | Do-nothing baseline | 0.000 | | | **0.000** | 0 |
 
@@ -51,10 +52,12 @@ All runs go through Harbor on the same 30 EVAL items.
 - Opus spends almost the whole budget whether it is right or wrong (108.9k on correct
   items, 118.9k on wrong ones). The reference needs 53k.
 - Training Qwen3.8-27B on our environment raised it from 0.21 (base) to 0.52 with SFT
-  on teacher trajectories, then to 0.66 with GRPO on the environment's own reward. Every
-  GRPO sync run beats every SFT v3 run. GRPO's gain is on dialogs (12 to 20 correct of 30) and
-  scandoc (8 to 13).
-- The GRPO model's mean is above Opus's 0.600, but the run ranges overlap and Opus's
+  on teacher trajectories, then to 0.66 with GRPO on the environment's own reward. Two GRPO
+  adapters reach 0.656: the sync loop after 2 iterations, and an async run that continued
+  from it with 10 updates of 12 groups. Every run of either beats every SFT v3 run. GRPO's
+  gain is on dialogs (12 correct of 30 after SFT; 20 sync, 19 async run 2) and scandoc
+  (8; 13 sync, 17 async run 2). Logstream goes from 27 to 26 (sync) and 23 (async run 2).
+- The GRPO models' mean is above Opus's 0.600, but the run ranges overlap and Opus's
   video items ran on different instances of the same items (an earlier salt). It
   reaches Opus's level; it does not clearly beat it.
   Details: [docs/training.md](docs/training.md).
