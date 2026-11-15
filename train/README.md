@@ -5,10 +5,9 @@ adapter to show that the score goes up. Qwen3.8-27B is a vision-language model, 
 vLLM 0.33.0 inside Harbor's OpenCode agent.
 
 - **Stage 1: LoRA SFT on teacher trajectories.** Done: v2 and v3 (results below).
-- **RL stage:** in progress on a separate branch.
-
-The SFT data format and tooling are the ones an RL stage (rejection sampling / GRPO on our
-binary reward) would use.
+- **Stage 2: GRPO on the environment's reward.** Done: sync (2 iterations from SFT v3) and
+  async (15 updates from sync it2); see [GRPO](#grpo-on-policy-rl-from-the-sft-adapter) below.
+  Method and results in plain English: [docs/training.md](../docs/training.md).
 
 ## Results (EVAL v2, 30 items, Harbor, 3 runs each)
 
@@ -16,6 +15,8 @@ binary reward) would use.
 | --- | --- | --- | --- | --- |
 | Qwen3.8-27B base | - | 0.211 (0.200 / 0.233 / 0.200) | 13-16 of 30 (15 of 90 trials hit the 1800 s timeout) | 91-96k |
 | + SFT v3 | 1,200 rows, including scandoc | 0.522 (0.533 / 0.467 / 0.567) | 29-30 of 30 | 70-84k |
+| + GRPO sync it2 (from SFT v3) | 2 x 40 new TRAIN items x 8 rollouts | 0.656 (0.700 / 0.633 / 0.633) | 28-29 of 30 | 79-85k |
+| + GRPO async v15 (from sync it2) | 15 updates, 4-9 groups each | 0.611 (0.600 / 0.667 / 0.567) | 26-27 of 30 | 78-80k |
 
 An earlier adapter, SFT v2 (900 rows: logstream, dialogs, toasts; no scandoc), was run on
 the 30 items EVAL had then; rescored on its 20 logstream and dialogs items: 0.617 (0.650 / 0.550 / 0.650), 20 of 20
@@ -467,8 +468,10 @@ systemd-run --unit=fh-grpo-loop --setenv=ITERS=4 --setenv=DEADLINE=2026-11-15T01
 ITER=1 INIT=/root/fhdata/runs/sft-v3/final TASKS=/root/fh/tasks/grpo-it1 infra/verda/grpo/iterate.sh
 ```
 
-`loop.sh` evaluates the last adapter like every fine-tuned eval (`eval.sh`: GPUs 0-2, socat relays, 40
-EVAL items, 3 runs `fh-eval-qwen-grpo-run{1,2,3}`, `-n 15`). Per-iteration logs: `/root/fhdata/grpo/`
+`loop.sh` evaluates the last adapter like every fine-tuned eval (`eval.sh`: GPUs 0-2, socat relays, 3 runs
+`fh-eval-qwen-grpo-run{1,2,3}`, `-n 15`). `eval.sh` defaults to the 40-item task dir the box was set up
+with (EVAL before toasts was removed); scores are reported on the 30 current EVAL items
+(`scripts/summarize.py --split eval`). `EVAL_TASKS=tasks/eval30` runs only those. Per-iteration logs: `/root/fhdata/grpo/`
 (`times.txt`, `curve.jsonl`, `it<k>/{runs,data/pg_stats.json,train/loss.jsonl,train/final}`).
 Tests: `tests/test_grpo.py` (advantages, conversion of all rollouts, and on the tiny model: A>0 lowers
 the row's NLL, A<0 raises it, zero-advantage rows change nothing, 2-rank DDP equals one process).

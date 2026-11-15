@@ -41,6 +41,7 @@ All runs go through Harbor on the same 30 EVAL items.
 | **Opus 5.5** (OpenCode 1.19.5) | 0.700 | 0.500 | 0.600 | **0.600** | 113k |
 | Qwen3.8-27B base | 0.200 | 0.233 | 0.200 | **0.211** | 94k |
 | Qwen3.8-27B + our SFT v3 (LoRA) | 0.533 | 0.467 | 0.567 | **0.522** | 70-84k |
+| Qwen3.8-27B + SFT v3 + our GRPO (RL, sync it2) | 0.700 | 0.633 | 0.633 | **0.656** | 79-85k |
 | Stop-early baseline (one look, well-formed guess) | 0.000 | | | **0.000** | 33k |
 | Do-nothing baseline | 0.000 | | | **0.000** | 0 |
 
@@ -49,8 +50,14 @@ All runs go through Harbor on the same 30 EVAL items.
 - Opus is weakest on logstream (0.43) and scandoc (0.50); on dialogs it scores 0.87.
 - Opus spends almost the whole budget whether it is right or wrong (108.9k on correct
   items, 118.9k on wrong ones). The reference needs 53k.
-- Fine-tuning Qwen3.8-27B on our environment's trajectories raised it from 0.21 to
-  0.52. On logstream it beats Opus, 0.90 vs 0.43.
+- Training Qwen3.8-27B on our environment raised it from 0.21 (base) to 0.52 with SFT
+  on teacher trajectories, then to 0.66 with GRPO on the environment's own reward. Every
+  GRPO sync run beats every SFT v3 run. GRPO's gain is on dialogs (12 to 20 correct of 30) and
+  scandoc (8 to 13).
+- The GRPO model's mean is above Opus's 0.600, but the run ranges overlap and Opus's
+  video items ran on different instances of the same items (an earlier salt). It
+  reaches Opus's level; it does not clearly beat it.
+  Details: [docs/training.md](docs/training.md).
 
 ![Overall results](docs/results/overall.png)
 
@@ -87,7 +94,7 @@ harness notes: [docs/running.md](docs/running.md).
 | [docs/why-its-hard.md](docs/why-its-hard.md) | each kind's trap; analysis of all 36 Opus failures |
 | [docs/results/tables.md](docs/results/tables.md) | full tables, per kind, pixels, EVAL v1 history; charts and `results.json` in [docs/results/](docs/results/) |
 | [docs/scoring-and-integrity.md](docs/scoring-and-integrity.md) | the reward, the separate verifier, secret instances, baselines |
-| [docs/training.md](docs/training.md) | fine-tuning Qwen3.8-27B (tiebreaker): data, training, results |
+| [docs/training.md](docs/training.md) | training Qwen3.8-27B (tiebreaker): SFT, then GRPO; method, results, caveats |
 | [docs/running.md](docs/running.md) | the one command in detail, Modal, other models, harness, reproducibility |
 | [docs/design.md](docs/design.md) | full spec: item rules, generators, interfaces, budget choice |
 | [examples/harbor-runs/](examples/harbor-runs/) | full Harbor run logs with scores |
@@ -106,6 +113,6 @@ harness notes: [docs/running.md](docs/running.md).
 | `scripts/eval.sh` | the one command; also `build_tasks.py`, `summarize.py` |
 | `results/` | our run summary (`summary.md`, `summary.json`, `stage_times.txt`) |
 | `docs/results/` | charts, `tables.md`, `results.json`, `make_results.py` |
-| `train/` | SFT data generation and LoRA training ([train/README.md](train/README.md)) |
-| `infra/verda/` | Qwen serving, training and parallel evals on Verda GPUs |
+| `train/` | SFT data and LoRA training; GRPO losses and rollout conversion ([train/README.md](train/README.md)) |
+| `infra/verda/` | Qwen serving, training and parallel evals on Verda GPUs; `grpo/`, `grpo_async/` RL loops |
 | `tests/` | `uv run pytest -m "not reference"`; `uv run pytest -m reference -s` runs the reference on all 30 EVAL items and on random seeds |

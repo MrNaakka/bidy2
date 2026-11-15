@@ -133,7 +133,7 @@ scripts/eval.sh --stage agents --model qwen-fh --lora train/out/<run> --fleet  #
 - **The reference is deterministic** for a given salt. It scored 30/30 on our salt and
   on the fresh clone's salt. The tests also run it on 100-200 random seeds each of
   toasts, leaderboard and scandoc.
-- **Which salt each run used.** The reference, the baselines, Qwen base, all SFT runs
+- **Which salt each run used.** The reference, the baselines, Qwen base, all SFT and GRPO runs
   and Opus's 10 scandoc trials used the current salt. Opus's 20 video trials ran under
   the previous EVAL v2 salt. We rotated it after a summary that included answers was
   pushed by mistake; summaries no longer contain answers. Same generators and items,

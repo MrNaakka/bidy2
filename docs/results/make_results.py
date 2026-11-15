@@ -2,8 +2,8 @@
 
     uv run --with matplotlib python docs/results/make_results.py
 
-Inputs: results/summary.json (scripts/summarize.py over our runs/) and the SFT v3 training
-logs copied to docs/results/data/. No answers are read or written: summary.json holds
+Inputs: results/summary.json (scripts/summarize.py over our runs/), the SFT v3 training logs and
+the GRPO training metrics copied to docs/results/data/ (TRAIN items only). No answers are read or written: summary.json holds
 per-trial reward, pixels and calls only.
 """
 import json
@@ -20,10 +20,16 @@ OUT = Path(__file__).resolve().parent
 KINDS = ["logstream", "dialogs", "scandoc"]
 N_ITEMS = 30
 
+GRPO_SYNC = "Qwen3.8-27B + GRPO sync (it2)"
+GRPO_ASYNC = "Qwen3.8-27B + GRPO async (v15)"
 # Agent groups: label, job prefix, colour (fixed per entity in every chart).
 GROUPS = [
     ("Reference (scripted)", ["fh-eval-reference-all"], "#6250d6"),
     ("Opus 5.5 (OpenCode)", [f"fh-eval-opencode-all-run{i}" for i in (1, 2, 3)], "#2a78d6"),
+    # GRPO evals: job dirs fh-eval-qwen-grpo-sync-run{i} (sync it2 adapter) and fh-eval-qwen-grpo-run{i}
+    # (async v15 adapter) on the training box; renamed ...-grpo-async-run{i} in runs/.
+    (GRPO_SYNC, [f"fh-eval-qwen-grpo-sync-run{i}" for i in (1, 2, 3)], "#008300"),
+    (GRPO_ASYNC, [f"fh-eval-qwen-grpo-async-run{i}" for i in (1, 2, 3)], "#e87ba4"),
     ("Qwen3.8-27B + SFT v3", [f"fh-eval-qwen-sft3-run{i}" for i in (1, 2, 3)], "#1baf7a"),
     ("Qwen3.8-27B base", [f"fh-eval-qwen-run{i}" for i in (1, 2, 3)], "#eb6834"),
     ("Stop-early baseline", ["fh-eval-stop-early-all"], "#8a8984"),
@@ -111,9 +117,9 @@ def save(fig, name):
 
 
 def chart_overall(S):
-    order = ["Reference (scripted)", "Opus 5.5 (OpenCode)", "Qwen3.8-27B + SFT v3", "Qwen3.8-27B base",
-             "Stop-early baseline", "Do-nothing baseline"]
-    fig, ax = plt.subplots(figsize=(11, 5.6))
+    order = ["Reference (scripted)", "Opus 5.5 (OpenCode)", GRPO_SYNC, GRPO_ASYNC, "Qwen3.8-27B + SFT v3",
+             "Qwen3.8-27B base", "Stop-early baseline", "Do-nothing baseline"]
+    fig, ax = plt.subplots(figsize=(13.5, 5.8))
     for i, lab in enumerate(order):
         s = S[lab]
         ax.bar(i, s["mean_score"], width=0.62, color=COLOR[lab], zorder=2)
@@ -122,7 +128,7 @@ def chart_overall(S):
         ax.text(i, max([s["mean_score"]] + s["scores"]) + 0.035, f"{s['mean_score']:.2f}", ha="center", va="bottom",
                 fontsize=14, fontweight="bold", color=INK)
     ax.set_xticks(range(len(order)))
-    ax.set_xticklabels([short(o) for o in order], fontsize=11.5)
+    ax.set_xticklabels([short(o) for o in order], fontsize=11)
     ax.set_ylim(0, 1.12)
     ax.set_ylabel("Mean reward (fraction of 30 items exactly right)", fontsize=12.5)
     ax.set_title("FrameHunt EVAL (30 items, 120k-pixel budget): bar = mean, dots = individual runs",
@@ -132,18 +138,18 @@ def chart_overall(S):
 
 
 def chart_per_kind(S):
-    labs = ["Opus 5.5 (OpenCode)", "Qwen3.8-27B base", "Qwen3.8-27B + SFT v3"]
-    fig, ax = plt.subplots(figsize=(11, 5.6))
-    w = 0.26
+    labs = ["Opus 5.5 (OpenCode)", "Qwen3.8-27B base", "Qwen3.8-27B + SFT v3", GRPO_SYNC]
+    fig, ax = plt.subplots(figsize=(12, 5.8))
+    w = 0.21
     for j, lab in enumerate(labs):
         for i, k in enumerate(KINDS):
             pk = S[lab]["per_kind"][k]
-            x = i + (j - 1) * w
+            x = i + (j - (len(labs) - 1) / 2) * w
             ax.bar(x, pk["mean_reward"], width=w - 0.03, color=COLOR[lab], zorder=2,
                    label=lab if i == 0 else None)
             ax.scatter([x] * len(pk["per_run"]), pk["per_run"], s=22, color="white", edgecolor=INK,
                        linewidth=1, zorder=3)
-            ax.text(x, max([pk["mean_reward"]] + pk["per_run"]) + 0.03, f"{pk['mean_reward']:.2f}", ha="center", fontsize=10.5,
+            ax.text(x, max([pk["mean_reward"]] + pk["per_run"]) + 0.03, f"{pk['mean_reward']:.2f}", ha="center", fontsize=9.5,
                     color=INK)
     ax.axhline(1.0, color=COLOR["Reference (scripted)"], linestyle="--", linewidth=1.5, zorder=1)
     ax.text(len(KINDS) - 0.5, 1.015, "reference 1.00 on every kind", ha="right", va="bottom", fontsize=10.5,
@@ -154,15 +160,15 @@ def chart_per_kind(S):
     ax.set_ylim(0, 1.12)
     ax.set_ylabel("Mean reward per kind (10 items each)", fontsize=12.5)
     ax.set_title("Per kind: bar = mean of 3 runs, dots = runs", fontsize=14, color=INK, loc="left")
-    ax.legend(frameon=False, fontsize=11, loc="upper left", bbox_to_anchor=(0, -0.16), ncol=3)
+    ax.legend(frameon=False, fontsize=11, loc="upper left", bbox_to_anchor=(0, -0.16), ncol=4)
     style(ax)
     save(fig, "per_kind.png")
 
 
 def chart_pixels(S, jobs):
-    labs = ["Reference (scripted)", "Opus 5.5 (OpenCode)", "Qwen3.8-27B + SFT v3", "Qwen3.8-27B base",
+    labs = ["Reference (scripted)", "Opus 5.5 (OpenCode)", GRPO_SYNC, "Qwen3.8-27B + SFT v3", "Qwen3.8-27B base",
             "Stop-early baseline"]
-    fig, (a1, a2) = plt.subplots(1, 2, figsize=(13, 5.4), gridspec_kw={"width_ratios": [1.35, 1]})
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(13, 5.4), gridspec_kw={"width_ratios": [1.3, 1.1]})
     for lab in labs:
         s = S[lab]
         a1.scatter([p / 1000 for p in s["mean_pixels"]], s["scores"], s=110, color=COLOR[lab],
@@ -178,7 +184,7 @@ def chart_pixels(S, jobs):
     style(a1)
     a1.grid(axis="x", color=GRID)
 
-    labs2 = ["Opus 5.5 (OpenCode)", "Qwen3.8-27B base", "Qwen3.8-27B + SFT v3"]
+    labs2 = ["Opus 5.5 (OpenCode)", "Qwen3.8-27B base", "Qwen3.8-27B + SFT v3", GRPO_SYNC]
     for i, lab in enumerate(labs2):
         s = S[lab]
         sub = mean(s["submitted"]) / s["n_items"]
@@ -188,8 +194,8 @@ def chart_pixels(S, jobs):
         to = sum(s["agent_timeouts"])
         a2.text(i, 0.04, f"timeouts:\n{to} of {len(s['scores']) * s['n_items']}", ha="center",
                 fontsize=10.5, color="white" if sub > 0.2 else INK)
-    a2.set_xticks(range(3))
-    a2.set_xticklabels([short(l) for l in labs2], fontsize=11)
+    a2.set_xticks(range(len(labs2)))
+    a2.set_xticklabels([short(l) for l in labs2], fontsize=10)
     a2.set_ylim(0, 1.12)
     a2.set_ylabel("Items with a submitted answer (mean of 3 runs)", fontsize=12.5)
     a2.set_title("Submission rate", fontsize=14, color=INK, loc="left")
@@ -219,14 +225,81 @@ def chart_training():
     save(fig, "sft_v3_loss.png")
 
 
-def tables(S):
+LADDER = ["Qwen3.8-27B base", "Qwen3.8-27B + SFT v3", GRPO_SYNC, GRPO_ASYNC]
+LADDER_TICKS = ["base", "+ SFT v3\n(1,200 teacher\ntrajectories)", "+ GRPO sync\n(2 iterations\nfrom SFT v3)",
+                "+ GRPO async\n(15 updates\nfrom sync it2)"]
+
+
+def chart_ladder(S):
+    fig, ax = plt.subplots(figsize=(11, 5.8))
+    for i, lab in enumerate(LADDER):
+        s = S[lab]
+        ax.bar(i, s["mean_score"], width=0.58, color=COLOR[lab], zorder=2)
+        ax.scatter([i - 0.12, i, i + 0.12], s["scores"], s=46, color="white", edgecolor=INK, linewidth=1.3, zorder=3)
+        ax.text(i, max([s["mean_score"]] + s["scores"]) + 0.03, f"{s['mean_score']:.3f}", ha="center", va="bottom",
+                fontsize=14, fontweight="bold", color=INK)
+    for lab, ls in (("Reference (scripted)", "--"), ("Opus 5.5 (OpenCode)", ":")):
+        y = S[lab]["mean_score"]
+        ax.axhline(y, color=COLOR[lab], linestyle=ls, linewidth=1.6, zorder=1)
+        ax.text(-0.45, y + 0.012, f"{lab.split(' (')[0].replace('Reference', 'reference')} {y:.3f}",
+                ha="left", va="bottom", fontsize=11, color=INK)
+    ax.set_xticks(range(len(LADDER)))
+    ax.set_xticklabels(LADDER_TICKS, fontsize=11)
+    ax.set_xlim(-0.5, len(LADDER) - 0.4)
+    ax.set_ylim(0, 1.1)
+    ax.set_ylabel("Mean reward on the 30 EVAL items", fontsize=12.5)
+    ax.set_title("Qwen3.8-27B trained on FrameHunt TRAIN items: bar = mean of 3 runs, dots = runs",
+                 fontsize=14, color=INK, loc="left")
+    style(ax)
+    save(fig, "qwen_training_ladder.png")
+
+
+def grpo_training():
+    sync = [json.loads(l) for l in (OUT / "data/grpo-sync-curve.jsonl").read_text().splitlines() if l.strip()]
+    asy = [json.loads(l) for l in (OUT / "data/grpo-async-metrics.jsonl").read_text().splitlines() if l.strip()]
+    return {
+        "note": "Training reward = mean verifier reward of the rollouts on TRAIN items (never EVAL); every "
+                "iteration/group uses items not seen before. Includes toasts (TRAIN only). Harness failures excluded.",
+        "sync": [{k: r[k] for k in ("iter", "mean_reward", "counted_trials", "by_kind", "groups", "groups_with_signal",
+                                    "rows", "rows_pos", "rows_neg", "steps")} for r in sync],
+        "async": [{k: r[k] for k in ("version", "groups", "rows", "reward_by_kind", "staleness", "clip_frac", "kl_k3",
+                                     "matched_frac")} for r in asy],
+    }
+
+
+def chart_grpo_curve(G):
+    kinds = ["logstream", "dialogs", "scandoc", "toasts"]
+    its = G["sync"]
+    fig, ax = plt.subplots(figsize=(10.5, 5.4))
+    w = 0.36
+    shades = ["#86b6ef", "#1c5cab"]
+    policy = {"it1": "SFT v3", "it2": "after it1"}
+    for j, r in enumerate(its):
+        xs = [i + (j - 0.5) * w for i in range(len(kinds) + 1)]
+        ys = [r["by_kind"][k] for k in kinds] + [r["mean_reward"]]
+        ax.bar(xs, ys, width=w - 0.04, color=shades[j], zorder=2,
+               label=f"{r['iter']} (policy {policy[r['iter']]}): {r['counted_trials']} rollouts on 40 new items")
+        for x, y in zip(xs, ys):
+            ax.text(x, y + 0.015, f"{y:.2f}", ha="center", fontsize=10.5, color=INK)
+    ax.set_xticks(range(len(kinds) + 1))
+    ax.set_xticklabels(kinds + ["all"], fontsize=12)
+    ax.set_ylim(0, 1.12)
+    ax.set_ylabel("Mean training reward (TRAIN items)", fontsize=12.5)
+    ax.set_title("Sync GRPO: reward of the rollouts each iteration trains on", fontsize=14, color=INK, loc="left")
+    ax.legend(frameon=False, fontsize=11, loc="upper left", bbox_to_anchor=(0, -0.1), ncol=2)
+    style(ax)
+    save(fig, "grpo_sync_training_reward.png")
+
+
+def tables(S, G):
     L = ["# FrameHunt results (EVAL v2)", "",
          "- **Set:** 30 items, 10 each of logstream, dialogs and scandoc.",
          "- **Budget:** 120,000 pixels per item.",
          "- **Reward:** 1 only for an exact first submission, else 0.",
          "- **Charts:** [overall.png](overall.png) (score per agent, dots = runs), "
          "[per_kind.png](per_kind.png), [pixels_and_submissions.png](pixels_and_submissions.png), "
-         "[sft_v3_loss.png](sft_v3_loss.png).",
+         "[sft_v3_loss.png](sft_v3_loss.png), [qwen_training_ladder.png](qwen_training_ladder.png), "
+         "[grpo_sync_training_reward.png](grpo_sync_training_reward.png).",
          "- **Data:** [results.json](results.json), built from `results/summary.json` by "
          "`make_results.py`. Regenerate with `uv run --with matplotlib python docs/results/make_results.py`.", "",
          "## Overall", "",
@@ -245,10 +318,35 @@ def tables(S):
         L.append(f"| {lab} | " + " | ".join(
             f"{pk[k]['mean_reward']:.2f} ({pk[k]['mean_pixels'] / 1000:.0f}k)" if k in pk else "-" for k in KINDS)
             + " |")
+    L += ["", "## Qwen3.8-27B training ladder (correct answers over 3 runs, of 30 per kind)", "",
+          "GRPO sync it2 starts from SFT v3; GRPO async v15 starts from sync it2. "
+          "See [../training.md](../training.md).", "",
+          "| Model | Runs | Mean | logstream | dialogs | scandoc |", "| --- | --- | --- | --- | --- | --- |"]
+    for lab in LADDER:
+        s = S[lab]
+        n = len(s["scores"])
+        cells = " | ".join(str(round(s["per_kind"][k]["mean_reward"] * 10 * n)) for k in KINDS)
+        L.append(f"| {lab} | {' / '.join(f'{x:.3f}' for x in s['scores'])} | **{s['mean_score']:.3f}** | {cells} |")
+    L += ["", "## GRPO training reward (TRAIN items, never EVAL; fresh items every iteration)", "",
+          "| Sync iteration | Rollouts | Groups (with signal) | Rows (A>0 / A<0) | Steps | logstream | dialogs | scandoc "
+          "| toasts | All |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for r in G["sync"]:
+        bk = r["by_kind"]
+        L.append(f"| {r['iter']} | {r['counted_trials']} | {r['groups']} ({r['groups_with_signal']}) | "
+                 f"{r['rows']} ({r['rows_pos']} / {r['rows_neg']}) | {r['steps']} | "
+                 + " | ".join(f"{bk[k]:.2f}" for k in ("logstream", "dialogs", "scandoc", "toasts"))
+                 + f" | **{r['mean_reward']:.3f}** |")
+    A = G["async"]
+    L += ["", f"Async: {len(A)} logged updates (v{A[0]['version']}-v{A[-1]['version']}; v2's metrics line is missing: the "
+              f"trainer crashed while logging it and was restarted), {min(r['groups'] for r in A)}-{max(r['groups'] for r in A)} groups and "
+              f"{min(r['rows'] for r in A)}-{max(r['rows'] for r in A)} rows per update, one optimizer step each, "
+              f"max clip fraction {max(r['clip_frac'] for r in A):.5f}, max k3 KL to the behaviour policy {max(r['kl_k3'] for r in A):.6f}. "
+              "Full per-update metrics: [data/grpo-async-metrics.jsonl](data/grpo-async-metrics.jsonl)."]
     o = S["Opus 5.5 (OpenCode)"]
     L += ["", "## Pixels on correct vs wrong answers", "",
           "| Agent | Mean px, correct | Mean px, wrong | Max px |", "| --- | --- | --- | --- |"]
-    for lab in ("Reference (scripted)", "Opus 5.5 (OpenCode)", "Qwen3.8-27B base", "Qwen3.8-27B + SFT v3"):
+    for lab in ("Reference (scripted)", "Opus 5.5 (OpenCode)", "Qwen3.8-27B base", "Qwen3.8-27B + SFT v3", GRPO_SYNC,
+                GRPO_ASYNC):
         s = S[lab]
         L.append(f"| {lab} | {s['mean_pixels_correct']:,} | "
                  f"{s['mean_pixels_wrong']:,} | {s['max_pixels']:,} |".replace("| 0 |", "| - |"))
@@ -272,11 +370,13 @@ def tables(S):
 def main():
     jobs = load_jobs()
     S = {lab: group_stats(jobs, lab, names) for lab, names, _ in GROUPS}
+    G = grpo_training()
     (OUT / "results.json").write_text(json.dumps({
         "eval": {"split": "EVAL v2", "n_items": N_ITEMS, "kinds": KINDS, "items_per_kind": 10,
                  "budget_px": 120000, "reward": "1 if the first submitted answer is exact, else 0"},
         "agents": S,
         "earlier_sft_v2": group_stats(jobs, *SFT_V2),
+        "grpo_training": G,
         "eval_v1_history": V1,
         # Judge-path check: fresh clone of main, its own new salt, scripts/eval.sh --env modal -n 40 --runs 1.
         # That run still had 40 items (10 toasts items, since removed from EVAL); the scores below are
@@ -293,11 +393,13 @@ def main():
         },
         "source": "results/summary.json (scripts/summarize.py over runs/); no answers included",
     }, indent=1) + "\n")
-    tables(S)
+    tables(S, G)
     chart_overall(S)
     chart_per_kind(S)
     chart_pixels(S, jobs)
     chart_training()
+    chart_ladder(S)
+    chart_grpo_curve(G)
 
 
 if __name__ == "__main__":
