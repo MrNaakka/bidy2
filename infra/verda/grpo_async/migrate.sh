@@ -8,8 +8,9 @@
 #   migrate.sh setup            this host -> new box (IP from $ST/swap/box.json): docker daemon.json (only on a
 #                               box without containers), packages, uv, Harbor 0.25.0, verified weights (HF, pinned
 #                               revision), vLLM 0.33.0 venv, train venv, code, tasks, prebuilt images, run state
-#   migrate.sh start [END]      new box: async GRPO from the latest policy (6 inference + 2 trainer GPUs) until
-#                               END (UTC ISO, default 2026-11-15T02:20Z), then the final adapter's eval
+#   migrate.sh start [END]      new box: async GRPO run2 from the sync it2 adapter (6 inference + 2 trainer GPUs,
+#                               12-16 groups per update, fresh TRAIN items) until END (UTC ISO, default
+#                               2026-11-15T03:30Z), then the final adapter on the 30 scored EVAL items
 #                               (fh-eval-qwen-grpo2-run1..3, finish.sh); `migrate.sh fetch-new` brings it here
 #   migrate.sh status           new box: units, GPUs, latest version
 #
@@ -23,6 +24,7 @@ KEY=$HOME/.ssh/verda_framehunt
 SSH_OLD_OPTS="-F none -i $KEY -o IdentitiesOnly=yes -o BatchMode=yes -o UserKnownHostsFile=$ST/reserve/known_hosts -o LogLevel=ERROR"
 NEW_KH=$ST/swap/known_hosts
 RUN=/root/fhdata/agrpo/run1          # async run root (same path on both boxes)
+RUN2=/root/fhdata/agrpo/run2         # the continued run on the new box (from sync it2)
 SYNC_IT2=/root/fhdata/grpo/it2/train/final
 log() { echo "$(date -u +%H:%M:%S) migrate: $*" >&2; }
 
@@ -166,25 +168,33 @@ PY
 
 # ------------------------------------------------------------------ start (new box)
 start() {
-  local END=${1:-2026-11-15T02:20Z}
-  new "ROOT=$RUN MODEL=/root/fhdata/models/Qwen3.8-27B INIT=$SYNC_IT2 POOL=/root/fh/tasks/agrpo-pool2 \
+  # Continue from the SYNC it2 adapter (the best eval) in a fresh run root, with sync-sized updates
+  # (12-16 groups of 8 per update) and fresh TRAIN items after the pool range run1 used.
+  local END=${1:-2026-11-15T03:30Z}
+  new "set -e; mkdir -p $RUN2/adapters $RUN2/logs; \
+    [ -f $RUN2/sched_state.json ] || cp $RUN/sched_state.json $RUN2/sched_state.json; cat $RUN2/sched_state.json; \
+    [ -d /root/fh/tasks/eval30 ] || { mkdir -p /root/fh/tasks/eval30; cp -r /root/fh/tasks/eval40/logstream-* /root/fh/tasks/eval40/dialogs-* /root/fh/tasks/eval40/scandoc-* /root/fh/tasks/eval30/; }; \
+    ls /root/fh/tasks/eval30 | wc -l"
+  new "ROOT=$RUN2 MODEL=/root/fhdata/models/Qwen3.8-27B INIT=$SYNC_IT2 POOL=/root/fh/tasks/agrpo-pool2 \
     INFER_GPUS='0 1 2 3 4 5' TRAIN_GPUS=6,7 DEADLINE=$END \
-    SCHED_ARGS='--inflight 24 --agent-timeout-min 8 --launch-gap-s 20' \
-    TRAIN_ARGS='--min-groups 4 --max-groups 12 --max-stale 2 --lr 2e-5 --clip 0.2 --max-len 18432' \
+    SCHED_ARGS='--inflight 20 --agent-timeout-min 8 --launch-gap-s 20' \
+    TRAIN_ARGS='--min-groups 12 --max-groups 16 --max-stale 2 --lr 2e-5 --clip 0.2 --max-len 18432' \
     /root/fh/grpo-code/infra/verda/grpo_async/start.sh"
-  # at END: stop (trainer finishes its update), free GPUs 4-5 too, then both evals on 6 GPUs
+  # at END: stop (the trainer finishes its update), free GPUs 4-5, evaluate the final adapter on the 30
+  # scored EVAL items (3 runs, one GPU each, plain socat relays)
   new "systemctl reset-failed fh-agrpo-finish fh-agrpo-free45 2>/dev/null; \
-    systemd-run --unit=fh-agrpo-free45 bash -c 'until [ -f $RUN/STOP ]; do sleep 2; done; systemctl stop fh-agrpo-relay-4 fh-agrpo-relay-5 fh-agrpo-vllm-4 fh-agrpo-vllm-5'; \
-    systemd-run --unit=fh-agrpo-finish --setenv=ROOT=$RUN --setenv=END=$END --setenv=SYNC_ADAPTER=none \
-      --setenv=TAG=grpo2 --setenv=INFER_GPUS='0 1 2 3' bash -c '/root/fh/grpo-code/infra/verda/grpo_async/finish.sh >> /root/fhdata/agrpo/finish.log 2>&1'"
-  log "async running until $END; evals after"
+    systemd-run --unit=fh-agrpo-free45 bash -c 'until [ -f $RUN2/STOP ]; do sleep 2; done; systemctl stop fh-agrpo-relay-4 fh-agrpo-relay-5 fh-agrpo-vllm-4 fh-agrpo-vllm-5'; \
+    systemd-run --unit=fh-agrpo-finish --setenv=ROOT=$RUN2 --setenv=END=$END --setenv=SYNC_ADAPTER=none \
+      --setenv=TAG=grpo2 --setenv=EVAL_TASKS=tasks/eval30 --setenv=INFER_GPUS='0 1 2 3' \
+      bash -c '/root/fh/grpo-code/infra/verda/grpo_async/finish.sh >> /root/fhdata/agrpo/finish2.log 2>&1'"
+  log "async run2 (from sync it2) running until $END; eval of the final adapter after"
 }
 
 fetch_new() {   # the continued run's results from the new box
   local ip; ip=$(new_ip)
   rsync -a -e "ssh $(SSH_NEW_OPTS)" root@$ip:/root/fh/runs/ $ST/box-runs/
   rsync -a -e "ssh $(SSH_NEW_OPTS)" --exclude 'requests-g*' --exclude 'runs/' --exclude 'jobs/' --exclude 'convert/' \
-    root@$ip:$RUN/ $ST/box-adapters/agrpo-run1-cont/
+    root@$ip:$RUN2/ $ST/box-adapters/agrpo-run2/
 }
 
 status() {

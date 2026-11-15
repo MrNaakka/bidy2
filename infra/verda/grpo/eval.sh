@@ -7,7 +7,8 @@ set -uo pipefail
 export HOME=/root PATH=/root/.local/bin:/usr/bin:/bin; cd /root/fh
 A=$1; TAG=$2; GPUS=${3:-"0 1 2"}
 [ -f $A/adapter_model.safetensors ] || { echo "no adapter in $A"; exit 1; }
-[ -d tasks/eval40 ] || { echo "no tasks/eval40"; exit 1; }
+TASKS=${EVAL_TASKS:-tasks/eval40}   # EVAL_TASKS=tasks/eval30: the scored kinds only (no toasts)
+[ -d $TASKS ] || { echo "no $TASKS"; exit 1; }
 for g in $GPUS; do
   [ -f cfg-ft-g$g.json ] || python3 -c "
 import json; c = json.load(open('cfg-ft-g0.json')); c['agents'][0]['base_url'] = 'http://172.17.0.1:$((18000+g))/v1'
@@ -21,5 +22,5 @@ for g in $GPUS; do c=$(docker run --rm --network fhgrpoev-$TAG curlimages/curl:8
 docker network rm fhgrpoev-$TAG >/dev/null 2>&1
 i=0
 for g in $GPUS; do i=$((i+1))
-  ( t0=$SECONDS; harbor run -p tasks/eval40 --job-name fh-eval-qwen-$TAG-run$i -o runs -n 15 -r 2 --retry-include AgentSetupTimeoutError -y -c cfg-ft-g$g.json --env-file key.env > logs/fh-eval-qwen-$TAG-run$i.log 2>&1; echo "fh-eval-qwen-$TAG-run$i $((SECONDS-t0))s" >> logs/times.txt ) &
+  ( t0=$SECONDS; harbor run -p $TASKS --job-name fh-eval-qwen-$TAG-run$i -o runs -n 15 -r 2 --retry-include AgentSetupTimeoutError -y -c cfg-ft-g$g.json --env-file key.env > logs/fh-eval-qwen-$TAG-run$i.log 2>&1; echo "fh-eval-qwen-$TAG-run$i $((SECONDS-t0))s" >> logs/times.txt ) &
   sleep 10; done; wait
