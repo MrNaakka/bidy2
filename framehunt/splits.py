@@ -9,7 +9,8 @@ toasts stays in DEV and TRAIN.
 EVAL_V1 is the first evaluation set (10 each of logstream, dialogs and dashboard); the v1
 results in the README were measured on it. EVAL shares its logstream and dialogs ids with
 EVAL_V1 (same derived seeds; dialogs' answer_format now states the exact alphabet).
-leaderboard is in DEV and TRAIN only. DEV: 120 items (20 per kind). item_id
+leaderboard is in DEV and TRAIN only. DEV: 130 items: 20 per kind, and 10 of mathanim (DEV only;
+its videos are rendered with manim at build time). item_id
 is "<kind>-<public_seed:04d>". Public seeds are disjoint between splits (EVAL uses 7xxx,
 DEV uses 3xxx). Do not edit existing entries: results are reported against these ids.
 
@@ -220,6 +221,16 @@ DEV: tuple[tuple[str, str, int], ...] = (
     ("scandoc-3618", "scandoc", 3618),
     ("scandoc-3619", "scandoc", 3619),
     ("scandoc-3620", "scandoc", 3620),
+    ("mathanim-3701", "mathanim", 3701),
+    ("mathanim-3702", "mathanim", 3702),
+    ("mathanim-3703", "mathanim", 3703),
+    ("mathanim-3704", "mathanim", 3704),
+    ("mathanim-3705", "mathanim", 3705),
+    ("mathanim-3706", "mathanim", 3706),
+    ("mathanim-3707", "mathanim", 3707),
+    ("mathanim-3708", "mathanim", 3708),
+    ("mathanim-3709", "mathanim", 3709),
+    ("mathanim-3710", "mathanim", 3710),
 )
 
 SPLITS: dict[str, tuple[tuple[str, str, int], ...]] = {"eval": EVAL, "dev": DEV}

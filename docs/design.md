@@ -24,7 +24,8 @@ EVAL v2 has 30 items, 10 per kind:
 | `scandoc` | scanned PDF | added later |
 
 Three more video kinds are not in EVAL v2. `dashboard` is in EVAL_V1, DEV and TRAIN.
-`toasts` and `leaderboard` are in DEV and TRAIN as experiments.
+`toasts` and `leaderboard` are in DEV and TRAIN as experiments. `mathanim`, a ManimCE
+math animation, is in DEV only (see [below](#math-animation-mathanim-dev-only)).
 
 The video kinds were built in two rounds: `logstream`, `dialogs` and `dashboard` first,
 then `toasts` and `leaderboard`.
@@ -143,6 +144,111 @@ Error toasts. It was meant to carry logstream's trap (look-alike Error toasts ju
 before and after the event), but it turned out easy: in DEV pilots Opus 5.5 scored 5/6,
 6/6 and, after a rework with more red look-alikes, 5/6, because it usually re-read the
 badge on the same frame it read the toast from. It is not part of EVAL.
+
+## Math animation (`mathanim`, DEV only)
+
+The setting is a 3Blue1Brown-style math video, rendered with ManimCE, where the viewer
+needs one equation exactly as it was on screen at a given moment.
+
+### The video
+
+`framehunt/scenes/mathanim.py` plans everything from the seed; nothing is rendered at
+run time.
+
+- An equation `f(x) = N(x) / (x^q ± d)` in LaTeX (MathTex, font size 16: digits ~11 px,
+  exponents ~8 px tall). The numerator has 2 or 3 terms: `a x^p`, optionally `± b x^r`,
+  and `± c`. Coefficients are 2–19, exponents 2–7.
+- Every 2–4 s one constant changes: a coefficient, a sign or an exponent, animated by a
+  1 s `TransformMatchingTex` (10 frames), then held for 1–3 s. 1800–4800 frames at
+  10 fps, 1920×1080, so 60–160 steps.
+- A `step N` counter (top right, bold, ~60 px digits) counts the changes.
+- Once, a yellow box (stroke plus a faint yellow fill) appears around the equation and
+  stays to the end. It appears on a settled frame of step k, 3–10 frames after that
+  step's transform ends and 6–12 frames before the next transform starts; step k
+  settles in 10–90 % of the video.
+
+### Question
+
+"... At some point a yellow box appears around the equation and stays until the end.
+What is the right-hand side of the equation on the first frame where the yellow box is
+visible?"
+
+Answer format: the right-hand side as a sympy expression in x, e.g.
+`(7*x**5 - 9*x**2 + 2)/(x**4 - 19)`. Any equivalent form is accepted.
+
+### Hard rules, adapted
+
+1. *Random answers*: 2–3 numerator terms and the denominator from the ranges above.
+2. *Trace*: the box is lasting and visible at 1/8 (a 52×16 px yellow outline); the step
+   counter is readable at 1/8.
+3. *Answers are checked for equivalence*, not by string (below).
+4. *Answer needs resolution*: at 1/4 the exponents are unreadable and the coefficients
+   are ambiguous. A native crop of the fraction (about 260×64 px) reads exactly.
+5. *No hidden information*: the question names the box and the counter.
+
+### Where the difficulty comes from
+
+- **One step off.** The box stays, so "a frame with the box" isn't enough. 6–12 frames
+  after the first boxed frame the next transform starts, and the following step differs
+  from the answer in one coefficient, sign or exponent. The step before differs in one
+  constant too. Both are well-formed answers that a checker must reject.
+- **Settled frames only.** Mid-transform frames overlap the old and new token, and
+  `TransformMatchingTex` moves matching tokens across the fraction (an `x^4` can fly from
+  the numerator to the denominator). The first boxed frame is always settled.
+- **Reading exponents.** They are ~8 px tall at native and unreadable below 1/2.
+
+Why the steps are not a derivation: the lines of a real derivation are equal, so an
+equivalence check would accept the neighbouring lines. Changing one constant per step
+keeps the look-alike neighbours and makes them different functions.
+
+### Answer check (`framehunt/mathcheck.py`)
+
+1. The answer may only contain digits, `x`, `+ - * / ( ) . ,`, spaces (so also `**`).
+   Anything else scores 0 without being parsed.
+2. `parse_expr` with explicit dicts (only `x` and sympy's number classes); decimals
+   become exact rationals.
+3. Answer and truth are evaluated at 10 random rational points (SystemRandom) and must
+   agree exactly at all of them (within 1e-30 at 50 digits if a value is irrational).
+   `simplify(a - b) == 0` is not used: it is incomplete, and agent input can make it
+   run for ever.
+4. Parsing and evaluation run in a child process with a 10 s timeout and a 2 GB memory
+   cap, so `9**9**9**9` scores 0 instead of hanging the server.
+
+The sidecar computes `correct` with this check at submit time (`Scene.check_answer`);
+the verifier is unchanged.
+
+### Rendering
+
+`mathanim_render.py` drives manim's Camera frame by frame (manim's own scene loop doesn't
+give exact frame counts at 10 fps): a settled frame is captured once and repeated, a
+transform frame is `TransformMatchingTex` at alpha j/10. Frames go into a lossless H.264
+(libx264rgb, keyframe every 20 frames; 5–13 MB per video). Videos are cached in
+`cache/mathanim/` under a hash of the plan and the render script; rendering takes 1.5–4
+minutes per item and needs the `render` dependency group (manim) and LaTeX.
+`build_tasks.py` copies the item's video into the sidecar (`FH_MEDIA_DIR`), whose image
+adds `av` and `sympy`; it seeks to the keyframe and decodes forward (~50 ms per frame).
+
+### Reference
+
+`reference.MathAnim` uses only the MCP tools:
+
+1. Binary search for the first frame with the box, on a 420×16 strip over the box's top
+   edge at 1/8 (104 px per probe).
+2. One native crop of the fraction (260×64) on that frame.
+3. Reading: ink components (8-connected), classified by template matching against glyphs
+   cut from renders of the same pipeline (`assets/mathanim_glyphs.npz`, made by
+   `scripts/make_mathanim_glyphs.py`), split at the fraction bar, rebuilt left to right.
+
+It solves the 10 DEV items with 17.8–17.9k px, about 15 % of the budget (the other kinds
+need 40–58k). The 120k budget leaves a careful agent plenty of room here; the decisions
+being tested are the frame (first boxed, settled) and the exact reading.
+
+### Status
+
+DEV items `mathanim-3701..3710`, no agent pilot yet. Build them with
+
+    uv run --group render python scripts/build_tasks.py --split dev --out tasks/dev-mathanim \
+      --only mathanim-3701 mathanim-3702 ... mathanim-3710
 
 ## Scanned documents (`scandoc`)
 
@@ -348,8 +454,9 @@ class Scene(ABC):
         # key frames of events etc. For tests/analysis only; the server never exposes it.
 
 # framehunt/scenes/__init__.py
-KINDS: tuple[str, ...] = ("logstream", "dialogs", "dashboard", "toasts", "leaderboard", "scandoc")
+KINDS: tuple[str, ...] = ("logstream", "dialogs", "dashboard", "toasts", "leaderboard", "scandoc", "mathanim")
 DOCUMENT_KINDS = ("scandoc",)   # a scanned PDF: frame index = page index, fps 1
+PRERENDERED_KINDS = ("mathanim",)  # video rendered with manim at build time, decoded from a file
 def make_scene(kind: str, seed: int) -> Scene: ...
 
 # framehunt/answers.py

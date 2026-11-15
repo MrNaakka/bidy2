@@ -55,7 +55,7 @@ def test_normalize_answer():
 
 
 def test_kinds_and_unknown():
-    assert KINDS == ("logstream", "dialogs", "dashboard", "toasts", "leaderboard", "scandoc")
+    assert KINDS == ("logstream", "dialogs", "dashboard", "toasts", "leaderboard", "scandoc", "mathanim")
     assert DOCUMENT_KINDS == ("scandoc",) and VIDEO_KINDS == KINDS[:5]
     with pytest.raises(ValueError):
         make_scene("nope", 1)

@@ -3,6 +3,10 @@
     uv run python scripts/build_tasks.py --split eval [--out tasks/eval] [--budget 120000] [--only ID ...]
     uv run python scripts/build_tasks.py --split eval --v1     # the first EVAL set, into tasks/eval-v1
     uv run python scripts/build_tasks.py --split train --per-kind 40 [--offset 300] [--kinds K ...] [--out DIR]
+    uv run --group render python scripts/build_tasks.py --split dev --only mathanim-3701 ... --out tasks/dev-mathanim
+
+mathanim items need their video, rendered with manim + LaTeX on first use (the `render`
+dependency group) and cached in cache/mathanim/; the sidecar gets only that one file.
 
 `--split train` builds TRAIN items (framehunt.splits.train_items; scene seeds from the TRAIN split's own
 salt, secrets/train.salt) for on-policy rollouts (expert iteration, train/README.md): items
@@ -63,6 +67,9 @@ from framehunt.splits import EVAL_V1, SPLITS, TRAIN_KINDS, TRAIN_MAX_PER_KIND, d
 # Pinned to uv.lock (Python 3.12 resolution).
 SIDECAR_PIP = ["mcp==1.30.0", "pillow==13.0.0", "numpy==2.5.4", "stretchable==1.1.8", "attrs==25.4.0"]
 MAIN_PIP = ["pillow==13.0.0", "numpy==2.5.4", "mcp==1.30.0"]  # for the reference solution
+# mathanim sidecars decode a pre-rendered video and check expression answers with sympy.
+MATHANIM_PIP = ["av==19.0.2", "sympy==1.14.0", "mpmath==1.3.0"]
+MATHANIM_MEDIA = "COPY media /srv/media\nENV FH_MEDIA_DIR=/srv/media\n"
 MCP_HOST = "fh-mcp"
 AGENT_TIMEOUT_SEC = 1800.0
 VERIFIER_TIMEOUT_SEC = 120.0
@@ -263,7 +270,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 RUN pip install --no-cache-dir {pins}
 WORKDIR /srv
 COPY framehunt /srv/framehunt
-EXPOSE 8000
+{media}EXPOSE 8000
 CMD ["python", "-m", "framehunt.server"]
 """
 
@@ -324,13 +331,16 @@ exec python3 -m framehunt.reference --url "http://{host}:8000/mcp" --trace /logs
 
 
 def write_solution(d: Path, fmt: dict) -> Path:
-    """solution/: solve.sh plus a minimal framehunt package (reference.py + fonts only)."""
+    """solution/: solve.sh plus a minimal framehunt package (reference.py, fonts, and for
+    mathanim the glyph templates)."""
     sol = d / "solution"
     pkg = sol / "framehunt"
     pkg.mkdir(parents=True)
     (pkg / "__init__.py").write_text("")
     shutil.copy(ROOT / "framehunt" / "reference.py", pkg / "reference.py")
     shutil.copytree(ROOT / "framehunt" / "assets" / "fonts", pkg / "assets" / "fonts")
+    if fmt["kind"] == "mathanim":
+        shutil.copy(ROOT / "framehunt" / "assets" / "mathanim_glyphs.npz", pkg / "assets")
     solve_sh = sol / "solve.sh"
     solve_sh.write_text(SOLVE_SH.format(pins=" ".join(MAIN_PIP), **fmt))
     return solve_sh
@@ -368,8 +378,14 @@ def build_item(out: Path, split: str, item_id: str, kind: str, seed: int, budget
         min_out=MIN_OUT_WIDTH, min_n=MIN_SHEET_N, max_n=MAX_SHEET_N, sep=SHEET_SEPARATOR_PX))
     (d / "environment" / "Dockerfile").write_text(MAIN_DOCKERFILE.format(pins=" ".join(MAIN_PIP)))
     (d / "environment" / "docker-compose.yaml").write_text(COMPOSE.format(**fmt))
-    (d / "environment" / "mcp" / "Dockerfile").write_text(SIDECAR_DOCKERFILE.format(pins=" ".join(SIDECAR_PIP)))
+    mathanim = kind == "mathanim"
+    (d / "environment" / "mcp" / "Dockerfile").write_text(SIDECAR_DOCKERFILE.format(
+        pins=" ".join(SIDECAR_PIP + MATHANIM_PIP * mathanim), media=MATHANIM_MEDIA * mathanim))
     shutil.copytree(ROOT / "framehunt", d / "environment" / "mcp" / "framehunt", ignore=_ignore)
+    if mathanim:   # rendered with manim on first use (uv run --group render), then cached
+        video = scene.ensure_video()
+        (d / "environment" / "mcp" / "media").mkdir()
+        shutil.copy(video, d / "environment" / "mcp" / "media" / video.name)
     (d / "tests" / "Dockerfile").write_text(TESTS_DOCKERFILE)
     shutil.copy(ROOT / "framehunt" / "verify.py", d / "tests" / "verify.py")
     test_sh = d / "tests" / "test.sh"

@@ -103,6 +103,8 @@ class FrameHuntEnv:
         self._normalize = normalize
         self._clock = clock
         self._expected = normalize(scene.answer)
+        # Scenes whose answers have many correct spellings (mathanim) check them themselves.
+        self._check = getattr(scene, "check_answer", None)
 
         self._lock = threading.Lock()  # budget, submission, log
         self._render_lock = threading.Lock()  # scene.render + cache
@@ -354,7 +356,7 @@ class FrameHuntEnv:
         if not answer.strip():
             raise self._refuse("submit", args, "answer is empty; not recorded")
         try:
-            correct = self._normalize(answer) == self._expected
+            correct = self._check(answer) if self._check else self._normalize(answer) == self._expected
         except Exception:
             correct = False
         with self._lock:

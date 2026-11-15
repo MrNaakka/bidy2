@@ -3,10 +3,13 @@ from __future__ import annotations
 
 from .base import Scene, SceneMeta
 
-KINDS: tuple[str, ...] = ("logstream", "dialogs", "dashboard", "toasts", "leaderboard", "scandoc")
+KINDS: tuple[str, ...] = ("logstream", "dialogs", "dashboard", "toasts", "leaderboard", "scandoc", "mathanim")
 # Kinds whose "video" is a scanned PDF (frame index = page index, fps 1).
 DOCUMENT_KINDS: tuple[str, ...] = ("scandoc",)
-VIDEO_KINDS: tuple[str, ...] = tuple(k for k in KINDS if k not in DOCUMENT_KINDS)
+# Kinds whose video is rendered with manim at build time and decoded from a file.
+PRERENDERED_KINDS: tuple[str, ...] = ("mathanim",)
+# Video kinds drawn frame by frame in Python.
+VIDEO_KINDS: tuple[str, ...] = tuple(k for k in KINDS if k not in DOCUMENT_KINDS + PRERENDERED_KINDS)
 
 
 def make_scene(kind: str, seed: int) -> Scene:
@@ -28,7 +31,10 @@ def make_scene(kind: str, seed: int) -> Scene:
     if kind == "scandoc":
         from .scandoc import ScanDocScene
         return ScanDocScene(seed)
+    if kind == "mathanim":
+        from .mathanim import MathAnimScene
+        return MathAnimScene(seed)
     raise ValueError(f"unknown scene kind {kind!r}; expected one of {KINDS}")
 
 
-__all__ = ["DOCUMENT_KINDS", "KINDS", "VIDEO_KINDS", "Scene", "SceneMeta", "make_scene"]
+__all__ = ["DOCUMENT_KINDS", "KINDS", "PRERENDERED_KINDS", "VIDEO_KINDS", "Scene", "SceneMeta", "make_scene"]

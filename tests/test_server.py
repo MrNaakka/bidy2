@@ -461,7 +461,7 @@ def test_mcp_end_to_end(live_server):
 # --------------------------------------------------------- real scenes, if present
 def test_real_scene_smoke():
     scenes = pytest.importorskip("framehunt.scenes")
-    for kind in scenes.KINDS:
+    for kind in scenes.VIDEO_KINDS + scenes.DOCUMENT_KINDS:   # not mathanim: it would render its video
         try:
             scene = scenes.make_scene(kind, 7001)
         except ImportError:

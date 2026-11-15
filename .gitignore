@@ -17,3 +17,4 @@ infra/verda/.stage/
 infra/verda/.fh-eval.json
 infra/verda/.fh-eval.tmp
 infra/verda/.fh-eval.lock
+cache/

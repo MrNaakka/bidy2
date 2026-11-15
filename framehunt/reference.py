@@ -238,6 +238,8 @@ def parse_question(q: str) -> dict:
                       r'at 31 December (\d{4})', q):
         return {"kind": "scandoc", "title": m.group(1), "table": m.group(2), "row": m.group(3), "col": m.group(4),
                 "year": int(m.group(5))}
+    if "first frame where the yellow box is visible" in q:
+        return {"kind": "mathanim"}
     raise ValueError(f"unrecognised question: {q!r}")
 
 
@@ -865,6 +867,120 @@ class Doc:
         return best[1], best[2]
 
 
+# ============================================================== math animation
+class MathAnim:
+    """f(x) = <fraction> in LaTeX (Computer Modern), changing one constant per step.
+
+    Reading: split the fraction crop into connected ink components, classify each by
+    template matching against glyphs cut from renders of the same pipeline
+    (assets/mathanim_glyphs.npz, made by scripts/make_mathanim_glyphs.py), then rebuild
+    numerator and denominator left to right. Superscript digits have their own templates.
+    """
+    EDGE = (770, 467, 420, 16)                # strip over the yellow box's top edge
+    RHS = (892, 506, 260, 64)                 # the fraction, right of the "=" sign
+    GLYPHS = FONT_DIR.parent / "mathanim_glyphs.npz"
+    _templates: dict | None = None
+
+    @staticmethod
+    def ink(crop: np.ndarray) -> np.ndarray:
+        """0..1 ink coverage of light text over the (possibly tinted) dark background."""
+        lum = crop.mean(-1)
+        bg = float(np.median(lum))
+        return np.clip((lum - bg) / (255 - bg), 0, 1)
+
+    @staticmethod
+    def components(ink: np.ndarray, thr: float = 0.17) -> list[tuple[int, int, int, int]]:
+        """Bounding boxes (y0, x0, y1, x1) of 8-connected regions with ink > thr (one per glyph)."""
+        on = ink > thr
+        seen = np.zeros_like(on)
+        boxes = []
+        for y, x in zip(*np.nonzero(on)):
+            if seen[y, x]:
+                continue
+            stack, y0, x0, y1, x1 = [(y, x)], y, x, y, x
+            seen[y, x] = True
+            while stack:
+                cy, cx = stack.pop()
+                y0, x0, y1, x1 = min(y0, cy), min(x0, cx), max(y1, cy), max(x1, cx)
+                for ny, nx in ((cy + dy, cx + dx) for dy in (-1, 0, 1) for dx in (-1, 0, 1)):
+                    if 0 <= ny < on.shape[0] and 0 <= nx < on.shape[1] and on[ny, nx] and not seen[ny, nx]:
+                        seen[ny, nx] = True
+                        stack.append((ny, nx))
+            boxes.append((int(y0), int(x0), int(y1) + 1, int(x1) + 1))
+        return boxes
+
+    @classmethod
+    def lines(cls, ink: np.ndarray) -> tuple[list, list]:
+        """Glyph boxes of the numerator and denominator, left to right (split at the fraction bar)."""
+        boxes = cls.components(ink)
+        bar = max(boxes, key=lambda b: b[3] - b[1])
+        num = sorted((b for b in boxes if b[2] <= bar[0]), key=lambda b: b[1])
+        den = sorted((b for b in boxes if b[0] >= bar[2]), key=lambda b: b[1])
+        return num, den
+
+    @classmethod
+    def classify(cls, glyph: np.ndarray) -> tuple[str, float]:
+        if cls._templates is None:
+            z = np.load(cls.GLYPHS)
+            cls._templates = list(zip(z["labels"].tolist(), z["glyphs"]))
+        best = (math.inf, "?")
+        h, w = glyph.shape
+        for lab, t in cls._templates:
+            t = t[:np.nonzero(t.any(1))[0].max() + 1, :np.nonzero(t.any(0))[0].max() + 1]
+            th, tw = t.shape
+            if abs(th - h) > 1 or abs(tw - w) > 1:
+                continue
+            ph, pw = max(h, th) + 1, max(w, tw) + 1
+            for dy in (0, 1):
+                for dx in (0, 1):
+                    a = np.zeros((ph, pw))
+                    b = np.zeros((ph, pw))
+                    a[:h, :w] = glyph
+                    b[dy:dy + th, dx:dx + tw] = t
+                    best = min(best, (float(np.abs(a - b).mean()), lab))
+        return best[1], best[0]
+
+    @staticmethod
+    def to_sympy(labels: list[str]) -> str:
+        s = ""
+        for lab in labels:
+            if lab in "+-":
+                s += f" {lab} " if s else "-" * (lab == "-")
+            elif lab == "x":
+                s += "*x" if s[-1:].isdigit() else "x"
+            elif lab.startswith("^"):
+                s += "**" + lab[1:]
+            else:
+                s += lab
+        return s
+
+    @classmethod
+    def read(cls, crop: np.ndarray) -> tuple[str, float]:
+        ink = cls.ink(crop)
+        parts, worst = [], 0.0
+        for line in cls.lines(ink):
+            labels = []
+            for y0, x0, y1, x1 in line:
+                lab, err = cls.classify(ink[y0:y1, x0:x1])
+                labels.append(lab)
+                worst = max(worst, err)
+            parts.append(cls.to_sympy(labels))
+        return f"({parts[0]})/({parts[1]})", worst
+
+    @classmethod
+    def solve(cls, s: Session, q: dict) -> tuple[str, dict]:
+        ow = cls.EDGE[2] // 8
+
+        def boxed(f: int) -> bool:
+            px = s.view(f, cls.EDGE, ow, "is the yellow box there yet? (its top edge at 1/8)").reshape(-1, 3)
+            return float((px[:, 0] - px[:, 2]).mean()) > 30
+
+        f = first_true(0, s.n_frames - 1, boxed)
+        crop = s.view(f, cls.RHS, cls.RHS[2], "read the fraction at native resolution")
+        answer, err = cls.read(crop)
+        return answer, {"event_frame": f, "ocr_worst_err": round(err, 3)}
+
+
 # ============================================================== main
 def run(url: str, out=sys.stdout) -> dict:
     t0 = time.time()
@@ -879,8 +995,8 @@ def _run(c: MCPClient, out, t0: float) -> dict:
     s = Session(c, out=out)
     info = s.info()
     q = parse_question(info["question"])
-    if q["kind"] == "scandoc":
-        answer, note = Doc.solve(s, q)
+    if q["kind"] in ("scandoc", "mathanim"):
+        answer, note = (Doc if q["kind"] == "scandoc" else MathAnim).solve(s, q)
         note = {"kind": q["kind"], **note}
         return _finish(s, info, q, answer, note, out, t0)
     ov = s.view(s.n_frames - 1, (0, 0, W, H), W // 8, "overview of the last frame at 1/8")

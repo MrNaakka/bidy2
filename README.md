@@ -104,7 +104,7 @@ harness notes: [docs/running.md](docs/running.md).
 
 | Path | What |
 | --- | --- |
-| `framehunt/scenes/` | scene generators: `logstream`, `dialogs`, `scandoc` (EVAL); `dashboard`, `toasts`, `leaderboard` (DEV/TRAIN) |
+| `framehunt/scenes/` | scene generators: `logstream`, `dialogs`, `scandoc` (EVAL); `dashboard`, `toasts`, `leaderboard` (DEV/TRAIN); `mathanim` (DEV, a ManimCE animation rendered at build time) |
 | `framehunt/server.py` | the MCP server: tools, budget, evidence routes |
 | `framehunt/reference.py` | the scripted reference policy |
 | `framehunt/baselines/` | the stop-early baseline agent |
