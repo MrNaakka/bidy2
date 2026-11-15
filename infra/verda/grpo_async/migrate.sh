@@ -148,6 +148,19 @@ EOS
     new 'systemctl is-failed -q fh-prepare' && { new 'tail -20 /root/fh/logs/prepare.log'; exit 1; }
     sleep 30
   done
+  log "Harbor: egress-control kernel probe timeout 30 s -> 600 s (on a loaded box the probe timed out, Harbor then"
+  log "  ran without egress control and every trial of the job failed its no-network verifier with ValueError)"
+  new 'P=$(ls /root/.local/share/uv/tools/harbor/lib/python3*/site-packages/harbor/environments/docker/docker.py); \
+    grep -q "timeout=600,  # fh" $P || { cp $P /root/fh/harbor-docker.py.orig; \
+    python3 - $P <<"PY"
+import re, sys
+p = sys.argv[1]; s = open(p).read()
+i = s.index("def _egress_control_kernel_support")
+j = s.index("timeout=30,", i)
+s = s[:j] + "timeout=600,  # fh: probe timed out on a loaded box" + s[j + len("timeout=30,"):]
+open(p, "w").write(s)
+PY
+    }; grep -n "timeout=600,  # fh" $P'
   log "setup done"
 }
 
